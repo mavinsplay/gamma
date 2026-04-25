@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VPN Mini-App</title>
+    <!-- Telegram Web App API -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Material Symbols -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <!-- Roboto Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        
+        <!-- Header -->
+        <header class="app-header">
+            <h1 id="page-title">Тарифы</h1>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="views">
+            <!-- View: Tariffs -->
+            <div id="view-tariffs" class="view active">
+                <div class="card-list">
+                    <div class="tariff-card highlight bounce" data-price="333">
+                        <div class="badge">Выгодно</div>
+                        <div class="card-header">
+                            <span class="material-symbols-rounded icon">rocket_launch</span>
+                            <h3>Максимальный</h3>
+                        </div>
+                        <p class="description">Доступ ко всему + прокси для Telegram. Безлимитный трафик и максимальная скорость.</p>
+                        <div class="price">333 ₽ <span>/ месяц</span></div>
+                    </div>
+
+                    <div class="tariff-card bounce" data-price="300">
+                        <div class="card-header">
+                            <span class="material-symbols-rounded icon">vpn_lock</span>
+                            <h3>Продвинутый</h3>
+                        </div>
+                        <p class="description">Доступ к обходу белых списков и каскадным VPN. Безлимитный трафик.</p>
+                        <div class="price">300 ₽ <span>/ месяц</span></div>
+                    </div>
+
+                    <div class="tariff-card bounce" data-price="150">
+                        <div class="card-header">
+                            <span class="material-symbols-rounded icon">public</span>
+                            <h3>Базовый</h3>
+                        </div>
+                        <p class="description">Иностранные VPN без обходов белых списков. Безлимитный трафик.</p>
+                        <div class="price">150 ₽ <span>/ месяц</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View: Connection -->
+            <div id="view-connection" class="view">
+                
+                <div class="subscription-info">
+                    <div class="info-item">
+                        <span class="label">Осталось времени</span>
+                        <span class="value">28 дней</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Пользователь</span>
+                        <span class="value" id="connection-username">@username</span>
+                    </div>
+                </div>
+
+                <div class="server-selector bounce">
+                    <div class="server-info">
+                        <span class="material-symbols-rounded">flag</span>
+                        <div class="server-details">
+                            <span class="server-name">Нидерланды, Амстердам</span>
+                            <span class="server-ping">Доступно</span>
+                        </div>
+                    </div>
+                    <span class="material-symbols-rounded">chevron_right</span>
+                </div>
+            </div>
+
+            <!-- View: Settings -->
+            <div id="view-settings" class="view">
+                <div class="settings-card">
+                    <div class="section">
+                        <h2>Мои устройства (HWID)</h2>
+                        <div class="device-list">
+                            <div class="device-item">
+                                <span class="material-symbols-rounded">smartphone</span>
+                                <div class="device-details">
+                                    <span class="device-name">iPhone 13 Pro</span>
+                                    <span class="device-hwid">ID: 8F2A...9C41</span>
+                                </div>
+                                <span class="material-symbols-rounded action-icon">delete</span>
+                            </div>
+                            <div class="device-item">
+                                <span class="material-symbols-rounded">computer</span>
+                                <div class="device-details">
+                                    <span class="device-name">MacBook Air M1</span>
+                                    <span class="device-hwid">ID: 3B9E...7D22</span>
+                                </div>
+                                <span class="material-symbols-rounded action-icon">delete</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-card">
+                    <div class="section">
+                        <h2>Дополнительные пользователи</h2>
+                        <button class="action-btn bounce">
+                            <span class="material-symbols-rounded">person_add</span>
+                            Купить доп. слот (100 ₽)
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View: Profile -->
+            <div id="view-profile" class="view">
+                <div class="profile-header">
+                    <div class="avatar" id="profile-avatar">
+                        <span class="material-symbols-rounded">person</span>
+                    </div>
+                    <div class="user-info">
+                        <h2 id="profile-name">Имя пользователя</h2>
+                        <span class="userid" id="profile-userid">ID: Загрузка...</span>
+                    </div>
+                </div>
+
+                <div class="balance-card">
+                    <span class="label">Ваш баланс</span>
+                    <div class="amount">0.00 ₽</div>
+                    <button class="topup-btn bounce">Пополнить</button>
+                </div>
+
+                <div class="settings-list">
+                    <div class="settings-item bounce">
+                        <span class="material-symbols-rounded">history</span>
+                        <span>История платежей</span>
+                        <span class="material-symbols-rounded arrow">chevron_right</span>
+                    </div>
+                    <div class="settings-item bounce">
+                        <span class="material-symbols-rounded">help</span>
+                        <span>Поддержка</span>
+                        <span class="material-symbols-rounded arrow">chevron_right</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <div class="nav-pill">
+                <div class="nav-indicator"></div>
+                <div class="nav-item active" data-target="view-tariffs" data-title="Тарифы">
+                    <span class="material-symbols-rounded">shopping_cart</span>
+                </div>
+                <div class="nav-item" data-target="view-connection" data-title="Подключение">
+                    <span class="material-symbols-rounded">vpn_key</span>
+                </div>
+                <div class="nav-item" data-target="view-settings" data-title="Настройки">
+                    <span class="material-symbols-rounded">settings</span>
+                </div>
+            </div>
+            
+            <div class="nav-profile">
+                <div class="nav-item" data-target="view-profile" data-title="Профиль">
+                    <span class="material-symbols-rounded">person</span>
+                </div>
+            </div>
+        </nav>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
