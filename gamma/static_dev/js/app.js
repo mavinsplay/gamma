@@ -98,6 +98,44 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Drag-to-scroll for card-list on PC
+    const slider = document.querySelector('.card-list');
+    if (slider) {
+        let isDown = false;
+        let startX;
+        let scrollLeft;
+
+        slider.addEventListener('mousedown', (e) => {
+            isDown = true;
+            slider.style.cursor = 'grabbing';
+            // Disable scroll snapping during drag for smoother experience
+            slider.style.scrollSnapType = 'none';
+            startX = e.pageX - slider.offsetLeft;
+            scrollLeft = slider.scrollLeft;
+        });
+
+        slider.addEventListener('mouseleave', () => {
+            if (!isDown) return;
+            isDown = false;
+            slider.style.cursor = '';
+            slider.style.scrollSnapType = '';
+        });
+
+        slider.addEventListener('mouseup', () => {
+            isDown = false;
+            slider.style.cursor = '';
+            slider.style.scrollSnapType = '';
+        });
+
+        slider.addEventListener('mousemove', (e) => {
+            if (!isDown) return;
+            e.preventDefault();
+            const x = e.pageX - slider.offsetLeft;
+            const walk = (x - startX) * 2;
+            slider.scrollLeft = scrollLeft - walk;
+        });
+    }
+
     function initTelegram() {
         if (!window.Telegram || !window.Telegram.WebApp) return;
         const tg = window.Telegram.WebApp;
