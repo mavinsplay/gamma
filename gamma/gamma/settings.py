@@ -13,13 +13,23 @@ SECRET_KEY = os.getenv(
     "4f7Z7JU2q8dXOiAgR2fW1niOZTLGUexLGo3E4LL0oSi8mg1p",
 )
 
+REMNAWAVE_URL = os.getenv("REMNAWAVE_URL", "https://my-test-vpn.panel.ru")
+REMNAWAVE_TOKEN = os.getenv("REMNAWAVE_TOKEN", "YOUR_BEARER_TOKEN")
+REMNAWAVE_SECRET_NAME = os.getenv("REMNAWAVE_SECRET_NAME", "wBYQJWtq")
+REMNAWAVE_SECRET_VALUE = os.getenv("REMNAWAVE_SECRET_VALUE", "KuOsIrYu")
 
 DEBUG = True
 
-ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "gammanet.ru").split(
+ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(
     ",",
 )
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://*.ngrok-free.app",
+    "https://*.loca.lt",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
 
 INSTALLED_APPS = [
     "django.contrib.admin",

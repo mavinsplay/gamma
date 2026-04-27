@@ -11,15 +11,45 @@
             </div>
         </div>
 
-        <div class="server-selector bounce">
+        <h3 style="color: var(--md-sys-color-primary); font-weight: 500; margin-top: 12px; margin-bottom: -4px; font-size: 14px; opacity: 0.8; letter-spacing: 0.5px; text-transform: uppercase;">Локации</h3>
+
+        {% for node in nodes %}
+        <div class="server-selector bounce" style="margin-top: 10px;">
             <div class="server-info">
-                <span class="material-symbols-rounded">flag</span>
+                <div class="server-icon-wrapper">
+                    {% if node.countryCode %}
+                        <img src="https://flagcdn.com/w80/{{ node.countryCode|lower }}.png" 
+                             class="flag-img" 
+                             alt="{{ node.countryCode }}">
+                    {% else %}
+                        <span class="material-symbols-rounded">
+                            {% if node.isConnected %}lan{% else %}lan_off{% endif %}
+                        </span>
+                    {% endif %}
+                </div>
                 <div class="server-details">
-                    <span class="server-name">Нидерланды, Амстердам</span>
-                    <span class="server-ping">Доступно</span>
+                    <span class="server-name">{{ node.display_name }}</span>
+                    <span class="server-ping">
+                        {% if node.isConnected %}
+                            <span style="color: #4CAF50; font-weight: 500;">Доступно</span>
+                        {% else %}
+                            <span style="color: #F44336;">Недоступно</span>
+                        {% endif %}
+                    </span>
                 </div>
             </div>
-            <span class="material-symbols-rounded">chevron_right</span>
+            <span class="material-symbols-rounded" style="opacity: 0.3; font-size: 20px;">chevron_right</span>
         </div>
+        {% empty %}
+        <div class="server-selector" style="margin-top: 16px; opacity: 0.7;">
+            <div class="server-info">
+                <span class="material-symbols-rounded">dns</span>
+                <div class="server-details">
+                    <span class="server-name">Серверы не найдены</span>
+                    <span class="server-ping">Попробуйте позже</span>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
     </div>
 </div>

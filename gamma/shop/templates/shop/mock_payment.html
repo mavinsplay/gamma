@@ -1,0 +1,32 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Тестовая Оплата</title>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+    <div class="app-container" style="padding: 24px; overflow-y: auto; justify-content: center; align-items: center;">
+        <div class="settings-card" style="max-width: 400px; text-align: center;">
+            <span class="material-symbols-rounded" style="font-size: 64px; color: var(--md-sys-color-tertiary); margin-bottom: 16px;">receipt_long</span>
+            <h1 style="font-size: 24px; margin-bottom: 16px;">Тестовая оплата</h1>
+            <p style="margin-bottom: 24px; color: var(--md-sys-color-on-surface-variant);">
+                Это симуляция платежного шлюза.<br>
+                К оплате: <strong>{{ order.tariff.price|floatformat:0 }} ₽</strong>
+            </p>
+            
+            <form method="POST">
+                {% csrf_token %}
+                <button type="submit" class="action-btn bounce" style="background-color: #81C784; color: #1A1A1E;">
+                    <span class="material-symbols-rounded">check_circle</span>
+                    Имитировать успешную оплату
+                </button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

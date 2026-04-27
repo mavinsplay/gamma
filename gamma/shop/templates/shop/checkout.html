@@ -1,0 +1,41 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Оплата тарифа</title>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+    <div class="app-container" style="padding: 24px; overflow-y: auto;">
+        <div style="max-width: 600px; margin: 0 auto; width: 100%;">
+            <a href="{% url 'home' %}" style="color: var(--md-sys-color-on-background); text-decoration: none; display: flex; align-items: center; gap: 8px; margin-bottom: 24px;" class="bounce">
+                <span class="material-symbols-rounded">arrow_back</span>
+                <span>Назад</span>
+            </a>
+
+            <h1 style="font-size: 28px; margin-bottom: 24px;">Оформление заказа</h1>
+            
+            <div class="settings-card" style="margin-bottom: 24px;">
+                <h2 style="font-size: 18px; margin-bottom: 12px; color: var(--md-sys-color-primary);">Выбранный тариф</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 20px; font-weight: 500;">{{ tariff.name }}</div>
+                    <div style="font-size: 24px; font-weight: 700;">{{ tariff.price|floatformat:0 }} ₽</div>
+                </div>
+                <p style="color: var(--card-text-variant); margin-top: 8px;">Доступ на {{ tariff.duration_days }} дней</p>
+            </div>
+
+            <form method="POST">
+                {% csrf_token %}
+                <button type="submit" class="action-btn bounce" style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);">
+                    <span class="material-symbols-rounded">credit_card</span>
+                    Перейти к оплате
+                </button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

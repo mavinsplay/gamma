@@ -1,31 +1,21 @@
 <div id="view-tariffs" class="view active">
     <div class="card-list">
-        <div class="tariff-card highlight bounce" data-price="333">
-            <div class="badge">Выгодно</div>
+        {% for tariff in tariffs %}
+        <div class="tariff-card bounce {% if forloop.first %}highlight{% endif %}">
+            {% if forloop.first %}<div class="badge">Выгодно</div>{% endif %}
             <div class="card-header">
                 <span class="material-symbols-rounded icon">rocket_launch</span>
-                <h3>Максимальный</h3>
+                <h3>{{ tariff.name }}</h3>
             </div>
-            <p class="description">Доступ ко всему + прокси для Telegram. Безлимитный трафик и максимальная скорость.</p>
-            <div class="price">333 ₽ <span>/ месяц</span></div>
+            <p class="description">{{ tariff.description }}</p>
+            <div class="price">{{ tariff.price|floatformat:0 }} ₽ <span>/ {{ tariff.duration_days }} дней</span></div>
+            <a href="{% url 'checkout' tariff.id %}" class="action-btn bounce" style="margin-top: 16px; text-decoration: none;">Купить</a>
         </div>
-
-        <div class="tariff-card bounce" data-price="300">
-            <div class="card-header">
-                <span class="material-symbols-rounded icon">vpn_lock</span>
-                <h3>Продвинутый</h3>
-            </div>
-            <p class="description">Доступ к обходу белых списков и каскадным VPN. Безлимитный трафик.</p>
-            <div class="price">300 ₽ <span>/ месяц</span></div>
+        {% empty %}
+        <div style="text-align: center; margin-top: 50px; opacity: 0.7;">
+            <span class="material-symbols-rounded" style="font-size: 48px;">hourglass_empty</span>
+            <p>Тарифы пока не добавлены.</p>
         </div>
-
-        <div class="tariff-card bounce" data-price="150">
-            <div class="card-header">
-                <span class="material-symbols-rounded icon">public</span>
-                <h3>Базовый</h3>
-            </div>
-            <p class="description">Иностранные VPN без обходов белых списков. Безлимитный трафик.</p>
-            <div class="price">150 ₽ <span>/ месяц</span></div>
-        </div>
+        {% endfor %}
     </div>
 </div>
