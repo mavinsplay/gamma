@@ -1,21 +1,93 @@
 <div id="view-tariffs" class="view active">
-    <div class="card-list">
-        {% for tariff in tariffs %}
-        <div class="tariff-card bounce {% if forloop.first %}highlight{% endif %}">
-            {% if forloop.first %}<div class="badge">Выгодно</div>{% endif %}
-            <div class="card-header">
-                <span class="material-symbols-rounded icon">rocket_launch</span>
-                <h3>{{ tariff.name }}</h3>
+    <div class="view-content-wrapper">
+        {% if rw_user %}
+        <div class="active-subscription-card bounce">
+            <div class="sub-header">
+                <div class="sub-icon">
+                    <span class="material-symbols-rounded">verified_user</span>
+                </div>
+                <div class="sub-info">
+                    <span class="sub-label">Текущая подписка</span>
+                    <h3 class="sub-title">{{ profile.tarif.name|default:"Premium VPN" }}</h3>
+                </div>
             </div>
-            <p class="description">{{ tariff.description }}</p>
-            <div class="price">{{ tariff.price|floatformat:0 }} ₽ <span>/ {{ tariff.duration_days }} дней</span></div>
-            <a href="{% url 'checkout' tariff.id %}" class="action-btn bounce" style="margin-top: 16px; text-decoration: none;">Купить</a>
+            <div class="sub-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div class="sub-stat">
+                    <span class="material-symbols-rounded">timer</span>
+                    <span>Осталось дней: {{ rw_user.remaining_days }}</span>
+                </div>
+                <button class="action-btn bounce" style="padding: 6px 12px; font-size: 13px; background: rgba(208, 188, 255, 0.15); color: var(--md-sys-color-primary); white-space: nowrap; flex: 0 0 auto;" onclick="toggleExtendMenu()">
+                    <span class="material-symbols-rounded" style="font-size: 16px; margin-right: 4px;">update</span>Продлить
+                </button>
+            </div>
+            
+            <script>
+                // Pass base price and duration to JS for calculation
+                window.CURRENT_TARIFF_PRICE = parseFloat("{{ profile.tarif.price|default:0 }}".replace(',', '.'));
+                window.CURRENT_TARIFF_DAYS = parseInt("{{ profile.tarif.duration_days|default:30 }}");
+            </script>
         </div>
-        {% empty %}
-        <div style="text-align: center; margin-top: 50px; opacity: 0.7;">
-            <span class="material-symbols-rounded" style="font-size: 48px;">hourglass_empty</span>
-            <p>Тарифы пока не добавлены.</p>
+        {% endif %}
+
+        <div class="section-title">
+            <h2>Доступные тарифы</h2>
         </div>
-        {% endfor %}
+
+        <div class="card-list-vertical">
+            {% for tariff in tariffs %}
+            <div class="tariff-card-v2 bounce {% if forloop.first %}highlight{% endif %}" data-tariff-id="{{ tariff.id }}" data-price="{{ tariff.price|floatformat:0 }}">
+                {% if forloop.first %}
+                <div class="v2-badge">
+                    <span class="material-symbols-rounded" style="font-size:14px;">star</span> Хит продаж
+                </div>
+                {% endif %}
+                <div class="v2-card-bg"></div>
+                <div class="v2-card-content">
+                    <div class="v2-header">
+                        <div class="v2-icon-wrapper">
+                            <span class="material-symbols-rounded">
+                                {% if forloop.first %}rocket_launch{% elif forloop.last %}speed{% else %}bolt{% endif %}
+                            </span>
+                        </div>
+                        <div class="v2-title">
+                            <h3>{{ tariff.name }}</h3>
+                            <span class="v2-desc">{{ tariff.description }}</span>
+                        </div>
+                    </div>
+                    <div class="v2-features">
+                        <div class="v2-feature">
+                            <span class="material-symbols-rounded">calendar_month</span>
+                            <span>{{ tariff.duration_days }} дней</span>
+                        </div>
+                        <div class="v2-feature">
+                            <span class="material-symbols-rounded">devices</span>
+                            <span>{{ tariff.device_limit }} устройств</span>
+                        </div>
+                        {% if 'прокси' in tariff.description|lower or 'proxy' in tariff.description|lower %}
+                        <div class="v2-feature">
+                            <span class="material-symbols-rounded">public</span>
+                            <span>Прокси</span>
+                        </div>
+                        {% endif %}
+                        {% if 'белы' in tariff.description|lower or 'whitelist' in tariff.description|lower %}
+                        <div class="v2-feature">
+                            <span class="material-symbols-rounded">verified_user</span>
+                            <span>Белые списки</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="v2-footer">
+                        <div class="v2-price">{{ tariff.price|floatformat:0 }} ₽</div>
+                        <button class="v2-buy-btn bounce" onclick="handleBuy({{ tariff.id }}, {{ tariff.price|floatformat:0 }})">Купить</button>
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+            <div class="empty-state">
+                <span class="material-symbols-rounded empty-icon">hourglass_empty</span>
+                <p>Тарифы пока не добавлены.</p>
+            </div>
+            {% endfor %}
+        </div>
     </div>
 </div>

@@ -1,5 +1,10 @@
 from django.db import models
 
+__all__ = [
+    "Tariff",
+    "Order",
+]
+
 
 class Tariff(models.Model):
     name = models.CharField(max_length=100)
@@ -11,6 +16,11 @@ class Tariff(models.Model):
     )  # 0 means unlimited
     device_limit = models.IntegerField(default=1)
     is_active = models.BooleanField(default=True)
+    squad_uuid = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+    )
 
     def __str__(self):
         return f"{self.name} - {self.price} RUB"

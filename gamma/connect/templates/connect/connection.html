@@ -2,13 +2,46 @@
     <div class="view-content-wrapper">
         <div class="subscription-info">
             <div class="info-item">
-                <span class="label">Осталось времени</span>
-                <span class="value">28 дней</span>
-            </div>
-            <div class="info-item">
                 <span class="label">Пользователь</span>
                 <span class="value" id="connection-username">@username</span>
             </div>
+            {% if rw_user %}
+            <div class="info-item">
+                <span class="label">Статус</span>
+                <span class="value" style="color: #4CAF50;">Активен</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Осталось времени</span>
+                <span class="value">{{ rw_user.remaining_days }} дней</span>
+            </div>
+            <button id="btn-get-link" class="action-btn bounce" style="margin-top: 16px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="handleConnect()">
+                <span class="material-symbols-rounded">link</span>
+                Получить ссылку для подключения
+            </button>
+            <div id="connection-result" style="display: none; margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
+                <span style="font-size: 14px; color: var(--panel-icon); text-align: center;">Отсканируйте QR-код или скопируйте ссылку для настройки вашего VPN-клиента</span>
+                <img id="qr-code-img" src="" alt="QR Code" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px;">
+                <div style="display: flex; gap: 8px; width: 100%;">
+                    <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: rgba(255,255,255,0.1);" onclick="copySubLink()">
+                        <span class="material-symbols-rounded" style="font-size: 20px;">content_copy</span>
+                        Скопировать
+                    </button>
+                    <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="openSubLink()">
+                        <span class="material-symbols-rounded" style="font-size: 20px;">open_in_new</span>
+                        Подключить
+                    </button>
+                </div>
+            </div>
+            {% else %}
+            <div class="info-item">
+                <span class="label">Статус</span>
+                <span class="value" style="color: #F44336;">Нет подписки</span>
+            </div>
+            <button class="action-btn bounce" style="margin-top: 16px; opacity: 0.5;" disabled>
+                <span class="material-symbols-rounded">link_off</span>
+                Нет активной подписки
+            </button>
+            {% endif %}
         </div>
 
         <h3 style="color: var(--md-sys-color-primary); font-weight: 500; margin-top: 12px; margin-bottom: -4px; font-size: 14px; opacity: 0.8; letter-spacing: 0.5px; text-transform: uppercase;">Локации</h3>

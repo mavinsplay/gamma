@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -19,6 +20,14 @@ REMNAWAVE_SECRET_NAME = os.getenv("REMNAWAVE_SECRET_NAME", "wBYQJWtq")
 REMNAWAVE_SECRET_VALUE = os.getenv("REMNAWAVE_SECRET_VALUE", "KuOsIrYu")
 
 DEBUG = True
+
+MOCK_TELEGRAM_USER_DATA = json.loads(
+    os.getenv(
+        "MOCK_TELEGRAM_USER_DATA",
+        '{"id": 123456789, "first_name": \
+            "Mock", "last_name": "User", "username": "mock_user"}',
+    ),
+)
 
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(
     ",",

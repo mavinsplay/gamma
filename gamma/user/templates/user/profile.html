@@ -12,8 +12,8 @@
 
         <div class="balance-card">
             <span class="label">Ваш баланс</span>
-            <div class="amount">0.00 ₽</div>
-            <button class="topup-btn bounce">Пополнить</button>
+            <div class="amount">{{ profile.balance|default:0|floatformat:2 }} ₽</div>
+            <button class="topup-btn bounce" onclick="handleTopup()">Пополнить</button>
         </div>
 
         <div class="settings-list">

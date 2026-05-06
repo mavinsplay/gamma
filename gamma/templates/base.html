@@ -12,9 +12,42 @@
     <!-- Roboto Font -->
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <script>
+        const CSRF_TOKEN = '{{ csrf_token }}';
+        const IS_DEBUG = {{ debug|yesno:"true,false" }};
+        const MOCK_USER_DATA = {{ mock_user_data|safe|default:"null" }};
+    </script>
 </head>
 <body>
     <div class="app-container">
+        <!-- Modal Overlay -->
+        <div id="modal-overlay" class="modal-overlay">
+            <div id="modal-content" class="modal-box bounce">
+                <div class="modal-icon">
+                    <span class="material-symbols-rounded" id="modal-icon-text">info</span>
+                </div>
+                <h3 id="modal-title">Заголовок</h3>
+                <p id="modal-message">Сообщение модального окна</p>
+                <div id="modal-input-container" style="display: none; margin: 15px 0;">
+                    <input type="number" id="modal-amount-input" class="modal-input" placeholder="Введите сумму..." min="1">
+                </div>
+                <div class="modal-actions">
+                    <button class="modal-btn secondary bounce" id="modal-close">Закрыть</button>
+                    <button class="modal-btn primary bounce" id="modal-action">Пополнить</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Fullscreen Loading Animation -->
+        <div id="loading-overlay" class="fullscreen-loading-overlay">
+            <div class="spinner-wrapper">
+                <div class="spinner"></div>
+                <div class="success-icon-wrapper">
+                    <span class="material-symbols-rounded">check</span>
+                </div>
+            </div>
+            <div class="loading-text" id="loading-text">Обработка...</div>
+        </div>
         
         <!-- Header -->
         <header class="app-header">

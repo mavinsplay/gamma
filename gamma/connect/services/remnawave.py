@@ -78,6 +78,46 @@ class RemnawaveClient:
         response.raise_for_status()
         return response.json().get("response", {})
 
+    async def update_user(
+        self,
+        uuid: str,
+        username: str = None,
+        expire_at: str = None,
+        trafficlimitbytes: int = None,
+        hwiddevicelimit: int = None,
+        telegramid: int = None,
+        status: str = None,
+    ):
+        # Fetch current user to merge data
+        current_user = await self.get_user(uuid)
+        
+        # Extract activeInternalSquads UUIDs if they are dictionaries
+        squads = current_user.get("activeInternalSquads", [])
+        squad_uuids = [
+            s.get("uuid") if isinstance(s, dict) else s
+            for s in squads
+        ]
+
+        payload = {
+            "username": username if username is not None else current_user.get("username", ""),
+            "uuid": uuid,
+            "status": status if status is not None else current_user.get("status", "ACTIVE"),
+            "trafficLimitBytes": trafficlimitbytes if trafficlimitbytes is not None else current_user.get("trafficLimitBytes", 0),
+            "trafficLimitStrategy": "NO_RESET",
+            "expireAt": expire_at if expire_at is not None else current_user.get("expireAt", ""),
+            "description": current_user.get("description"),
+            "tag": current_user.get("tag", ""),
+            "telegramId": telegramid if telegramid is not None else current_user.get("telegramId"),
+            "email": current_user.get("email"),
+            "hwidDeviceLimit": hwiddevicelimit if hwiddevicelimit is not None else current_user.get("hwidDeviceLimit", 0),
+            "activeInternalSquads": squad_uuids,
+            "externalSquadUuid": current_user.get("externalSquadUuid"),
+        }
+
+        response = await self.http_client.patch("users", json=payload)
+        response.raise_for_status()
+        return response.json().get("response", {})
+
     async def get_users(self, size: int = 100, start: int = 0):
         response = await self.http_client.get(
             "users",
@@ -94,19 +134,15 @@ class RemnawaveClient:
         return data.get("response", {})
 
     async def get_user_by_tgid(self, tgid: int):
-        response = await self.http_client.get(f"users?telegramId={tgid}")
+        response = await self.http_client.get(
+            f"users/by-telegram-id/{tgid}",
+        )
         response.raise_for_status()
         data = response.json()
         return data.get("response", {})
 
     async def delete_user(self, uuid: str):
         response = await self.http_client.delete(f"users/{uuid}")
-        response.raise_for_status()
-        data = response.json()
-        return data.get("response", {})
-
-    async def delete_user_by_tgid(self, tgid: int):
-        response = await self.http_client.delete(f"users?telegramId={tgid}")
         response.raise_for_status()
         data = response.json()
         return data.get("response", {})
@@ -120,6 +156,18 @@ class RemnawaveClient:
     async def close(self):
         """Close the underlying HTTP client."""
         await self.http_client.aclose()
+
+    async def get_sub_link(self, uuid: str):
+        response = await self.http_client.get(f"subscriptions/by-uuid/{uuid}")
+        response.raise_for_status()
+        data = response.json()
+        return data.get("response", {})
+
+    async def get_user_hwid_devices(self, uuid: str):
+        response = await self.http_client.get(f"hwid/devices/{uuid}")
+        response.raise_for_status()
+        data = response.json()
+        return data.get("response", {}).get("devices", [])
 
 
 if __name__ == "__main__":
@@ -135,22 +183,8 @@ if __name__ == "__main__":
             secret_value=os.getenv("REMNAWAVE_SECRET_VALUE"),
         )
         try:
-            # data = await client.get_users()
-            # users = data.get("users", [])
-            # total = data.get("total", 0)
-            # print(f"Total users: {total}")  # noqa: T201
-            # for user in users:
-            #     print(  # noqa: T201
-            #         f"User: {user.get('username')} (UUID: {user.get('uuid')})",
-            #     )
-
-            # nodes = await client.get_nodes()
-            # for node in nodes:
-            #     print(  # noqa: T201
-            #         f"Node: {node.get('name')} (UUID: {node.get('uuid')})",
-            #     )
-            squads = await client.get_internal_squads()
-            print(squads)  # noqa: T201
+            user = await client.get_user_hwid_devices("276a990a-2cc2-4756-ba6b-9af734c2c9cd")
+            print(user)
         except Exception as e:
             print(f"Error: {e}")  # noqa: T201
         finally:
