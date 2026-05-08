@@ -21,6 +21,7 @@ class Profile(models.Model):
         "shop.Tariff",
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         default=None,
     )
     created_at = models.DateTimeField(auto_now_add=True)

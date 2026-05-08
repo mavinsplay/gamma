@@ -29,6 +29,9 @@ MOCK_TELEGRAM_USER_DATA = json.loads(
     ),
 )
 
+ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
+ADMIN_URL = os.getenv("ADMIN_URL", "admin/")
+
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(
     ",",
 )

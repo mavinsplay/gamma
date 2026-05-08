@@ -12,7 +12,7 @@
             </div>
             <div class="info-item">
                 <span class="label">Осталось времени</span>
-                <span class="value">{{ rw_user.remaining_days }} дней</span>
+                <span class="value" id="connection-remaining-days">{{ rw_user.remaining_days }} дней</span>
             </div>
             <button id="btn-get-link" class="action-btn bounce" style="margin-top: 16px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="handleConnect()">
                 <span class="material-symbols-rounded">link</span>
@@ -33,10 +33,6 @@
                 </div>
             </div>
             {% else %}
-            <div class="info-item">
-                <span class="label">Статус</span>
-                <span class="value" style="color: #F44336;">Нет подписки</span>
-            </div>
             <button class="action-btn bounce" style="margin-top: 16px; opacity: 0.5;" disabled>
                 <span class="material-symbols-rounded">link_off</span>
                 Нет активной подписки
@@ -44,9 +40,53 @@
             {% endif %}
         </div>
 
-        <h3 style="color: var(--md-sys-color-primary); font-weight: 500; margin-top: 12px; margin-bottom: -4px; font-size: 14px; opacity: 0.8; letter-spacing: 0.5px; text-transform: uppercase;">Локации</h3>
+        {% if proxy %}
+        <div class="proxy-section" style="margin-top: 10px; padding: 18px; background: var(--panel-bg); border-radius: 24px; position: relative; overflow: hidden;">
+            <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 16px; position: relative; z-index: 1;">
+                <div style="width: 44px; height: 44px; border-radius: 14px; background: rgba(208, 188, 255, 0.08); color: var(--md-sys-color-primary); display: flex; align-items: center; justify-content: center;">
+                    <span class="material-symbols-rounded" style="font-size: 24px;">send</span>
+                </div>
+                <div style="flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <h4 style="margin: 0; font-size: 15px; font-weight: 500; color: #FFFFFF;">Прокси для Telegram</h4>
+                    </div>
+                    <span style="font-size: 12px; opacity: 0.5; color: #E6E1E5; display: block; margin-top: 2px;">Обход ограничений мессенджера</span>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 10px; position: relative; z-index: 1;">
+                <button class="action-btn bounce" 
+                        style="flex: 1; height: 48px; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border-radius: 14px; font-weight: 600; font-size: 14px;" 
+                        onclick="handleProxyConnect('{{ proxy.connection_url|escapejs }}', '{{ proxy.name|escapejs }}')">
+                    <span class="material-symbols-rounded" style="font-size: 20px;">bolt</span>
+                    Подключить к Telegram
+                </button>
+                <button class="action-btn bounce" 
+                        style="width: 48px; height: 48px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; display: flex; align-items: center; justify-content: center; padding: 0;" 
+                        onclick="copyProxyLink('{{ proxy.connection_url|escapejs }}')"
+                        title="Скопировать ссылку">
+                    <span class="material-symbols-rounded" style="font-size: 20px; color: #FFFFFF; opacity: 0.7;">content_copy</span>
+                </button>
+            </div>
+        </div>
+        {% endif %}
 
-        {% for node in nodes %}
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 12px; margin-bottom: -4px;">
+            <h3 style="color: var(--md-sys-color-primary); font-weight: 500; font-size: 14px; opacity: 0.8; letter-spacing: 0.5px; text-transform: uppercase; margin: 0;">Локации</h3>
+            <div style="display: flex; gap: 10px; font-size: 11px; opacity: 0.6; color: var(--md-sys-color-on-surface);">
+                <span style="display: flex; align-items: center; gap: 4px;">
+                    <span style="width: 6px; height: 6px; border-radius: 50%; background: #4CAF50;"></span>
+                    <span id="online-count-display">{{ online_count }} онлайн</span>
+                </span>
+                <span style="display: flex; align-items: center; gap: 4px;">
+                    <span style="width: 6px; height: 6px; border-radius: 50%; background: #F44336;"></span>
+                    <span id="offline-count-display">{{ offline_count }} недоступно</span>
+                </span>
+            </div>
+        </div>
+
+        <div id="nodes-list-container">
+            {% for node in nodes %}
         <div class="server-selector bounce" style="margin-top: 10px;">
             <div class="server-info">
                 <div class="server-icon-wrapper">
@@ -84,5 +124,6 @@
             </div>
         </div>
         {% endfor %}
+        </div>
     </div>
 </div>

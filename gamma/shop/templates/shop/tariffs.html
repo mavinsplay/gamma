@@ -1,20 +1,21 @@
 <div id="view-tariffs" class="view active">
     <div class="view-content-wrapper">
+        <div id="current-subscription-container">
         {% if rw_user %}
-        <div class="active-subscription-card bounce">
+        <div class=" bounce">
             <div class="sub-header">
                 <div class="sub-icon">
                     <span class="material-symbols-rounded">verified_user</span>
                 </div>
                 <div class="sub-info">
                     <span class="sub-label">Текущая подписка</span>
-                    <h3 class="sub-title">{{ profile.tarif.name|default:"Premium VPN" }}</h3>
+                    <h3 class="sub-title" id="sub-title-display">{{ profile.tarif.name|default:"Premium VPN" }}</h3>
                 </div>
             </div>
             <div class="sub-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                 <div class="sub-stat">
                     <span class="material-symbols-rounded">timer</span>
-                    <span>Осталось дней: {{ rw_user.remaining_days }}</span>
+                    <span id="sub-remaining-days-display">Осталось дней: {{ rw_user.remaining_days }}</span>
                 </div>
                 <button class="action-btn bounce" style="padding: 6px 12px; font-size: 13px; background: rgba(208, 188, 255, 0.15); color: var(--md-sys-color-primary); white-space: nowrap; flex: 0 0 auto;" onclick="toggleExtendMenu()">
                     <span class="material-symbols-rounded" style="font-size: 16px; margin-right: 4px;">update</span>Продлить
@@ -25,9 +26,14 @@
                 // Pass base price and duration to JS for calculation
                 window.CURRENT_TARIFF_PRICE = parseFloat("{{ profile.tarif.price|default:0 }}".replace(',', '.'));
                 window.CURRENT_TARIFF_DAYS = parseInt("{{ profile.tarif.duration_days|default:30 }}");
+                window.HAS_ACTIVE_SUB = true;
+                window.REMAINING_DAYS = {{ rw_user.remaining_days|default:0 }};
+                window.CURRENT_TARIFF_NAME = "{{ profile.tarif.name|default:'' }}";
+                window.CURRENT_TARIFF_ID = {{ profile.tarif.id|default:0 }};
             </script>
         </div>
         {% endif %}
+        </div>
 
         <div class="section-title">
             <h2>Доступные тарифы</h2>
@@ -38,7 +44,7 @@
             <div class="tariff-card-v2 bounce {% if forloop.first %}highlight{% endif %}" data-tariff-id="{{ tariff.id }}" data-price="{{ tariff.price|floatformat:0 }}">
                 {% if forloop.first %}
                 <div class="v2-badge">
-                    <span class="material-symbols-rounded" style="font-size:14px;">star</span> Хит продаж
+                    <span class="material-symbols-rounded" style="font-size:14px;">star</span> Лучший выбор
                 </div>
                 {% endif %}
                 <div class="v2-card-bg"></div>
@@ -63,22 +69,26 @@
                             <span class="material-symbols-rounded">devices</span>
                             <span>{{ tariff.device_limit }} устройств</span>
                         </div>
-                        {% if 'прокси' in tariff.description|lower or 'proxy' in tariff.description|lower %}
+                        {% if tariff.has_proxy_bypass %}
                         <div class="v2-feature">
-                            <span class="material-symbols-rounded">public</span>
-                            <span>Прокси</span>
+                            <span class="material-symbols-rounded">shield_with_heart</span>
+                            <span>Прокси с обходом</span>
                         </div>
                         {% endif %}
                         {% if 'белы' in tariff.description|lower or 'whitelist' in tariff.description|lower %}
                         <div class="v2-feature">
                             <span class="material-symbols-rounded">verified_user</span>
-                            <span>Белые списки</span>
+                            <span>Обход белых спсиков</span>
                         </div>
                         {% endif %}
                     </div>
                     <div class="v2-footer">
-                        <div class="v2-price">{{ tariff.price|floatformat:0 }} ₽</div>
-                        <button class="v2-buy-btn bounce" onclick="handleBuy({{ tariff.id }}, {{ tariff.price|floatformat:0 }})">Купить</button>
+                        <div class="v2-price">{{ tariff.price|floatformat:0 }} ₽ <span style="font-size: 12px; color: var(--md-sys-color-on-surface-variant);">/ {{ tariff.duration_days }} дней</span></div>
+                        {% if profile.tarif.id == tariff.id %}
+                        <button class="v2-buy-btn owned" disabled>Уже активен</button>
+                        {% else %}
+                        <button class="v2-buy-btn bounce" onclick="handleBuy({{ tariff.id }}, {{ tariff.price|floatformat:0 }}, '{{ tariff.name|escapejs }}', {{ tariff.duration_days }})">Купить</button>
+                        {% endif %}
                     </div>
                 </div>
             </div>

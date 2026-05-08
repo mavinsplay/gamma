@@ -1,0 +1,43 @@
+<div id="view-history" class="view">
+    <div class="view-content-wrapper">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+            <button class="bounce" onclick="activateTabById('view-profile', 'Профиль')" style="background: rgba(255,255,255,0.05); border: none; border-radius: 12px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: #FFFFFF;">
+                <span class="material-symbols-rounded">arrow_back</span>
+            </button>
+            <h3 style="font-size: 18px; font-weight: 500;">История платежей</h3>
+        </div>
+
+        <div class="history-list" id="history-list-container" style="display: flex; flex-direction: column; gap: 12px;">
+            {% for payment in payments %}
+            <div class="history-item" style="background: var(--panel-bg); border-radius: 20px; padding: 16px; display: flex; align-items: center; gap: 16px;">
+                <div style="width: 44px; height: 44px; border-radius: 14px; background: {% if payment.order_type == 'TOPUP' %}rgba(76, 175, 80, 0.1){% else %}rgba(255, 255, 255, 0.05){% endif %}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <span class="material-symbols-rounded" style="color: {% if payment.order_type == 'TOPUP' %}#4CAF50{% else %}#FFFFFF{% endif %}; font-size: 24px; opacity: 0.8;">
+                        {% if payment.order_type == 'TOPUP' %}account_balance_wallet{% else %}shopping_bag{% endif %}
+                    </span>
+                </div>
+                <div style="flex: 1;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
+                        <span style="font-weight: 500; font-size: 15px;">
+                            {% if payment.order_type == 'TOPUP' %}Пополнение баланса{% else %}{{ payment.tariff.name|default:"Покупка тарифа" }}{% endif %}
+                        </span>
+                        <span style="font-weight: 600; font-size: 15px; color: {% if payment.order_type == 'TOPUP' %}#4CAF50{% else %}#FFFFFF{% endif %};">
+                            {% if payment.order_type == 'TOPUP' %}+{% else %}-{% endif %}{{ payment.amount|floatformat:0 }} ₽
+                        </span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; opacity: 0.5;">
+                        <span>{{ payment.created_at|date:"d.m.Y H:i" }}</span>
+                        <span style="color: {% if payment.status == 'PAID' %}#4CAF50{% else %}#EF5350{% endif %}; opacity: 0.8;">
+                            {% if payment.status == 'PAID' %}Успешно{% else %}Ошибка{% endif %}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; opacity: 0.4; text-align: center;">
+                <span class="material-symbols-rounded" style="font-size: 48px;">receipt_long</span>
+                <span>История платежей пока пуста</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>

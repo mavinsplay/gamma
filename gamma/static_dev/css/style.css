@@ -94,30 +94,68 @@ body {
     flex-grow: 1;
     position: relative;
     overflow: hidden;
-}
-
-.view {
-    position: absolute;
-    top: 0;
-    left: 0;
     width: 100%;
-    height: 100%;
-    padding: 0 20px calc(var(--nav-height) + 40px);
-    opacity: 0;
-    transform: translateX(20px);
-    pointer-events: none;
-    transition: opacity 0.3s ease, transform 0.4s var(--slide-timing);
-    visibility: hidden;
-    overflow-y: auto;
-    overflow-x: hidden;
 }
 
-.view.active {
-    opacity: 1;
-    transform: translateX(0);
-    pointer-events: all;
-    position: relative;
-    visibility: visible;
+/* Mobile: Horizontal sliding animation */
+@media (max-width: 767px) {
+    .view-wrapper {
+        display: flex;
+        width: 500%; /* Total 5 views: Tariffs, Connection, Settings, Profile, History */
+        height: 100%;
+        transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .view {
+        flex: 0 0 20%; /* Each view takes 100% of the screen width */
+        width: 100%;
+        height: 100%;
+        padding: 0 20px calc(var(--nav-height) + 40px);
+        opacity: 0;
+        transition: opacity 0.4s ease;
+        visibility: visible;
+        overflow-y: auto;
+        overflow-x: hidden;
+        pointer-events: none;
+    }
+
+    .view.active {
+        opacity: 1;
+        pointer-events: all;
+    }
+}
+
+/* Desktop: Classic vertical fade animation */
+@media (min-width: 768px) {
+    .view-wrapper {
+        display: block;
+        width: 100%;
+        height: 100%;
+        transform: none !important;
+    }
+
+    .view {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        padding: 24px 40px;
+        opacity: 0;
+        transform: translateY(10px);
+        pointer-events: none;
+        transition: opacity 0.3s ease, transform 0.3s ease;
+        visibility: hidden;
+        overflow-y: auto;
+    }
+
+    .view.active {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: all;
+        visibility: visible;
+        position: relative;
+    }
 }
 
 /* Wrapper for views (to constrain width on PC) */
@@ -168,8 +206,15 @@ body {
 }
 
 @keyframes slideDown {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* Tariffs View */
@@ -392,7 +437,200 @@ body {
     display: block;
 }
 
-/* Settings View */
+/* Settings View — MD3 redesign */
+.settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.settings-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px;
+}
+
+.settings-section-label {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--md-sys-color-primary);
+    opacity: 0.85;
+}
+
+.settings-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--panel-icon);
+    opacity: 0.6;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 100px;
+    padding: 3px 10px 3px 6px;
+}
+
+.settings-block {
+    background-color: var(--panel-bg);
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+.settings-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.06);
+    margin: 0 16px;
+}
+
+/* Device row */
+.device-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+}
+
+.device-row-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: rgba(208, 188, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.device-row-icon .material-symbols-rounded {
+    font-size: 22px;
+    color: var(--md-sys-color-primary);
+}
+
+.device-row-info {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.device-row-name {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--panel-icon);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.device-row-meta {
+    font-size: 12px;
+    color: var(--panel-icon);
+    opacity: 0.45;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.device-delete-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: rgba(239, 83, 80, 0.1);
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: #EF5350;
+}
+
+.device-delete-btn .material-symbols-rounded {
+    font-size: 20px;
+}
+
+.device-delete-btn:hover {
+    background: rgba(239, 83, 80, 0.18);
+}
+
+/* Empty state */
+.settings-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 28px 16px;
+    color: var(--panel-icon);
+    opacity: 0.35;
+    font-size: 14px;
+}
+
+.settings-empty .material-symbols-rounded {
+    font-size: 36px;
+}
+
+/* Slot purchase row */
+.slot-info-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+}
+
+.slot-info-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: rgba(208, 188, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.slot-info-icon .material-symbols-rounded {
+    font-size: 22px;
+    color: var(--md-sys-color-primary);
+}
+
+.slot-info-text {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.slot-info-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--panel-icon);
+}
+
+.slot-info-sub {
+    font-size: 12px;
+    color: var(--panel-icon);
+    opacity: 0.45;
+}
+
+.slot-buy-btn {
+    background: rgba(208, 188, 255, 0.12);
+    color: var(--md-sys-color-primary);
+    border: 1px solid rgba(208, 188, 255, 0.2);
+    border-radius: 100px;
+    padding: 8px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.slot-buy-btn:hover {
+    background: rgba(208, 188, 255, 0.18);
+}
+
+/* Legacy classes kept for other views */
 .settings-card {
     background-color: var(--panel-bg);
     border-radius: 20px;
@@ -462,6 +700,7 @@ body {
 .action-icon:active {
     opacity: 0.5;
 }
+
 
 .action-btn {
     width: 100%;
@@ -555,6 +794,16 @@ body {
     display: flex;
     align-items: center;
     gap: 16px;
+}
+
+.settings-item.admin-btn-item {
+    background: linear-gradient(90deg, rgba(255, 159, 10, 0.08) 0%, rgba(255, 159, 10, 0.02) 100%);
+    border: 1px solid rgba(255, 159, 10, 0.15);
+    margin-bottom: 12px;
+}
+
+.settings-item.admin-btn-item:active {
+    background: rgba(255, 159, 10, 0.12);
 }
 
 .settings-item span:not(.material-symbols-rounded) {
@@ -974,8 +1223,9 @@ body {
 .tariff-card-v2 {
     position: relative;
     border-radius: 24px;
-    padding: 2px; /* For gradient border effect */
-    background: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
+    padding: 2px;
+    /* For gradient border effect */
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
     overflow: hidden;
     display: flex;
 }
@@ -986,7 +1236,10 @@ body {
 
 .v2-card-bg {
     position: absolute;
-    top: 1px; left: 1px; right: 1px; bottom: 1px;
+    top: 1px;
+    left: 1px;
+    right: 1px;
+    bottom: 1px;
     background-color: #222126;
     border-radius: 23px;
     z-index: 0;
@@ -1138,7 +1391,10 @@ body {
 /* Loading Overlay and Success Animation */
 .fullscreen-loading-overlay {
     position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
@@ -1200,19 +1456,36 @@ body {
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
 }
 
 @keyframes popIn {
-    0% { transform: scale(0); opacity: 0; }
-    80% { transform: scale(1.1); opacity: 1; }
-    100% { transform: scale(1); opacity: 1; }
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+
+    80% {
+        transform: scale(1.1);
+        opacity: 1;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
 }
 
 .fullscreen-loading-overlay.success .spinner {
     display: none;
 }
+
 .fullscreen-loading-overlay.success .success-icon-wrapper {
     display: flex;
 }

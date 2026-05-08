@@ -55,18 +55,23 @@
         </header>
 
         <!-- Main Content Area -->
-        <main class="views">
-            <!-- View: Tariffs -->
-            {% include "shop/tariffs.html" %}
+        <main class="main-content views">
+            <div class="view-wrapper" id="view-wrapper">
+                <!-- View: Tariffs -->
+                {% include "shop/tariffs.html" %}
 
-            <!-- View: Connection -->
-            {% include "connect/connection.html" %}
+                <!-- View: Connection -->
+                {% include "connect/connection.html" %}
 
-            <!-- View: Settings -->
-            {% include "user/settings.html" %}
+                <!-- View: Settings -->
+                {% include "user/settings.html" %}
 
-            <!-- View: Profile -->
-            {% include "user/profile.html" %}
+                <!-- View: Profile -->
+                {% include "user/profile.html" %}
+
+                <!-- View: History -->
+                {% include "shop/history.html" %}
+            </div>
         </main>
 
         <!-- Bottom / Side Navigation -->

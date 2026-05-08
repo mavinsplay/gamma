@@ -1,31 +1,63 @@
 <div id="view-profile" class="view">
     <div class="view-content-wrapper">
-        <div class="profile-header">
-            <div class="avatar" id="profile-avatar">
-                <span class="material-symbols-rounded">person</span>
+        <div class="profile-card" style="background: var(--panel-bg); border-radius: 28px; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 16px; margin-top: 10px;">
+            <div class="avatar-wrapper" style="position: relative;">
+                <div class="avatar" id="profile-avatar" style="width: 80px; height: 80px; border-radius: 50%; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 20px rgba(0,0,0,0.2); overflow: hidden;">
+                    <span class="material-symbols-rounded" style="font-size: 40px;">person</span>
+                </div>
+                <div style="position: absolute; bottom: 0; right: 0; width: 24px; height: 24px; border-radius: 50%; background: #4CAF50; border: 3px solid var(--panel-bg); box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>
             </div>
-            <div class="user-info">
-                <h2 id="profile-name">Имя пользователя</h2>
-                <span class="userid" id="profile-userid">ID: Загрузка...</span>
+            
+            <div style="text-align: center;">
+                <h2 id="profile-name" style="font-size: 20px; font-weight: 600; margin-bottom: 4px;">{{ profile.telegram_username|default:"Имя пользователя" }}</h2>
+                <span id="profile-userid" style="font-size: 13px; opacity: 0.5; color: var(--panel-icon);">ID: {{ profile.telegram_id }}</span>
             </div>
-        </div>
 
-        <div class="balance-card">
-            <span class="label">Ваш баланс</span>
-            <div class="amount">{{ profile.balance|default:0|floatformat:2 }} ₽</div>
-            <button class="topup-btn bounce" onclick="handleTopup()">Пополнить</button>
+            <div style="width: 100%; height: 1px; background: rgba(255,255,255,0.05); margin: 8px 0;"></div>
+
+            <div style="display: flex; width: 100%; justify-content: space-around; text-align: center;">
+                <div style="flex: 1;">
+                    <div style="font-size: 12px; opacity: 0.5; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Баланс</div>
+                    <div id="profile-balance" style="font-size: 18px; font-weight: 600; color: var(--md-sys-color-primary);">{{ profile.balance|default:0|floatformat:0 }} ₽</div>
+                </div>
+                <div style="width: 1px; background: rgba(255,255,255,0.05);"></div>
+                <div style="flex: 1;">
+                    <div style="font-size: 12px; opacity: 0.5; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Тариф</div>
+                    <div style="font-size: 15px; font-weight: 500;">{{ profile.tarif.name|default:"—" }}</div>
+                </div>
+            </div>
+            
+            <button class="topup-btn bounce" onclick="handleTopup()" style="width: 100%; height: 52px; border-radius: 18px; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); font-weight: 600; margin-top: 8px; border: none; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <span class="material-symbols-rounded" style="font-size: 20px;">add_card</span>
+                Пополнить баланс
+            </button>
         </div>
 
         <div class="settings-list">
-            <div class="settings-item bounce">
-                <span class="material-symbols-rounded">history</span>
-                <span>История платежей</span>
+            {% if is_admin %}
+            <a href="/{{ admin_url }}" class="settings-item bounce" style="text-decoration: none; color: inherit; border: 1px solid rgba(255, 159, 10, 0.15); margin-bottom: 4px;">
+                <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(255, 159, 10, 0.15); display: flex; align-items: center; justify-content: center; margin-right: 4px;">
+                    <span class="material-symbols-rounded" style="color: #FF9F0A; font-size: 20px;">admin_panel_settings</span>
+                </div>
+                <span style="font-weight: 500;">Админ-панель</span>
                 <span class="material-symbols-rounded arrow">chevron_right</span>
+            </a>
+            {% endif %}
+            
+            <div class="settings-item bounce" onclick="activateTabById('view-history', 'История платежей')">
+                <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(208, 188, 255, 0.1); display: flex; align-items: center; justify-content: center; margin-right: 4px;">
+                    <span class="material-symbols-rounded" style="color: var(--md-sys-color-primary); font-size: 20px;">history</span>
+                </div>
+                <span style="font-weight: 500;">История платежей</span>
+                <span class="material-symbols-rounded arrow" style="opacity: 0.3;">chevron_right</span>
             </div>
+            
             <div class="settings-item bounce">
-                <span class="material-symbols-rounded">help</span>
-                <span>Поддержка</span>
-                <span class="material-symbols-rounded arrow">chevron_right</span>
+                <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: center; margin-right: 4px;">
+                    <span class="material-symbols-rounded" style="opacity: 0.7; font-size: 20px;">help</span>
+                </div>
+                <span style="font-weight: 500;">Поддержка</span>
+                <span class="material-symbols-rounded arrow" style="opacity: 0.3;">chevron_right</span>
             </div>
         </div>
     </div>

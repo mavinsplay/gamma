@@ -19,8 +19,14 @@ from django.contrib import admin
 from django.urls import path, include
 from shop.views import app_index
 
+from django.conf import settings
+
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path(settings.ADMIN_URL, admin.site.urls),
     path("shop/", include("shop.urls")),
     path("", app_index, name="home"),
 ]
+
+admin.site.site_header = "Gamma VPN Admin"
+admin.site.site_title = "Gamma Admin"
+admin.site.index_title = "Управление сервисом Gamma VPN"

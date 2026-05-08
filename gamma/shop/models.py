@@ -21,6 +21,10 @@ class Tariff(models.Model):
         null=True,
         blank=True,
     )
+    has_proxy_bypass = models.BooleanField(
+        default=False,
+        verbose_name="Proxy with Whitelist Bypass",
+    )
 
     def __str__(self):
         return f"{self.name} - {self.price} RUB"
@@ -32,8 +36,14 @@ class Order(models.Model):
         ("PAID", "Paid"),
         ("FAILED", "Failed"),
     )
-    tariff = models.ForeignKey(Tariff, on_delete=models.SET_NULL, null=True)
+    TYPE_CHOICES = (
+        ("PURCHASE", "Purchase"),
+        ("TOPUP", "Top-up"),
+    )
+    tariff = models.ForeignKey(Tariff, on_delete=models.SET_NULL, null=True, blank=True)
     telegram_id = models.BigIntegerField()
+    amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    order_type = models.CharField(max_length=10, choices=TYPE_CHOICES, default="PURCHASE")
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,

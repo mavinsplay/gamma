@@ -1,42 +1,75 @@
 <div id="view-settings" class="view">
     <div class="view-content-wrapper">
-        <div class="settings-card">
-            <div class="section">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <h2>Мои устройства (HWID)</h2>
-                    <span style="font-size: 12px; color: var(--panel-icon); opacity: 0.7;">Лимит: {{ rw_user.hwidDeviceLimit|default:0 }}</span>
-                </div>
-                <div class="device-list">
-                    {% for device in hwid_devices %}
-                    <div class="device-item">
+
+        <!-- Devices Section -->
+        <div class="settings-section">
+            <div class="settings-section-header">
+                <span class="settings-section-label">Мои устройства</span>
+                <span class="settings-badge" id="devices-count-display">
+                    <span class="material-symbols-rounded" style="font-size: 14px;">devices</span>
+                    {% with hwid_devices|length as count %}
+                        {{ count }} / {{ rw_user.hwidDeviceLimit|default:0 }}
+                    {% endwith %}
+                </span>
+            </div>
+
+            <div class="settings-block" id="devices-list-container">
+                {% for device in hwid_devices %}
+                <div class="device-row" id="device-row-{{ forloop.counter }}">
+                    <div class="device-row-icon">
                         <span class="material-symbols-rounded">
                             {% if device.platform == 'Android' %}smartphone
                             {% elif device.platform == 'Windows' %}computer
                             {% elif device.platform == 'iOS' %}phone_iphone
+                            {% elif device.platform == 'macOS' %}laptop_mac
+                            {% elif device.platform == 'Linux' %}terminal
                             {% else %}devices{% endif %}
                         </span>
-                        <div class="device-details">
-                            <span class="device-name">{{ device.deviceModel|default:"Неизвестное устройство" }}</span>
-                            <span class="device-hwid">{{ device.platform }} • ID: {{ device.hwid|truncatechars:12 }}</span>
-                        </div>
                     </div>
-                    {% empty %}
-                    <div class="device-item" style="justify-content: center; opacity: 0.6; padding: 16px 0;">
-                        <span>Нет подключенных устройств</span>
+                    <div class="device-row-info">
+                        <span class="device-row-name">{{ device.deviceModel|default:"Неизвестное устройство" }}</span>
+                        <span class="device-row-meta">{{ device.platform|default:"—" }} · {{ device.hwid|truncatechars:14 }}</span>
                     </div>
-                    {% endfor %}
+                    <button class="device-delete-btn bounce"
+                            onclick="handleDeleteDevice('{{ device.hwid }}', {{ forloop.counter }})"
+                            title="Удалить устройство">
+                        <span class="material-symbols-rounded">delete_outline</span>
+                    </button>
                 </div>
+                {% if not forloop.last %}
+                <div class="settings-divider"></div>
+                {% endif %}
+                {% empty %}
+                <div class="settings-empty">
+                    <span class="material-symbols-rounded">devices_off</span>
+                    <span>Нет подключённых устройств</span>
+                </div>
+                {% endfor %}
             </div>
         </div>
 
-        <div class="settings-card">
-            <div class="section">
-                <h2>Дополнительные слоты</h2>
-                <button class="action-btn bounce" onclick="handleBuySlot()">
-                    <span class="material-symbols-rounded">add_circle</span>
-                    Купить доп. слот (100 ₽)
-                </button>
+        <!-- Slot Purchase Section -->
+        {% if rw_user %}
+        <div class="settings-section">
+            <div class="settings-section-header">
+                <span class="settings-section-label">Слоты устройств</span>
+            </div>
+            <div class="settings-block">
+                <div class="slot-info-row">
+                    <div class="slot-info-icon">
+                        <span class="material-symbols-rounded">add_circle</span>
+                    </div>
+                    <div class="slot-info-text">
+                        <span class="slot-info-title">Дополнительный слот</span>
+                        <span class="slot-info-sub">Подключите ещё одно устройство</span>
+                    </div>
+                    <button class="slot-buy-btn bounce" onclick="handleBuySlot()">
+                        100 ₽
+                    </button>
+                </div>
             </div>
         </div>
+        {% endif %}
+
     </div>
 </div>

@@ -169,6 +169,15 @@ class RemnawaveClient:
         data = response.json()
         return data.get("response", {}).get("devices", [])
 
+    async def delete_hwid_device(self, user_uuid: str, hwid: str):
+        response = await self.http_client.post(
+            "hwid/devices/delete",
+            json={"userUuid": user_uuid, "hwid": hwid},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("response", {})
+
 
 if __name__ == "__main__":
     from dotenv import load_dotenv

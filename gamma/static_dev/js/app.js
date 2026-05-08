@@ -54,49 +54,117 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Navigation Click Handler
-    navItems.forEach(item => {
-        item.addEventListener('click', () => {
-            navItems.forEach(nav => nav.classList.remove('active'));
-            item.classList.add('active');
-            updateIndicator(item);
+    function activateTab(item) {
+        const targetId = item.getAttribute('data-target');
+        const targetTitle = item.getAttribute('data-title');
 
-            const newTitle = item.getAttribute('data-title');
-            if (newTitle) {
-                pageTitle.style.opacity = '0';
-                pageTitle.style.transform = 'translateY(-10px)';
-                setTimeout(() => {
-                    pageTitle.textContent = newTitle;
-                    pageTitle.style.opacity = '1';
-                    pageTitle.style.transform = 'translateY(0)';
-                }, 150);
+        // Haptic Feedback for navigation
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+            window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
+        }
+
+        navItems.forEach(nav => nav.classList.remove('active'));
+        item.classList.add('active');
+        updateIndicator(item);
+
+        if (pageTitle && targetTitle) {
+            pageTitle.style.opacity = '0';
+            pageTitle.style.transform = 'translateY(-10px)';
+            setTimeout(() => {
+                pageTitle.textContent = targetTitle;
+                pageTitle.style.opacity = '1';
+                pageTitle.style.transform = 'translateY(0)';
+            }, 150);
+        }
+
+        // Slide animation logic (only for mobile)
+        const viewArray = Array.from(views);
+        const index = viewArray.findIndex(v => v.id === targetId);
+        const wrapper = document.getElementById('view-wrapper');
+
+        if (index !== -1 && wrapper && !isDesktop()) {
+            const offset = index * (100 / views.length);
+            wrapper.style.transform = `translateX(-${offset}%)`;
+        } else if (wrapper) {
+            wrapper.style.transform = ''; // Clear transform on desktop
+        }
+
+        views.forEach(view => {
+            if (view.id === targetId) {
+                view.classList.add('active');
+            } else {
+                view.classList.remove('active');
             }
+        });
 
-            const targetId = item.getAttribute('data-target');
-            views.forEach(view => {
-                if (view.id === targetId) {
-                    view.classList.add('active');
-                } else {
-                    view.classList.remove('active');
-                }
-            });
-
-            const profileNav = document.querySelector('.nav-profile');
+        const profileNav = document.querySelector('.nav-profile');
+        if (profileNav) {
             if (targetId === 'view-profile') {
                 profileNav.classList.add('active-bg');
             } else {
                 profileNav.classList.remove('active-bg');
             }
-        });
+        }
+
+        sessionStorage.setItem('activeTab', targetId);
+        sessionStorage.setItem('activeTitle', targetTitle);
+    }
+
+    navItems.forEach(item => {
+        item.addEventListener('click', () => activateTab(item));
     });
 
-    const bounceItems = document.querySelectorAll('.bounce');
-    bounceItems.forEach(el => {
-        el.addEventListener('click', () => {
+    window.activateTabById = (viewId, title) => {
+        const item = Array.from(navItems).find(i => i.getAttribute('data-target') === viewId);
+        if (item) {
+            activateTab(item);
+        } else {
+            // Haptic Feedback
             if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
-                window.Telegram.WebApp.HapticFeedback.selectionChanged();
+                window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
             }
-        });
+
+            navItems.forEach(nav => nav.classList.remove('active'));
+            if (pageTitle) pageTitle.textContent = title;
+
+            // Slide animation for sub-views (only for mobile)
+            const viewArray = Array.from(views);
+            const index = viewArray.findIndex(v => v.id === viewId);
+            const wrapper = document.getElementById('view-wrapper');
+
+            if (index !== -1 && wrapper && !isDesktop()) {
+                const offset = index * (100 / views.length);
+                wrapper.style.transform = `translateX(-${offset}%)`;
+            } else if (wrapper) {
+                wrapper.style.transform = '';
+            }
+
+            views.forEach(v => {
+                if (v.id === viewId) v.classList.add('active');
+                else v.classList.remove('active');
+            });
+        }
+    };
+
+    // Global haptic feedback for all buttons and interactive elements
+    document.addEventListener('click', (e) => {
+        const target = e.target.closest('.bounce, .action-btn, .v2-buy-btn, .nav-item, .settings-item');
+        if (target && window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+            window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
+        }
     });
+
+    // Restore active tab after page reload
+    const savedTab = sessionStorage.getItem('activeTab');
+    if (savedTab) {
+        const savedItem = Array.from(navItems).find(
+            item => item.getAttribute('data-target') === savedTab
+        );
+        if (savedItem) {
+            activateTab(savedItem);
+        }
+    }
+
 
     // Drag-to-scroll for card-list on PC
     const slider = document.querySelector('.card-list-vertical'); // Switched to vertical so maybe not needed, but keep for fallback
@@ -146,6 +214,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (user) {
+            // Check if URL has the correct ID
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('tg_id') != user.id) {
+                urlParams.set('tg_id', user.id);
+                if (user.username) {
+                    urlParams.set('tg_username', user.username);
+                }
+                window.location.search = urlParams.toString();
+                return;
+            }
+
             const profileName = document.getElementById('profile-name');
             const profileUserid = document.getElementById('profile-userid');
             const connectionUsername = document.getElementById('connection-username');
@@ -166,8 +245,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (profileAvatar) {
-                const initial = (user.first_name || user.username || 'U').charAt(0).toUpperCase();
-                profileAvatar.innerHTML = `<span style="font-size: 28px; font-weight: 500;">${initial}</span>`;
+                if (user.photo_url) {
+                    profileAvatar.innerHTML = `<img src="${user.photo_url}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 2px solid var(--md-sys-color-primary-container);">`;
+                } else {
+                    const initial = (user.first_name || user.username || 'U').charAt(0).toUpperCase();
+                    profileAvatar.innerHTML = `<span style="font-size: 28px; font-weight: 500;">${initial}</span>`;
+                }
             }
         }
     }
@@ -184,11 +267,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalInputContainer = document.getElementById('modal-input-container');
     const modalAmountInput = document.getElementById('modal-amount-input');
 
-    function showModal({ title, message, icon = 'info', actionText = 'Пополнить', onAction = null, showInput = false, inputValue = '', customHtml = '' }) {
+    function showModal({ title, message, icon = 'info', actionText = 'Пополнить', onAction = null, showInput = false, inputValue = '', customHtml = '', closeBtnText = 'Закрыть' }) {
         modalTitle.textContent = title;
         modalMessage.textContent = message;
         modalIcon.textContent = icon;
         modalAction.textContent = actionText;
+        modalClose.textContent = closeBtnText;
 
         if (showInput) {
             modalInputContainer.style.display = 'block';
@@ -230,6 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function hideModal() {
         modalOverlay.classList.remove('active');
+        modalClose.textContent = 'Закрыть';
         // Clean up extra buttons if any
         document.querySelectorAll('.test-topup-extra').forEach(el => el.remove());
     }
@@ -276,9 +361,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (response.ok) {
-                const balanceAmount = document.querySelector('.balance-card .amount');
+                const balanceAmount = document.getElementById('profile-balance');
                 if (balanceAmount) {
-                    balanceAmount.textContent = `${data.new_balance.toFixed(2)} ₽`;
+                    balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
                 }
 
                 // Remove extra buttons
@@ -289,8 +374,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     message: `Ваш баланс успешно пополнен на ${amount} ₽.`,
                     icon: 'check_circle',
                     actionText: 'Отлично',
-                    onAction: hideModal
+                    onAction: () => {
+                        hideModal();
+                        if (window.syncNow) window.syncNow();
+                    }
                 });
+                // Also trigger sync immediately in background
+                if (window.syncNow) window.syncNow();
             } else {
                 showModal({
                     title: 'Ошибка',
@@ -338,12 +428,8 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingOverlay.classList.remove('success');
     }
 
-    window.handleBuy = async (tariffId, price) => {
-        const tg = window.Telegram?.WebApp;
-        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id; // Mock for dev
-        const username = tg?.initDataUnsafe?.user?.username || MOCK_USER_DATA?.username;
-
-        showLoading('Оформление подписки...');
+    async function performBuy(tariffId, price, userId, username, replace = false) {
+        showLoading(replace ? 'Замена подписки...' : 'Оформление подписки...');
 
         try {
             const formData = new FormData();
@@ -351,6 +437,7 @@ document.addEventListener('DOMContentLoaded', () => {
             formData.append('tg_id', userId);
             formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
             formData.append('tg_username', username);
+            if (replace) formData.append('replace', 'true');
 
             const response = await fetch('/shop/buy-api/', {
                 method: 'POST',
@@ -360,15 +447,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (response.ok) {
-                // Update balance in UI
-                const balanceAmount = document.querySelector('.balance-card .amount');
+                const balanceAmount = document.getElementById('profile-balance');
                 if (balanceAmount) {
-                    balanceAmount.textContent = `${data.new_balance.toFixed(2)} ₽`;
+                    balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
                 }
-
+                if (window.syncNow) window.syncNow();
                 showSuccessAnim(() => {
-                    // Force reload to show active subscription banner
-                    window.location.reload();
+                    // Sync again just in case after animation
+                    if (window.syncNow) window.syncNow();
                 });
             } else if (data.error === 'insufficient_funds') {
                 hideLoading();
@@ -377,9 +463,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     message: `Для покупки этого тарифа вам не хватает ${data.missing_amount.toFixed(2)} ₽. Пополните баланс на сумму тарифа (${price} ₽) и попробуйте снова.`,
                     icon: 'account_balance_wallet',
                     actionText: `Пополнить на ${price} ₽`,
-                    onAction: () => {
-                        performTopup(price);
-                    }
+                    onAction: () => { performTopup(price); }
                 });
             } else {
                 hideLoading();
@@ -401,22 +485,71 @@ document.addEventListener('DOMContentLoaded', () => {
                 onAction: hideModal
             });
         }
+    }
+
+    window.handleBuy = async (tariffId, price, tariffName = '', tariffDays = 0) => {
+        const tg = window.Telegram?.WebApp;
+        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+        const username = tg?.initDataUnsafe?.user?.username || MOCK_USER_DATA?.username;
+
+        // If user already has an active subscription — show replacement confirmation
+        if (window.HAS_ACTIVE_SUB) {
+            const remainingDays = window.REMAINING_DAYS || 0;
+            const currentName = window.CURRENT_TARIFF_NAME || 'Текущий тариф';
+
+            const comparisonHtml = `
+                <div style="width:100%;text-align:left;display:flex;flex-direction:column;gap:10px;">
+                    <div style="background:rgba(255,255,255,0.05);border-radius:14px;padding:12px 14px;">
+                        <div style="font-size:10px;color:var(--md-sys-color-primary);opacity:.8;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;">Текущий тариф</div>
+                        <div style="font-size:15px;font-weight:500;color:#E6E1E5;">${currentName}</div>
+                        <div style="font-size:12px;color:rgba(230,225,229,.55);margin-top:3px;">Осталось: <b style="color:rgba(230,225,229,.85);">${remainingDays} дней</b></div>
+                    </div>
+                    <div style="display:flex;justify-content:center;">
+                        <span class="material-symbols-rounded" style="color:var(--md-sys-color-primary);opacity:.5;font-size:20px;">arrow_downward</span>
+                    </div>
+                    <div style="background:rgba(208,188,255,.08);border:1px solid rgba(208,188,255,.18);border-radius:14px;padding:12px 14px;">
+                        <div style="font-size:10px;color:var(--md-sys-color-primary);opacity:.8;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;">Новый тариф</div>
+                        <div style="font-size:15px;font-weight:500;color:#E6E1E5;">${tariffName}</div>
+                        <div style="font-size:12px;color:rgba(230,225,229,.55);margin-top:3px;">${tariffDays} дней &middot; ${price} ₽</div>
+                    </div>
+                    <div style="background:rgba(239,83,80,.08);border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:flex-start;">
+                        <span class="material-symbols-rounded" style="color:#EF5350;font-size:16px;flex-shrink:0;margin-top:1px;">warning</span>
+                        <span style="font-size:12px;color:rgba(230,225,229,.75);line-height:1.5;">Оставшиеся дни <b>пропадут</b>. Подписка начнётся заново с параметрами нового тарифа.</span>
+                    </div>
+                </div>`;
+
+            showModal({
+                title: 'Замена подписки',
+                message: '',
+                icon: 'swap_horiz',
+                customHtml: comparisonHtml,
+                actionText: 'Заменить тариф',
+                closeBtnText: 'Оставить',
+                onAction: () => {
+                    performBuy(tariffId, price, userId, username, true);
+                }
+            });
+            return;
+        }
+
+        // No active sub — just buy
+        performBuy(tariffId, price, userId, username, false);
     };
 
     window.toggleExtendMenu = () => {
         if (!window.CURRENT_TARIFF_PRICE || !window.CURRENT_TARIFF_DAYS) return;
-        
+
         const basePrice = window.CURRENT_TARIFF_PRICE;
         const baseDays = window.CURRENT_TARIFF_DAYS;
         const pricePerMonth = (basePrice / baseDays) * 30;
-        
+
         const options = [
             { months: 1, label: '1 месяц' },
             { months: 3, label: '3 месяца' },
             { months: 6, label: '6 месяцев' },
             { months: 12, label: '1 год' }
         ];
-        
+
         let gridHtml = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%;">';
         options.forEach(opt => {
             const optionPrice = Math.round(pricePerMonth * opt.months);
@@ -461,21 +594,25 @@ document.addEventListener('DOMContentLoaded', () => {
                         method: 'POST',
                         body: formData
                     });
-                    
+
                     const data = await response.json();
-                    
+
                     if (response.ok && data.success) {
                         showSuccessAnim(() => {
-                            const balanceAmount = document.querySelector('.balance-card .amount');
+                            const balanceAmount = document.getElementById('profile-balance');
                             if (balanceAmount) {
-                                balanceAmount.textContent = `${data.new_balance.toFixed(2)} ₽`;
+                                balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
                             }
+                            if (window.syncNow) window.syncNow();
                             showModal({
                                 title: 'Успешно!',
                                 message: `Подписка продлена на ${months} мес.`,
                                 icon: 'check_circle',
                                 actionText: 'Ок',
-                                onAction: () => location.reload()
+                                onAction: () => {
+                                    hideModal();
+                                    if (window.syncNow) window.syncNow();
+                                }
                             });
                         });
                     } else if (data.error === 'insufficient_funds') {
@@ -521,11 +658,11 @@ document.addEventListener('DOMContentLoaded', () => {
         tempInput.select();
         document.execCommand('copy');
         document.body.removeChild(tempInput);
-        
+
         if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
             window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
         }
-        
+
         showModal({
             title: 'Ссылка скопирована!',
             message: 'Ссылка для подключения успешно скопирована в буфер обмена.',
@@ -559,7 +696,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const btnGet = document.getElementById('btn-get-link');
                     const resultDiv = document.getElementById('connection-result');
                     const qrImg = document.getElementById('qr-code-img');
-                    
+
                     if (btnGet) btnGet.style.display = 'none';
                     if (resultDiv) {
                         resultDiv.style.display = 'flex';
@@ -612,12 +749,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     const data = await response.json();
 
                     if (response.ok) {
-                        const balanceAmount = document.querySelector('.balance-card .amount');
+                        const balanceAmount = document.getElementById('profile-balance');
                         if (balanceAmount) {
-                            balanceAmount.textContent = `${data.new_balance.toFixed(2)} ₽`;
+                            balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
                         }
+                        if (window.syncNow) window.syncNow();
                         showSuccessAnim(() => {
-                            window.location.reload();
+                            if (window.syncNow) window.syncNow();
                         });
                     } else if (data.error === 'insufficient_funds') {
                         hideLoading();
@@ -640,7 +778,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             onAction: hideModal
                         });
                     }
-                } catch(e) {
+                } catch (e) {
                     hideLoading();
                     showModal({
                         title: 'Ошибка сети',
@@ -653,4 +791,414 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     };
+
+    window.handleDeleteDevice = (hwid, rowIndex) => {
+        showModal({
+            title: 'Удалить устройство?',
+            message: 'Это устройство будет удалено из вашего списка. При следующем подключении оно снова зарегистрируется автоматически.',
+            icon: 'delete_outline',
+            actionText: 'Удалить',
+            onAction: async () => {
+                hideModal();
+                showLoading('Удаление устройства...');
+
+                const tg = window.Telegram?.WebApp;
+                const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+
+                try {
+                    const formData = new FormData();
+                    formData.append('tg_id', userId);
+                    formData.append('hwid', hwid);
+                    formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+                    const response = await fetch('/shop/delete-hwid-device-api/', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data.success) {
+                        hideLoading();
+                        // Animate row out
+                        const row = document.getElementById(`device-row-${rowIndex}`);
+                        if (row) {
+                            row.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                            row.style.opacity = '0';
+                            row.style.transform = 'translateX(20px)';
+                            // Remove adjacent divider
+                            const next = row.nextElementSibling;
+                            const prev = row.previousElementSibling;
+                            const divider = (next && next.classList.contains('settings-divider')) ? next
+                                : (prev && prev.classList.contains('settings-divider')) ? prev : null;
+                            setTimeout(() => {
+                                row.remove();
+                                if (divider) divider.remove();
+                                // If block is now empty, show empty state
+                                const block = document.querySelector('#view-settings .settings-block');
+                                if (block && block.querySelectorAll('.device-row').length === 0) {
+                                    block.innerHTML = `
+                                        <div class="settings-empty">
+                                            <span class="material-symbols-rounded">devices_off</span>
+                                            <span>Нет подключённых устройств</span>
+                                        </div>`;
+                                }
+                            }, 350);
+                        }
+                    } else {
+                        hideLoading();
+                        showModal({
+                            title: 'Ошибка',
+                            message: data.error || 'Не удалось удалить устройство.',
+                            icon: 'error',
+                            actionText: 'Ок',
+                            onAction: hideModal
+                        });
+                    }
+                } catch (e) {
+                    hideLoading();
+                    showModal({
+                        title: 'Ошибка сети',
+                        message: 'Не удалось связаться с сервером.',
+                        icon: 'cloud_off',
+                        actionText: 'Ок',
+                        onAction: hideModal
+                    });
+                }
+            }
+        });
+    };
+
+    window.handleProxyConnect = (url, name) => {
+        if (!url) return;
+
+        showModal({
+            title: 'Telegram Прокси',
+            message: `Вы собираетесь подключить прокси "${name}". Это позволит Telegram работать стабильнее в условиях ограничений.`,
+            icon: 'send',
+            actionText: 'Подключить',
+            onAction: () => {
+                if (window.Telegram && window.Telegram.WebApp) {
+                    if (url.includes('t.me/') || url.startsWith('tg://')) {
+                        window.Telegram.WebApp.openTelegramLink(url);
+                    } else {
+                        window.Telegram.WebApp.openLink(url);
+                    }
+                } else {
+                    window.open(url, '_blank');
+                }
+            }
+        });
+    };
+
+    window.copyProxyLink = (url) => {
+        if (!url) return;
+        const tempInput = document.createElement('input');
+        tempInput.value = url;
+        document.body.appendChild(tempInput);
+        tempInput.select();
+        document.execCommand('copy');
+        document.body.removeChild(tempInput);
+
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+            window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+        }
+
+        showModal({
+            title: 'Ссылка скопирована!',
+            message: 'Ссылка на прокси успешно скопирована.',
+            icon: 'content_copy',
+            actionText: 'Ок',
+            onAction: hideModal
+        });
+    };
+
+    // Data Synchronization Logic
+    function updateUIWithSyncData(data) {
+        if (!data.success) return;
+
+        // Update Balance
+        if (data.profile) {
+            const balanceEl = document.getElementById('profile-balance');
+            if (balanceEl) balanceEl.textContent = `${data.profile.balance.toFixed(0)} ₽`;
+            
+            // Update HAS_ACTIVE_SUB flag
+            window.HAS_ACTIVE_SUB = !!data.rw_user;
+            if (data.rw_user) {
+                window.CURRENT_TARIFF_NAME = data.profile.tarif_name;
+            }
+        }
+
+        // Update Subscription Card in Tariffs View
+        const subContainer = document.getElementById('current-subscription-container');
+        if (subContainer) {
+            if (data.rw_user && data.profile) {
+                const remDays = data.rw_user.remaining_days || 0;
+                subContainer.innerHTML = `
+                    <div class=" bounce">
+                        <div class="sub-header">
+                            <div class="sub-icon">
+                                <span class="material-symbols-rounded">verified_user</span>
+                            </div>
+                            <div class="sub-info">
+                                <span class="sub-label">Текущая подписка</span>
+                                <h3 class="sub-title" id="sub-title-display">${data.profile.tarif_name}</h3>
+                            </div>
+                        </div>
+                        <div class="sub-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                            <div class="sub-stat">
+                                <span class="material-symbols-rounded">timer</span>
+                                <span id="sub-remaining-days-display">Осталось дней: ${remDays}</span>
+                            </div>
+                            <button class="action-btn bounce" style="padding: 6px 12px; font-size: 13px; background: rgba(208, 188, 255, 0.15); color: var(--md-sys-color-primary); white-space: nowrap; flex: 0 0 auto;" onclick="toggleExtendMenu()">
+                                <span class="material-symbols-rounded" style="font-size: 16px; margin-right: 4px;">update</span>Продлить
+                            </button>
+                        </div>
+                    </div>`;
+                window.REMAINING_DAYS = remDays;
+            } else {
+                subContainer.innerHTML = '';
+            }
+        }
+
+        // Update Connection View Status
+        const connectionSubInfo = document.querySelector('#view-connection .subscription-info');
+        if (connectionSubInfo && data.profile) {
+            const username = document.getElementById('connection-username').textContent;
+            let connHtml = `
+                <div class="info-item">
+                    <span class="label">Пользователь</span>
+                    <span class="value" id="connection-username">${username}</span>
+                </div>`;
+            
+            if (data.rw_user) {
+                connHtml += `
+                    <div class="info-item">
+                        <span class="label">Статус</span>
+                        <span class="value" style="color: #4CAF50;">Активен</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Осталось времени</span>
+                        <span class="value" id="connection-remaining-days">${data.rw_user.remaining_days} дней</span>
+                    </div>
+                    <button id="btn-get-link" class="action-btn bounce" style="margin-top: 16px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="handleConnect()">
+                        <span class="material-symbols-rounded">link</span>
+                        Получить ссылку для подключения
+                    </button>
+                    <div id="connection-result" style="display: none; margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
+                        <span style="font-size: 14px; color: var(--panel-icon); text-align: center;">Отсканируйте QR-код или скопируйте ссылку для настройки вашего VPN-клиента</span>
+                        <img id="qr-code-img" src="" alt="QR Code" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px;">
+                        <div style="display: flex; gap: 8px; width: 100%;">
+                            <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: rgba(255,255,255,0.1);" onclick="copySubLink()">
+                                <span class="material-symbols-rounded" style="font-size: 20px;">content_copy</span>
+                                Скопировать
+                            </button>
+                            <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="openSubLink()">
+                                <span class="material-symbols-rounded" style="font-size: 20px;">open_in_new</span>
+                                Подключить
+                            </button>
+                        </div>
+                    </div>`;
+            } else {
+                connHtml += `
+                    <button class="action-btn bounce" style="margin-top: 16px; opacity: 0.5;" disabled>
+                        <span class="material-symbols-rounded">link_off</span>
+                        Нет активной подписки
+                    </button>`;
+            }
+            connectionSubInfo.innerHTML = connHtml;
+        }
+
+        // Update Tariff Cards (Owned status)
+        if (data.profile && data.profile.tarif_name) {
+            document.querySelectorAll('.tariff-card-v2').forEach(card => {
+                const title = card.querySelector('h3').textContent;
+                const btn = card.querySelector('.v2-buy-btn');
+                if (btn) {
+                    if (title === data.profile.tarif_name) {
+                        btn.textContent = 'Уже активен';
+                        btn.classList.add('owned');
+                        btn.disabled = true;
+                        btn.onclick = null;
+                    } else {
+                        btn.textContent = 'Купить';
+                        btn.classList.remove('owned');
+                        btn.disabled = false;
+                        // The original onclick is preserved if we don't overwrite it, 
+                        // but since we are doing this dynamically, we should ensure it's correct.
+                        // Actually, it's better to not touch it if it's not the owned one.
+                    }
+                }
+            });
+        }
+
+        // Update Remaining Days (Sync secondary displays)
+        if (data.rw_user) {
+            const remDays = data.rw_user.remaining_days || 0;
+            const subRemDaysDisplay = document.getElementById('sub-remaining-days-display');
+            const connRemDaysDisplay = document.getElementById('connection-remaining-days');
+            
+            if (subRemDaysDisplay) subRemDaysDisplay.textContent = `Осталось дней: ${remDays}`;
+            if (connRemDaysDisplay) connRemDaysDisplay.textContent = `${remDays} дней`;
+            
+            window.REMAINING_DAYS = remDays;
+        }
+
+        // Update Nodes (Server Status)
+        const onlineCountEl = document.getElementById('online-count-display');
+        const offlineCountEl = document.getElementById('offline-count-display');
+        if (onlineCountEl) onlineCountEl.textContent = `${data.online_count} онлайн`;
+        if (offlineCountEl) offlineCountEl.textContent = `${data.offline_count} недоступно`;
+
+        const nodesContainer = document.getElementById('nodes-list-container');
+        if (nodesContainer && data.nodes) {
+            let nodesHtml = '';
+            data.nodes.forEach(node => {
+                nodesHtml += `
+                    <div class="server-selector bounce" style="margin-top: 10px;">
+                        <div class="server-info">
+                            <div class="server-icon-wrapper">
+                                ${node.countryCode ? `
+                                    <img src="https://flagcdn.com/w80/${node.countryCode.toLowerCase()}.png" 
+                                         class="flag-img" 
+                                         alt="${node.countryCode}">
+                                ` : `
+                                    <span class="material-symbols-rounded">
+                                        ${node.isConnected ? 'lan' : 'lan_off'}
+                                    </span>
+                                `}
+                            </div>
+                            <div class="server-details">
+                                <span class="server-name">${node.display_name}</span>
+                                <span class="server-ping">
+                                    ${node.isConnected ? 
+                                        '<span style="color: #4CAF50; font-weight: 500;">Доступно</span>' : 
+                                        '<span style="color: #F44336;">Недоступно</span>'}
+                                </span>
+                            </div>
+                        </div>
+                        <span class="material-symbols-rounded" style="opacity: 0.3; font-size: 20px;">chevron_right</span>
+                    </div>`;
+            });
+            nodesContainer.innerHTML = nodesHtml;
+        }
+
+        // Update Devices
+        const deviceCountEl = document.getElementById('devices-count-display');
+        if (deviceCountEl && data.rw_user) {
+            deviceCountEl.innerHTML = `
+                <span class="material-symbols-rounded" style="font-size: 14px;">devices</span>
+                ${data.hwid_devices.length} / ${data.rw_user.hwidDeviceLimit || 0}
+            `;
+        }
+
+        const devicesContainer = document.getElementById('devices-list-container');
+        if (devicesContainer && data.hwid_devices) {
+            if (data.hwid_devices.length === 0) {
+                devicesContainer.innerHTML = `
+                    <div class="settings-empty">
+                        <span class="material-symbols-rounded">devices_off</span>
+                        <span>Нет подключённых устройств</span>
+                    </div>`;
+            } else {
+                let devicesHtml = '';
+                data.hwid_devices.forEach((device, index) => {
+                    const idx = index + 1;
+                    let icon = 'devices';
+                    if (device.platform === 'Android') icon = 'smartphone';
+                    else if (device.platform === 'Windows') icon = 'computer';
+                    else if (device.platform === 'iOS') icon = 'phone_iphone';
+                    else if (device.platform === 'macOS') icon = 'laptop_mac';
+                    else if (device.platform === 'Linux') icon = 'terminal';
+
+                    devicesHtml += `
+                        <div class="device-row" id="device-row-${idx}">
+                            <div class="device-row-icon">
+                                <span class="material-symbols-rounded">${icon}</span>
+                            </div>
+                            <div class="device-row-info">
+                                <span class="device-row-name">${device.deviceModel || "Неизвестное устройство"}</span>
+                                <span class="device-row-meta">${device.platform || "—"} · ${device.hwid.substring(0, 14)}...</span>
+                            </div>
+                            <button class="device-delete-btn bounce"
+                                    onclick="handleDeleteDevice('${device.hwid}', ${idx})"
+                                    title="Удалить устройство">
+                                <span class="material-symbols-rounded">delete_outline</span>
+                            </button>
+                        </div>
+                        ${index < data.hwid_devices.length - 1 ? '<div class="settings-divider"></div>' : ''}`;
+                });
+                devicesContainer.innerHTML = devicesHtml;
+            }
+        }
+
+        // Update Payment History
+        const historyContainer = document.getElementById('history-list-container');
+        if (historyContainer && data.payments) {
+            if (data.payments.length === 0) {
+                historyContainer.innerHTML = `
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; opacity: 0.4; text-align: center;">
+                        <span class="material-symbols-rounded" style="font-size: 48px;">receipt_long</span>
+                        <span>История платежей пока пуста</span>
+                    </div>`;
+            } else {
+                let historyHtml = '';
+                data.payments.forEach(payment => {
+                    const isTopup = payment.order_type === 'TOPUP';
+                    const isPaid = payment.status === 'PAID';
+                    historyHtml += `
+                        <div class="history-item" style="background: var(--panel-bg); border-radius: 20px; padding: 16px; display: flex; align-items: center; gap: 16px;">
+                            <div style="width: 44px; height: 44px; border-radius: 14px; background: ${isTopup ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 255, 255, 0.05)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <span class="material-symbols-rounded" style="color: ${isTopup ? '#4CAF50' : '#FFFFFF'}; font-size: 24px; opacity: 0.8;">
+                                    ${isTopup ? 'account_balance_wallet' : 'shopping_bag'}
+                                </span>
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
+                                    <span style="font-weight: 500; font-size: 15px;">
+                                        ${isTopup ? 'Пополнение баланса' : (payment.tariff_name || "Покупка тарифа")}
+                                    </span>
+                                    <span style="font-weight: 600; font-size: 15px; color: ${isTopup ? '#4CAF50' : '#FFFFFF'};">
+                                        ${isTopup ? '+' : '-'}${payment.amount.toFixed(0)} ₽
+                                    </span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; opacity: 0.5;">
+                                    <span>${payment.created_at}</span>
+                                    <span style="color: ${isPaid ? '#4CAF50' : '#EF5350'}; opacity: 0.8;">
+                                        ${isPaid ? 'Успешно' : 'Ошибка'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>`;
+                });
+                historyContainer.innerHTML = historyHtml;
+            }
+        }
+    }
+
+    async function startDataSync() {
+        const tg = window.Telegram?.WebApp;
+        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+        if (!userId) return;
+
+        window.syncNow = async () => {
+            try {
+                const response = await fetch(`/shop/sync-data-api/?tg_id=${userId}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    updateUIWithSyncData(data);
+                }
+            } catch (e) {
+                console.error('Manual sync failed:', e);
+            }
+        };
+
+        // Poll every 30 seconds
+        setInterval(window.syncNow, 30000);
+        
+        // Initial sync
+        window.syncNow();
+    }
+
+    startDataSync();
 });
