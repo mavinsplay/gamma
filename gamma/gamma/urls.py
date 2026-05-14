@@ -24,6 +24,7 @@ from django.conf import settings
 urlpatterns = [
     path(settings.ADMIN_URL, admin.site.urls),
     path("shop/", include("shop.urls")),
+    path("connect/", include("connect.urls")),
     path("", app_index, name="home"),
 ]
 

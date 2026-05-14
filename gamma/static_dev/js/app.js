@@ -9,6 +9,33 @@ document.addEventListener('DOMContentLoaded', () => {
         return window.innerWidth >= 768;
     }
 
+    // Telegram WebApp Object
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+        tg.expand();
+        tg.ready();
+    }
+
+    /*
+    // --- Security: URL Cleanup ---
+    function cleanupUrl() {
+        console.log('cleanupUrl: checking params...');
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('tg_id') || url.searchParams.has('tg_username')) {
+            url.searchParams.delete('tg_id');
+            url.searchParams.delete('tg_username');
+            console.log('cleanupUrl: applying replaceState to', url.toString());
+            try {
+                window.history.replaceState({}, document.title, url.toString());
+                console.log('cleanupUrl: success');
+            } catch (e) {
+                console.error('cleanupUrl: error', e);
+            }
+        }
+    }
+    cleanupUrl();
+    */
+
     // Initialize indicator position
     function updateIndicator(activeItem) {
         if (!activeItem || !navIndicator) return;
@@ -49,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set initial state
     document.fonts.ready.then(() => {
+        document.body.classList.add('fonts-loaded');
         const initialActive = document.querySelector('.nav-item.active');
         updateIndicator(initialActive);
     });
@@ -267,7 +295,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalInputContainer = document.getElementById('modal-input-container');
     const modalAmountInput = document.getElementById('modal-amount-input');
 
-    function showModal({ title, message, icon = 'info', actionText = 'Пополнить', onAction = null, showInput = false, inputValue = '', customHtml = '', closeBtnText = 'Закрыть' }) {
+    let lastModalTime = 0;
+
+    function showModal({ title, message, icon = 'info', actionText = 'Пополнить', onAction = null, showInput = false, inputValue = '', inputPlaceholder = 'Введите данные...', inputType = 'text', customHtml = '', closeBtnText = 'Закрыть' }) {
+        lastModalTime = Date.now();
         modalTitle.textContent = title;
         modalMessage.textContent = message;
         modalIcon.textContent = icon;
@@ -277,6 +308,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (showInput) {
             modalInputContainer.style.display = 'block';
             modalAmountInput.value = inputValue;
+            modalAmountInput.placeholder = inputPlaceholder;
+            modalAmountInput.type = inputType;
             modalAmountInput.focus();
         } else {
             modalInputContainer.style.display = 'none';
@@ -302,8 +335,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (onAction) {
             modalAction.style.display = 'block';
             modalAction.onclick = () => {
+                const currentModalTime = lastModalTime = Date.now();
                 onAction();
-                hideModal();
+                // Only hide if no other modal was opened during onAction
+                if (lastModalTime === currentModalTime) {
+                    hideModal();
+                }
             };
         } else {
             modalAction.style.display = 'none';
@@ -324,14 +361,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target === modalOverlay) hideModal();
     };
 
-    window.handleTopup = () => {
+    window.handleTopup = (initialAmount = '') => {
+        const message = initialAmount 
+            ? `На вашем счёте недостаточно ${initialAmount} ₽. Введите сумму для пополнения:`
+            : 'Введите сумму, на которую вы хотите пополнить счёт:';
+
         showModal({
             title: 'Пополнение баланса',
-            message: 'Введите сумму, на которую вы хотите пополнить счёт:',
+            message: message,
             icon: 'payments',
             actionText: 'Пополнить',
             showInput: true,
-            inputValue: '',
+            inputValue: initialAmount,
+            inputPlaceholder: 'Сумма в рублях',
+            inputType: 'number',
             onAction: () => {
                 const amount = parseFloat(modalAmountInput.value);
                 if (isNaN(amount) || amount <= 0) {
@@ -345,13 +388,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function performTopup(amount) {
         const tg = window.Telegram?.WebApp;
-        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id || '123456789';
+        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+
+        if (!userId || userId === 'undefined') {
+            showModal({
+                title: 'Ошибка',
+                message: 'Ваш профиль еще не загружен. Пожалуйста, подождите секунду и попробуйте снова.',
+                icon: 'hourglass_empty',
+                actionText: 'Ок',
+                onAction: hideModal
+            });
+            return;
+        }
 
         try {
             const formData = new FormData();
             formData.append('amount', amount);
-            formData.append('tg_id', userId);
             formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+            if (tg?.initData) {
+                formData.append('init_data', tg.initData);
+            } else {
+                formData.append('tg_id', userId);
+            }
 
             const response = await fetch('/shop/topup-api/', {
                 method: 'POST',
@@ -404,6 +463,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Loading Animation
     const loadingOverlay = document.getElementById('loading-overlay');
     const loadingText = document.getElementById('loading-text');
+    const spinner = loadingOverlay?.querySelector('.spinner');
+    const successIcon = loadingOverlay?.querySelector('.success-icon-wrapper');
 
     function showLoading(text = 'Обработка...') {
         loadingText.textContent = text;
@@ -413,14 +474,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function showSuccessAnim(callback) {
         loadingOverlay.classList.add('success');
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+        if (successIcon) successIcon.style.display = 'flex';
+        if (spinner) spinner.style.display = 'none';
+        
+            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
             window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
         }
         setTimeout(() => {
+            if (successIcon) successIcon.style.display = 'none';
+            if (spinner) spinner.style.display = 'block';
             loadingOverlay.classList.remove('active');
-            loadingOverlay.classList.remove('success');
             if (callback) callback();
-        }, 1500);
+        }, 500); // Wait for animation to complete
     }
 
     function hideLoading() {
@@ -430,13 +495,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function performBuy(tariffId, price, userId, username, replace = false) {
         showLoading(replace ? 'Замена подписки...' : 'Оформление подписки...');
+        console.log('performBuy: starting for tariff', tariffId);
+        const tg = window.Telegram?.WebApp;
 
         try {
             const formData = new FormData();
             formData.append('tariff_id', tariffId);
-            formData.append('tg_id', userId);
             formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
-            formData.append('tg_username', username);
+            
+            // Pass initData for secure verification
+            if (tg?.initData) {
+                formData.append('init_data', tg.initData);
+            } else {
+                // Fallback for dev
+                formData.append('tg_id', userId);
+                formData.append('tg_username', username);
+            }
+
             if (replace) formData.append('replace', 'true');
 
             const response = await fetch('/shop/buy-api/', {
@@ -451,20 +526,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (balanceAmount) {
                     balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
                 }
+                window.OPTIMISTIC_HAS_SUB = true;
                 if (window.syncNow) window.syncNow();
                 showSuccessAnim(() => {
-                    // Sync again just in case after animation
                     if (window.syncNow) window.syncNow();
+                    showModal({
+                        title: 'Успешно!',
+                        message: 'Подписка успешно оформлена. Теперь вы можете подключиться к нашим серверам.',
+                        icon: 'check_circle',
+                        actionText: 'К подключению',
+                        onAction: () => {
+                            window.activateTabById('view-connection', 'Подключение');
+                        }
+                    });
                 });
             } else if (data.error === 'insufficient_funds') {
                 hideLoading();
-                showModal({
-                    title: 'Недостаточно средств',
-                    message: `Для покупки этого тарифа вам не хватает ${data.missing_amount.toFixed(2)} ₽. Пополните баланс на сумму тарифа (${price} ₽) и попробуйте снова.`,
-                    icon: 'account_balance_wallet',
-                    actionText: `Пополнить на ${price} ₽`,
-                    onAction: () => { performTopup(price); }
-                });
+                handleTopup(Math.ceil(data.missing_amount));
             } else {
                 hideLoading();
                 showModal({
@@ -491,6 +569,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const tg = window.Telegram?.WebApp;
         const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
         const username = tg?.initDataUnsafe?.user?.username || MOCK_USER_DATA?.username;
+
+        if (!userId || userId === 'undefined') {
+            showModal({
+                title: 'Ошибка',
+                message: 'Ваш профиль еще не загружен. Пожалуйста, попробуйте снова через секунду.',
+                icon: 'hourglass_empty',
+                actionText: 'Ок',
+                onAction: hideModal
+            });
+            return;
+        }
 
         // If user already has an active subscription — show replacement confirmation
         if (window.HAS_ACTIVE_SUB) {
@@ -580,15 +669,32 @@ document.addEventListener('DOMContentLoaded', () => {
             actionText: 'Продлить',
             onAction: async () => {
                 hideModal();
-                showLoading('Продление подписки...');
                 const tg = window.Telegram?.WebApp;
                 const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
 
+                if (!userId || userId === 'undefined') {
+                    showModal({
+                        title: 'Ошибка',
+                        message: 'Ваш профиль еще не загружен.',
+                        icon: 'error',
+                        actionText: 'Ок',
+                        onAction: hideModal
+                    });
+                    return;
+                }
+
+                showLoading('Продление подписки...');
+
                 try {
                     const formData = new FormData();
-                    formData.append('tg_id', userId);
                     formData.append('months', months);
                     formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+                    if (tg?.initData) {
+                        formData.append('init_data', tg.initData);
+                    } else {
+                        formData.append('tg_id', userId);
+                    }
 
                     const response = await fetch('/shop/extend-sub-api/', {
                         method: 'POST',
@@ -598,12 +704,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     const data = await response.json();
 
                     if (response.ok && data.success) {
+                        if (window.syncNow) window.syncNow();
                         showSuccessAnim(() => {
                             const balanceAmount = document.getElementById('profile-balance');
                             if (balanceAmount) {
                                 balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
                             }
-                            if (window.syncNow) window.syncNow();
                             showModal({
                                 title: 'Успешно!',
                                 message: `Подписка продлена на ${months} мес.`,
@@ -617,13 +723,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         });
                     } else if (data.error === 'insufficient_funds') {
                         hideLoading();
-                        showModal({
-                            title: 'Недостаточно средств',
-                            message: `Для продления вам не хватает ${data.missing_amount.toFixed(2)} ₽. Пополните баланс и попробуйте снова.`,
-                            icon: 'account_balance_wallet',
-                            actionText: `Пополнить на ${price} ₽`,
-                            onAction: () => performTopup(price)
-                        });
+                        handleTopup(Math.ceil(data.missing_amount));
                     } else {
                         hideLoading();
                         showModal({
@@ -674,10 +774,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.openSubLink = () => {
         if (!currentSubLink) return;
-        if (window.Telegram && window.Telegram.WebApp) {
-            window.Telegram.WebApp.openLink(currentSubLink);
+
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink) {
+            // Inside Telegram Mini App: happ:// can't be opened directly from WebView.
+            // Open our server-side redirect page in the system browser via Telegram API —
+            // the system browser handles the happ:// deep link correctly.
+            const redirectUrl = window.location.origin
+                + '/connect/open-sub/?link='
+                + encodeURIComponent(currentSubLink);
+            window.Telegram.WebApp.openLink(redirectUrl, { try_instant_view: false });
         } else {
-            window.open(currentSubLink, '_blank');
+            // Regular browser: direct deep link works fine
+            window.location.href = 'happ://' + currentSubLink;
         }
     };
 
@@ -685,10 +793,34 @@ document.addEventListener('DOMContentLoaded', () => {
         const tg = window.Telegram?.WebApp;
         const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
 
+        if (!userId || userId === 'undefined') {
+            showModal({
+                title: 'Ошибка',
+                message: 'Ваш профиль еще не загружен. Пожалуйста, подождите секунду и попробуйте снова.',
+                icon: 'hourglass_empty',
+                actionText: 'Ок',
+                onAction: hideModal
+            });
+            return;
+        }
+
         showLoading('Получение ссылки...');
         try {
-            const response = await fetch(`/shop/get-sub-link-api/?tg_id=${userId}`);
-            const data = await response.json();
+            const params = new URLSearchParams();
+            if (tg?.initData) {
+                params.append('init_data', tg.initData);
+            } else {
+                params.append('tg_id', userId);
+            }
+
+            const response = await fetch(`/shop/get-sub-link-api/?${params.toString()}`);
+            
+            let data;
+            try {
+                data = await response.json();
+            } catch (e) {
+                throw new Error('Invalid JSON response');
+            }
 
             if (response.ok && data.success && data.link) {
                 showSuccessAnim(() => {
@@ -714,10 +846,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
         } catch (error) {
+            console.error('handleConnect error:', error);
             hideLoading();
             showModal({
                 title: 'Ошибка',
-                message: 'Не удалось получить ссылку.',
+                message: 'Не удалось получить ссылку. Проверьте интернет-соединение или попробуйте позже.',
                 icon: 'cloud_off',
                 actionText: 'Ок',
                 onAction: hideModal
@@ -725,9 +858,133 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    window.handleSetNodeStatus = (nodeId, nodeDataStr) => {
+        const node = JSON.parse(decodeURIComponent(nodeDataStr));
+        const tg = window.Telegram?.WebApp;
+        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+
+        if (!userId || userId === 'undefined') {
+            alert('Профиль не загружен');
+            return;
+        }
+
+        const customHtml = `
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 15px; text-align: left;">
+                <label class="bounce" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255,255,255,0.05); border-radius: 16px; cursor: pointer;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span class="material-symbols-rounded" style="color: var(--md-sys-color-primary);">tune</span>
+                        <span style="font-size: 14px; font-weight: 500;">Ручное управление</span>
+                    </div>
+                    <div class="switch-ui">
+                        <input type="checkbox" id="modal-use-manual" ${node.use_manual_status ? 'checked' : ''} style="display: none;">
+                        <span class="slider round"></span>
+                    </div>
+                </label>
+                
+                <label id="manual-online-wrapper" class="bounce" style="display: ${node.use_manual_status ? 'flex' : 'none'}; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255,255,255,0.05); border-radius: 16px; cursor: pointer;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span class="material-symbols-rounded" id="manual-online-icon" style="color: ${node.manual_is_online ? '#4CAF50' : '#F44336'};">
+                            ${node.manual_is_online ? 'cloud_done' : 'cloud_off'}
+                        </span>
+                        <span style="font-size: 14px; font-weight: 500;" id="manual-online-text">
+                            ${node.manual_is_online ? 'Статус: ОНЛАЙН' : 'Статус: ОФФЛАЙН'}
+                        </span>
+                    </div>
+                    <div class="switch-ui">
+                        <input type="checkbox" id="modal-manual-online" ${node.manual_is_online ? 'checked' : ''} style="display: none;">
+                        <span class="slider round"></span>
+                    </div>
+                </label>
+            </div>
+            <style>
+                .switch-ui { position: relative; display: inline-block; width: 40px; height: 22px; pointer-events: none; }
+                .slider { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); transition: .4s; border-radius: 34px; }
+                .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+                input:checked + .slider { background-color: var(--md-sys-color-primary); }
+                input:checked + .slider:before { transform: translateX(18px); }
+            </style>
+        `;
+
+        showModal({
+            title: 'Статус сервера',
+            message: `Настройте параметры ноды #${nodeId}:`,
+            icon: 'dns',
+            actionText: 'Сохранить',
+            showInput: true,
+            inputValue: node.custom_status || '',
+            inputPlaceholder: 'Кастомный текст статуса...',
+            customHtml: customHtml,
+            onAction: async () => {
+                const statusText = modalAmountInput.value;
+                const useManual = document.getElementById('modal-use-manual').checked;
+                const manualOnline = document.getElementById('modal-manual-online').checked;
+
+                try {
+                    const formData = new FormData();
+                    formData.append('node_id', nodeId);
+                    formData.append('status_text', statusText);
+                    formData.append('use_manual_status', useManual);
+                    formData.append('manual_is_online', manualOnline);
+
+                    if (tg?.initData) {
+                        formData.append('init_data', tg.initData);
+                    } else {
+                        formData.append('tg_id', userId);
+                    }
+
+                    const response = await fetch('/connect/set-node-status-api/', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (response.ok) {
+                        if (window.syncNow) window.syncNow();
+                    } else {
+                        alert('Ошибка сохранения статуса');
+                    }
+                } catch (e) {
+                    console.error('Failed to set node status:', e);
+                }
+            }
+        });
+
+        // Event listeners for switches
+        const useManualCheck = document.getElementById('modal-use-manual');
+        const manualOnlineCheck = document.getElementById('modal-manual-online');
+        const manualOnlineWrapper = document.getElementById('manual-online-wrapper');
+        const onlineIcon = document.getElementById('manual-online-icon');
+        const onlineText = document.getElementById('manual-online-text');
+
+        if (useManualCheck) {
+            useManualCheck.onchange = (e) => {
+                manualOnlineWrapper.style.display = e.target.checked ? 'flex' : 'none';
+            };
+        }
+        
+        if (manualOnlineCheck) {
+            manualOnlineCheck.onchange = (e) => {
+                const isOnline = e.target.checked;
+                onlineIcon.style.color = isOnline ? '#4CAF50' : '#F44336';
+                onlineIcon.textContent = isOnline ? 'cloud_done' : 'cloud_off';
+                onlineText.textContent = isOnline ? 'Статус: ОНЛАЙН' : 'Статус: ОФФЛАЙН';
+            };
+        }
+    };
+
     window.handleBuySlot = async () => {
         const tg = window.Telegram?.WebApp;
         const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+
+        if (!userId || userId === 'undefined') {
+            showModal({
+                title: 'Ошибка',
+                message: 'Ваш профиль еще не загружен.',
+                icon: 'error',
+                actionText: 'Ок',
+                onAction: hideModal
+            });
+            return;
+        }
 
         showModal({
             title: 'Купить доп. слот',
@@ -738,8 +995,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 showLoading('Покупка слота...');
                 try {
                     const formData = new FormData();
-                    formData.append('tg_id', userId);
                     formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+                    if (tg?.initData) {
+                        formData.append('init_data', tg.initData);
+                    } else {
+                        formData.append('tg_id', userId);
+                    }
 
                     const response = await fetch('/shop/buy-slot-api/', {
                         method: 'POST',
@@ -759,15 +1021,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         });
                     } else if (data.error === 'insufficient_funds') {
                         hideLoading();
-                        showModal({
-                            title: 'Недостаточно средств',
-                            message: `Вам не хватает ${data.missing_amount.toFixed(2)} ₽.`,
-                            icon: 'account_balance_wallet',
-                            actionText: `Пополнить`,
-                            onAction: () => {
-                                handleTopup();
-                            }
-                        });
+                        handleTopup(Math.ceil(data.missing_amount));
                     } else {
                         hideLoading();
                         showModal({
@@ -800,16 +1054,32 @@ document.addEventListener('DOMContentLoaded', () => {
             actionText: 'Удалить',
             onAction: async () => {
                 hideModal();
-                showLoading('Удаление устройства...');
-
                 const tg = window.Telegram?.WebApp;
                 const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
 
+                if (!userId || userId === 'undefined') {
+                    showModal({
+                        title: 'Ошибка',
+                        message: 'Ваш профиль еще не загружен.',
+                        icon: 'error',
+                        actionText: 'Ок',
+                        onAction: hideModal
+                    });
+                    return;
+                }
+
+                showLoading('Удаление устройства...');
+
                 try {
                     const formData = new FormData();
-                    formData.append('tg_id', userId);
                     formData.append('hwid', hwid);
                     formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+                    if (tg?.initData) {
+                        formData.append('init_data', tg.initData);
+                    } else {
+                        formData.append('tg_id', userId);
+                    }
 
                     const response = await fetch('/shop/delete-hwid-device-api/', {
                         method: 'POST',
@@ -820,6 +1090,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (response.ok && data.success) {
                         hideLoading();
+                        if (window.syncNow) window.syncNow();
                         // Animate row out
                         const row = document.getElementById(`device-row-${rowIndex}`);
                         if (row) {
@@ -917,15 +1188,66 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateUIWithSyncData(data) {
         if (!data.success) return;
 
-        // Update Balance
+        // Update Balance and Profile Details
         if (data.profile) {
             const balanceEl = document.getElementById('profile-balance');
             if (balanceEl) balanceEl.textContent = `${data.profile.balance.toFixed(0)} ₽`;
             
+            const tarifNameEl = document.getElementById('profile-tarif-name');
+            if (tarifNameEl) tarifNameEl.textContent = data.profile.tarif_name;
+
+            // Update global tariff variables for Extension menu
+            if (data.profile.tarif_price) window.CURRENT_TARIFF_PRICE = data.profile.tarif_price;
+            if (data.profile.tarif_days) window.CURRENT_TARIFF_DAYS = data.profile.tarif_days;
+
             // Update HAS_ACTIVE_SUB flag
-            window.HAS_ACTIVE_SUB = !!data.rw_user;
+            // Use OR with OPTIMISTIC_HAS_SUB to avoid flickering right after purchase
+            window.HAS_ACTIVE_SUB = !!data.rw_user || !!window.OPTIMISTIC_HAS_SUB;
             if (data.rw_user) {
                 window.CURRENT_TARIFF_NAME = data.profile.tarif_name;
+                window.OPTIMISTIC_HAS_SUB = false; // Reset once we have real data from Remnawave
+            }
+        }
+
+        // Update Proxy
+        const proxyContainer = document.getElementById('proxy-container');
+        if (proxyContainer) {
+            if (data.proxies && data.proxies.length > 0) {
+                let proxiesHtml = '';
+                data.proxies.forEach(proxy => {
+                    proxiesHtml += `
+                    <div class="proxy-section" style="margin-top: 10px; padding: 18px; background: var(--panel-bg); border-radius: 24px; position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);">
+                        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 16px; position: relative; z-index: 1;">
+                            <div style="width: 44px; height: 44px; border-radius: 14px; background: rgba(208, 188, 255, 0.08); color: var(--md-sys-color-primary); display: flex; align-items: center; justify-content: center;">
+                                <span class="material-symbols-rounded" style="font-size: 24px;">send</span>
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <h4 style="margin: 0; font-size: 15px; font-weight: 500; color: #FFFFFF;">${proxy.name}</h4>
+                                </div>
+                                <span style="font-size: 12px; opacity: 0.5; color: #E6E1E5; display: block; margin-top: 2px;">Обход ограничений (Прокси)</span>
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; position: relative; z-index: 1;">
+                            <button class="action-btn bounce" 
+                                    style="flex: 1; height: 48px; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border-radius: 14px; font-weight: 600; font-size: 14px;" 
+                                    onclick="handleProxyConnect('${proxy.connection_url}', '${proxy.name}')">
+                                <span class="material-symbols-rounded" style="font-size: 20px;">bolt</span>
+                                Подключить
+                            </button>
+                            <button class="action-btn bounce" 
+                                    style="width: 48px; height: 48px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; display: flex; align-items: center; justify-content: center; padding: 0;" 
+                                    onclick="copyProxyLink('${proxy.connection_url}')"
+                                    title="Скопировать ссылку">
+                                <span class="material-symbols-rounded" style="font-size: 20px; color: #FFFFFF; opacity: 0.7;">content_copy</span>
+                            </button>
+                        </div>
+                    </div>`;
+                });
+                proxyContainer.innerHTML = proxiesHtml;
+            } else {
+                proxyContainer.innerHTML = '';
             }
         }
 
@@ -964,49 +1286,62 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update Connection View Status
         const connectionSubInfo = document.querySelector('#view-connection .subscription-info');
         if (connectionSubInfo && data.profile) {
-            const username = document.getElementById('connection-username').textContent;
-            let connHtml = `
-                <div class="info-item">
-                    <span class="label">Пользователь</span>
-                    <span class="value" id="connection-username">${username}</span>
-                </div>`;
+            const daysEl = document.getElementById('connection-remaining-days');
+            const getBtn = document.getElementById('btn-get-link');
+            const resultEl = document.getElementById('connection-result');
             
-            if (data.rw_user) {
-                connHtml += `
+            const wasActive = !!getBtn;
+            const isActive = !!data.rw_user;
+
+            if (wasActive !== isActive) {
+                // Redraw everything only if status changed
+                const username = document.getElementById('connection-username')?.textContent || `@${tg?.initDataUnsafe?.user?.username || MOCK_USER_DATA?.username || 'user'}`;
+                let connHtml = `
                     <div class="info-item">
-                        <span class="label">Статус</span>
-                        <span class="value" style="color: #4CAF50;">Активен</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="label">Осталось времени</span>
-                        <span class="value" id="connection-remaining-days">${data.rw_user.remaining_days} дней</span>
-                    </div>
-                    <button id="btn-get-link" class="action-btn bounce" style="margin-top: 16px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="handleConnect()">
-                        <span class="material-symbols-rounded">link</span>
-                        Получить ссылку для подключения
-                    </button>
-                    <div id="connection-result" style="display: none; margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
-                        <span style="font-size: 14px; color: var(--panel-icon); text-align: center;">Отсканируйте QR-код или скопируйте ссылку для настройки вашего VPN-клиента</span>
-                        <img id="qr-code-img" src="" alt="QR Code" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px;">
-                        <div style="display: flex; gap: 8px; width: 100%;">
-                            <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: rgba(255,255,255,0.1);" onclick="copySubLink()">
-                                <span class="material-symbols-rounded" style="font-size: 20px;">content_copy</span>
-                                Скопировать
-                            </button>
-                            <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="openSubLink()">
-                                <span class="material-symbols-rounded" style="font-size: 20px;">open_in_new</span>
-                                Подключить
-                            </button>
-                        </div>
+                        <span class="label">Пользователь</span>
+                        <span class="value" id="connection-username">${username}</span>
                     </div>`;
-            } else {
-                connHtml += `
-                    <button class="action-btn bounce" style="margin-top: 16px; opacity: 0.5;" disabled>
-                        <span class="material-symbols-rounded">link_off</span>
-                        Нет активной подписки
-                    </button>`;
+                
+                if (isActive) {
+                    connHtml += `
+                        <div class="info-item">
+                            <span class="label">Статус</span>
+                            <span class="value" style="color: #4CAF50;">Активен</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Осталось времени</span>
+                            <span class="value" id="connection-remaining-days">${data.rw_user.remaining_days} дней</span>
+                        </div>
+                        <button id="btn-get-link" class="action-btn bounce" style="margin-top: 16px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="handleConnect()">
+                            <span class="material-symbols-rounded">link</span>
+                            Получить ссылку для подключения
+                        </button>
+                        <div id="connection-result" style="display: none; margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
+                            <span style="font-size: 14px; color: var(--panel-icon); text-align: center;">Отсканируйте QR-код или скопируйте ссылку для настройки вашего VPN-клиента</span>
+                            <img id="qr-code-img" src="" alt="QR Code" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px;">
+                            <div style="display: flex; gap: 8px; width: 100%;">
+                                <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: rgba(255,255,255,0.1);" onclick="copySubLink()">
+                                    <span class="material-symbols-rounded" style="font-size: 20px;">content_copy</span>
+                                    Скопировать
+                                </button>
+                                <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="showInstructions()">
+                                    <span class="material-symbols-rounded" style="font-size: 20px;">open_in_new</span>
+                                    Подключить
+                                </button>
+                            </div>
+                        </div>`;
+                } else {
+                    connHtml += `
+                        <button class="action-btn bounce" style="margin-top: 16px; opacity: 0.5;" disabled>
+                            <span class="material-symbols-rounded">link_off</span>
+                            Нет активной подписки
+                        </button>`;
+                }
+                connectionSubInfo.innerHTML = connHtml;
+            } else if (isActive) {
+                // If already active, just update the values without touching the rest of DOM
+                if (daysEl) daysEl.textContent = `${data.rw_user.remaining_days} дней`;
             }
-            connectionSubInfo.innerHTML = connHtml;
         }
 
         // Update Tariff Cards (Owned status)
@@ -1047,40 +1382,60 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update Nodes (Server Status)
         const onlineCountEl = document.getElementById('online-count-display');
         const offlineCountEl = document.getElementById('offline-count-display');
-        if (onlineCountEl) onlineCountEl.textContent = `${data.online_count} онлайн`;
-        if (offlineCountEl) offlineCountEl.textContent = `${data.offline_count} недоступно`;
+        if (onlineCountEl && data.online_count !== undefined) onlineCountEl.textContent = `${data.online_count} онлайн`;
+        if (offlineCountEl && data.offline_count !== undefined) offlineCountEl.textContent = `${data.offline_count} недоступно`;
 
         const nodesContainer = document.getElementById('nodes-list-container');
         if (nodesContainer && data.nodes) {
-            let nodesHtml = '';
-            data.nodes.forEach(node => {
-                nodesHtml += `
-                    <div class="server-selector bounce" style="margin-top: 10px;">
-                        <div class="server-info">
-                            <div class="server-icon-wrapper">
-                                ${node.countryCode ? `
-                                    <img src="https://flagcdn.com/w80/${node.countryCode.toLowerCase()}.png" 
-                                         class="flag-img" 
-                                         alt="${node.countryCode}">
-                                ` : `
-                                    <span class="material-symbols-rounded">
-                                        ${node.isConnected ? 'lan' : 'lan_off'}
+            // Only update nodes UI if we have data OR if the empty list is not an error
+            if (data.nodes.length > 0 || !data.nodes_error) {
+                let nodesHtml = '';
+                data.nodes.forEach(node => {
+                    let isOnline = node.isConnected;
+                    let statusText = isOnline ? 'Доступно' : 'Недоступно';
+                    let statusColor = isOnline ? '#4CAF50' : '#F44336';
+
+                    if (node.use_manual_status) {
+                        isOnline = node.manual_is_online;
+                        statusText = node.custom_status || (isOnline ? 'Доступно' : 'Недоступно');
+                        statusColor = isOnline ? '#4CAF50' : '#F44336';
+                        if (node.custom_status) statusColor = '#BB86FC';
+                    } else if (node.custom_status) {
+                        statusText = node.custom_status;
+                        statusColor = '#BB86FC';
+                    }
+
+                    const nodeJson = encodeURIComponent(JSON.stringify(node));
+
+                    nodesHtml += `
+                        <div class="server-selector bounce" style="margin-top: 10px;"
+                             ${data.is_admin ? `onclick="handleSetNodeStatus('${node.id}', '${nodeJson}')"` : ''}>
+                            <div class="server-info">
+                                <div class="server-icon-wrapper">
+                                    ${node.countryCode ? `
+                                        <img src="https://flagcdn.com/w80/${node.countryCode.toLowerCase()}.png" 
+                                             class="flag-img" 
+                                             alt="${node.countryCode}">
+                                    ` : `
+                                        <span class="material-symbols-rounded">
+                                            ${node.isConnected ? 'lan' : 'lan_off'}
+                                        </span>
+                                    `}
+                                </div>
+                                <div class="server-details">
+                                    <span class="server-name">${node.display_name}</span>
+                                    <span class="server-ping">
+                                        <span style="color: ${statusColor}; font-weight: 500;">${statusText}</span>
                                     </span>
-                                `}
+                                </div>
                             </div>
-                            <div class="server-details">
-                                <span class="server-name">${node.display_name}</span>
-                                <span class="server-ping">
-                                    ${node.isConnected ? 
-                                        '<span style="color: #4CAF50; font-weight: 500;">Доступно</span>' : 
-                                        '<span style="color: #F44336;">Недоступно</span>'}
-                                </span>
-                            </div>
-                        </div>
-                        <span class="material-symbols-rounded" style="opacity: 0.3; font-size: 20px;">chevron_right</span>
-                    </div>`;
-            });
-            nodesContainer.innerHTML = nodesHtml;
+                            ${data.is_admin ? '<span class="material-symbols-rounded" style="opacity: 0.3; font-size: 20px;">chevron_right</span>' : ''}
+                        </div>`;
+                });
+                nodesContainer.innerHTML = nodesHtml;
+            } else {
+                console.warn('Sync nodes error or empty while error flag set, keeping previous list');
+            }
         }
 
         // Update Devices
@@ -1131,6 +1486,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 devicesContainer.innerHTML = devicesHtml;
             }
         }
+        
+        // Update Slot Purchase Section
+        const slotContainer = document.getElementById('slot-purchase-container');
+        if (slotContainer) {
+            if (data.rw_user) {
+                slotContainer.innerHTML = `
+                    <div class="settings-section">
+                        <div class="settings-section-header">
+                            <span class="settings-section-label">Слоты устройств</span>
+                        </div>
+                        <div class="settings-block">
+                            <div class="slot-info-row">
+                                <div class="slot-info-icon">
+                                    <span class="material-symbols-rounded">add_circle</span>
+                                </div>
+                                <div class="slot-info-text">
+                                    <span class="slot-info-title">Дополнительный слот</span>
+                                    <span class="slot-info-sub">Подключите ещё одно устройство</span>
+                                </div>
+                                <button class="slot-buy-btn bounce" onclick="handleBuySlot()">
+                                    100 ₽
+                                </button>
+                            </div>
+                        </div>
+                    </div>`;
+            } else {
+                slotContainer.innerHTML = '';
+            }
+        }
 
         // Update Payment History
         const historyContainer = document.getElementById('history-list-container');
@@ -1178,12 +1562,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function startDataSync() {
         const tg = window.Telegram?.WebApp;
-        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
-        if (!userId) return;
-
+        
         window.syncNow = async () => {
+            const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+            if (!userId || userId === 'undefined') {
+                console.warn('Sync skipped: userId not ready');
+                return;
+            }
+
+            let url = `/shop/sync-data-api/`;
+            const params = new URLSearchParams();
+            
+            if (tg?.initData) {
+                params.append('init_data', tg.initData);
+            } else {
+                params.append('tg_id', userId);
+            }
+            
             try {
-                const response = await fetch(`/shop/sync-data-api/?tg_id=${userId}`);
+                const response = await fetch(`${url}?${params.toString()}`);
                 if (response.ok) {
                     const data = await response.json();
                     updateUIWithSyncData(data);
@@ -1193,11 +1590,326 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        // Poll every 30 seconds
-        setInterval(window.syncNow, 30000);
+        // Poll every 5 seconds
+        setInterval(window.syncNow, 5000);
         
-        // Initial sync
+        // Initial sync attempt
         window.syncNow();
+    }
+
+    // --- Instruction Carousel Logic ---
+    let currentInstrSlide = 0;
+    const totalInstrSlides = 4;
+    
+    let galleriesInitialized = false;
+    
+    function initInstructionGalleries() {
+        if (galleriesInitialized) return;
+        galleriesInitialized = true;
+        
+        const galleries = document.querySelectorAll('.instruction-images');
+        galleries.forEach(gallery => {
+            let isDown = false;
+            let startX;
+            let scrollLeft;
+            let hasDragged = false; // track if real drag happened (to block click)
+
+            // Prevent native image drag inside gallery
+            gallery.querySelectorAll('img').forEach(img => {
+                img.setAttribute('draggable', 'false');
+                img.addEventListener('dragstart', e => e.preventDefault());
+            });
+
+            gallery.addEventListener('mousedown', (e) => {
+                isDown = true;
+                hasDragged = false;
+                gallery.classList.add('dragging');
+                startX = e.pageX - gallery.offsetLeft;
+                scrollLeft = gallery.scrollLeft;
+                e.preventDefault(); // prevent text/image selection
+            });
+
+            gallery.addEventListener('mouseleave', () => {
+                if (!isDown) return;
+                isDown = false;
+                gallery.classList.remove('dragging');
+                gallery.style.scrollSnapType = 'x mandatory';
+            });
+
+            gallery.addEventListener('mouseup', () => {
+                isDown = false;
+                gallery.classList.remove('dragging');
+                gallery.style.scrollSnapType = 'x mandatory';
+            });
+
+            gallery.addEventListener('mousemove', (e) => {
+                if (!isDown) return;
+                e.preventDefault();
+                const x = e.pageX - gallery.offsetLeft;
+                const delta = x - startX;
+                // Only disable snap once actual drag starts (threshold 5px)
+                if (Math.abs(delta) > 5) {
+                    hasDragged = true;
+                    gallery.style.scrollSnapType = 'none';
+                }
+                gallery.scrollLeft = scrollLeft - delta;
+            });
+
+            // Block click on images if we actually dragged
+            gallery.addEventListener('click', (e) => {
+                if (hasDragged) e.stopPropagation();
+            }, true);
+
+            gallery.style.cursor = 'grab';
+            gallery.style.userSelect = 'none';
+            
+            // Dot updates on scroll
+            gallery.addEventListener('scroll', () => {
+                const images = gallery.querySelectorAll('img');
+                if (images.length === 0) return;
+                const imageWidth = gallery.clientWidth * 0.9;
+                let activeIndex = Math.round(gallery.scrollLeft / imageWidth);
+                if (activeIndex < 0) activeIndex = 0;
+                if (activeIndex >= images.length) activeIndex = images.length - 1;
+                
+                const dotsContainer = gallery.nextElementSibling;
+                if (dotsContainer && dotsContainer.classList.contains('gallery-dots')) {
+                    dotsContainer.querySelectorAll('.dot').forEach((dot, idx) => {
+                        dot.classList.toggle('active', idx === activeIndex);
+                    });
+                }
+            });
+        });
+
+        // Drag-to-swipe for the main carousel track on PC
+        const track = document.getElementById('instruction-track');
+        const container = track ? track.parentElement : null;
+        if (track && container) {
+            let trackDown = false;
+            let trackStartX;
+            let trackDragged = false;
+
+            container.addEventListener('mousedown', (e) => {
+                // Only start if not inside a gallery
+                if (e.target.closest('.instruction-images')) return;
+                trackDown = true;
+                trackDragged = false;
+                trackStartX = e.pageX;
+                e.preventDefault();
+            });
+
+            window.addEventListener('mouseup', () => {
+                if (!trackDown) return;
+                trackDown = false;
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!trackDown) return;
+                const delta = e.pageX - trackStartX;
+                if (Math.abs(delta) > 30) {
+                    trackDragged = true;
+                    trackDown = false;
+                    if (delta < 0) {
+                        window.nextInstructionSlide();
+                    } else {
+                        window.prevInstructionSlide();
+                    }
+                }
+            });
+
+            // Block click events that follow a drag
+            container.addEventListener('click', (e) => {
+                if (trackDragged) {
+                    e.stopPropagation();
+                    trackDragged = false;
+                }
+            }, true);
+        }
+    }
+
+    window.showInstructions = () => {
+        const overlay = document.getElementById('instruction-overlay');
+        if (overlay) {
+            // Move to body to prevent transform containment issues on mobile
+            if (overlay.parentElement !== document.body) {
+                document.body.appendChild(overlay);
+            }
+
+            // Reset slide BEFORE making overlay visible to avoid
+            // accidental clicks on slide-4's openSubLink() button
+            currentInstrSlide = 0;
+            updateInstructionCarousel();
+
+            overlay.style.display = 'flex';
+            // Temporarily block pointer events on slides during open animation
+            const track = document.getElementById('instruction-track');
+            if (track) {
+                track.style.pointerEvents = 'none';
+                setTimeout(() => { track.style.pointerEvents = ''; }, 350);
+            }
+            // Force reflow
+            void overlay.offsetWidth;
+            overlay.classList.add('active');
+
+            initInstructionGalleries();
+            try {
+                detectAndHighlightPlatform();
+            } catch (e) { console.error(e); }
+        }
+    };
+    
+    window.downloadHiddify = (platform) => {
+        let url = 'https://happ.su/';
+        if (platform === 'ios' || platform === 'mac') {
+            url = 'https://apps.apple.com/us/app/happ-proxy-utility/id6504287215';
+        } else if (platform === 'android') {
+            url = 'https://play.google.com/store/apps/details?id=com.happproxy';
+        } else if (platform === 'windows') {
+            url = 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe';
+        }
+        
+        if (window.Telegram && window.Telegram.WebApp) {
+            window.Telegram.WebApp.openLink(url);
+        } else {
+            window.open(url, '_blank');
+        }
+    };
+
+    function detectAndHighlightPlatform() {
+        let platform = 'unknown';
+        const tgPlatform = window.Telegram?.WebApp?.platform;
+        
+        if (tgPlatform) {
+            if (tgPlatform === 'android') platform = 'android';
+            else if (tgPlatform === 'ios') platform = 'ios';
+            else if (tgPlatform === 'macos' || tgPlatform === 'mac') platform = 'mac';
+            else if (tgPlatform === 'windows' || tgPlatform === 'tdesktop') platform = 'windows';
+        }
+        
+        if (platform === 'unknown') {
+            const ua = navigator.userAgent.toLowerCase();
+            if (/android/.test(ua)) platform = 'android';
+            else if (/iphone|ipad|ipod/.test(ua)) platform = 'ios';
+            else if (/mac/.test(ua)) platform = 'mac';
+            else if (/win/.test(ua)) platform = 'windows';
+        }
+        
+        document.querySelectorAll('.platform-btn').forEach(btn => {
+            btn.classList.remove('recommended');
+            const btnPlatform = btn.getAttribute('data-platform');
+            if (btnPlatform === platform || (btnPlatform === 'ios' && platform === 'mac')) {
+                btn.classList.add('recommended');
+            }
+        });
+    }
+
+    window.closeInstructions = () => {
+        const overlay = document.getElementById('instruction-overlay');
+        if (overlay) {
+            overlay.classList.remove('active');
+            setTimeout(() => {
+                overlay.style.display = 'none';
+            }, 300); // match transition duration
+        }
+    };
+    
+    window.nextInstructionSlide = () => {
+        if (currentInstrSlide < totalInstrSlides - 1) {
+            currentInstrSlide++;
+            updateInstructionCarousel();
+        }
+    };
+    
+    window.skipToLastSlide = () => {
+        currentInstrSlide = totalInstrSlides - 1;
+        updateInstructionCarousel();
+    };
+    
+    window.prevInstructionSlide = () => {
+        if (currentInstrSlide > 0) {
+            currentInstrSlide--;
+            updateInstructionCarousel();
+        }
+    };
+    
+    function updateInstructionCarousel() {
+        const track = document.getElementById('instruction-track');
+        const dots = document.querySelectorAll('#carousel-dots .dot');
+        const prevBtn = document.getElementById('instr-prev-btn');
+        const nextBtn = document.getElementById('instr-next-btn');
+        const skipBtn = document.getElementById('instr-skip-btn');
+        
+        if (track) {
+            track.style.transform = `translateX(-${currentInstrSlide * 25}%)`;
+        }
+        
+        if (dots) {
+            dots.forEach((dot, index) => {
+                dot.classList.toggle('active', index === currentInstrSlide);
+            });
+        }
+        
+        if (prevBtn) {
+            prevBtn.style.visibility = currentInstrSlide === 0 ? 'hidden' : 'visible';
+        }
+        
+        if (skipBtn) {
+            skipBtn.style.display = currentInstrSlide === totalInstrSlides - 1 ? 'none' : 'block';
+        }
+        
+        if (nextBtn) {
+            if (currentInstrSlide === totalInstrSlides - 1) {
+                nextBtn.style.display = 'none';
+            } else {
+                nextBtn.style.display = 'block';
+                
+                if (currentInstrSlide === 0) {
+                    nextBtn.innerText = 'Далее';
+                    nextBtn.style.opacity = '1';
+                    nextBtn.disabled = false;
+                } else {
+                    nextBtn.innerText = 'Я всё выполнил';
+                    
+                    const currentSlideElement = document.querySelectorAll('.carousel-slide')[currentInstrSlide];
+                    const gallery = currentSlideElement.querySelector('.instruction-images');
+                    
+                    if (gallery) {
+                        const checkScroll = () => {
+                            if (gallery.clientWidth > 0 && gallery.scrollLeft + gallery.clientWidth >= gallery.scrollWidth - 10) {
+                                return true;
+                            }
+                            return false;
+                        };
+                        
+                        if (checkScroll() || gallery.dataset.scrolledToEnd === 'true') {
+                            nextBtn.style.opacity = '1';
+                            nextBtn.disabled = false;
+                        } else {
+                            nextBtn.style.opacity = '0.3';
+                            nextBtn.disabled = true;
+                            
+                            if (!gallery.dataset.hasScrollListener) {
+                                gallery.dataset.hasScrollListener = 'true';
+                                gallery.addEventListener('scroll', () => {
+                                    if (checkScroll()) {
+                                        gallery.dataset.scrolledToEnd = 'true';
+                                        // Update button if we are still on this slide
+                                        const slides = Array.from(document.querySelectorAll('.carousel-slide'));
+                                        if (currentInstrSlide === slides.indexOf(currentSlideElement)) {
+                                            nextBtn.style.opacity = '1';
+                                            nextBtn.disabled = false;
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    } else {
+                        nextBtn.style.opacity = '1';
+                        nextBtn.disabled = false;
+                    }
+                }
+            }
+        }
     }
 
     startDataSync();

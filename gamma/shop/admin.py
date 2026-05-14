@@ -7,6 +7,7 @@ class TariffAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "has_proxy_bypass")
     search_fields = ("name", "description")
     list_editable = ("price", "is_active", "has_proxy_bypass")
+    filter_horizontal = ("proxies",)
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):

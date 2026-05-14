@@ -26,7 +26,7 @@
                         <span class="material-symbols-rounded" style="font-size: 20px;">content_copy</span>
                         Скопировать
                     </button>
-                    <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="openSubLink()">
+                    <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="showInstructions()">
                         <span class="material-symbols-rounded" style="font-size: 20px;">open_in_new</span>
                         Подключить
                     </button>
@@ -39,37 +39,41 @@
             </button>
             {% endif %}
         </div>
-
-        {% if proxy %}
-        <div class="proxy-section" style="margin-top: 10px; padding: 18px; background: var(--panel-bg); border-radius: 24px; position: relative; overflow: hidden;">
+        {% if proxies %}
+            <h3 style="color: var(--md-sys-color-primary); font-weight: 500; font-size: 14px; opacity: 0.8; letter-spacing: 0.5px; text-transform: uppercase; margin: 0;">Прокси</h3>
+        {% endif %}
+        <div id="proxy-container">
+        {% for p in proxies %}
+        <div class="proxy-section" style="margin-top: 10px; padding: 18px; background: var(--panel-bg); border-radius: 24px; position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);">
             <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 16px; position: relative; z-index: 1;">
                 <div style="width: 44px; height: 44px; border-radius: 14px; background: rgba(208, 188, 255, 0.08); color: var(--md-sys-color-primary); display: flex; align-items: center; justify-content: center;">
                     <span class="material-symbols-rounded" style="font-size: 24px;">send</span>
                 </div>
                 <div style="flex: 1;">
                     <div style="display: flex; align-items: center; gap: 6px;">
-                        <h4 style="margin: 0; font-size: 15px; font-weight: 500; color: #FFFFFF;">Прокси для Telegram</h4>
+                        <h4 style="margin: 0; font-size: 15px; font-weight: 500; color: #FFFFFF;">{{ p.name }}</h4>
                     </div>
-                    <span style="font-size: 12px; opacity: 0.5; color: #E6E1E5; display: block; margin-top: 2px;">Обход ограничений мессенджера</span>
+                    <span style="font-size: 12px; opacity: 0.5; color: #E6E1E5; display: block; margin-top: 2px;">Обход ограничений (Прокси)</span>
                 </div>
             </div>
             
             <div style="display: flex; gap: 10px; position: relative; z-index: 1;">
                 <button class="action-btn bounce" 
                         style="flex: 1; height: 48px; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border-radius: 14px; font-weight: 600; font-size: 14px;" 
-                        onclick="handleProxyConnect('{{ proxy.connection_url|escapejs }}', '{{ proxy.name|escapejs }}')">
+                        onclick="handleProxyConnect('{{ p.connection_url|escapejs }}', '{{ p.name|escapejs }}')">
                     <span class="material-symbols-rounded" style="font-size: 20px;">bolt</span>
-                    Подключить к Telegram
+                    Подключить
                 </button>
                 <button class="action-btn bounce" 
                         style="width: 48px; height: 48px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; display: flex; align-items: center; justify-content: center; padding: 0;" 
-                        onclick="copyProxyLink('{{ proxy.connection_url|escapejs }}')"
+                        onclick="copyProxyLink('{{ p.connection_url|escapejs }}')"
                         title="Скопировать ссылку">
                     <span class="material-symbols-rounded" style="font-size: 20px; color: #FFFFFF; opacity: 0.7;">content_copy</span>
                 </button>
             </div>
         </div>
-        {% endif %}
+        {% endfor %}
+        </div>
 
         <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 12px; margin-bottom: -4px;">
             <h3 style="color: var(--md-sys-color-primary); font-weight: 500; font-size: 14px; opacity: 0.8; letter-spacing: 0.5px; text-transform: uppercase; margin: 0;">Локации</h3>
@@ -87,43 +91,138 @@
 
         <div id="nodes-list-container">
             {% for node in nodes %}
-        <div class="server-selector bounce" style="margin-top: 10px;">
-            <div class="server-info">
-                <div class="server-icon-wrapper">
-                    {% if node.countryCode %}
-                        <img src="https://flagcdn.com/w80/{{ node.countryCode|lower }}.png" 
-                             class="flag-img" 
-                             alt="{{ node.countryCode }}">
-                    {% else %}
-                        <span class="material-symbols-rounded">
-                            {% if node.isConnected %}lan{% else %}lan_off{% endif %}
-                        </span>
-                    {% endif %}
-                </div>
-                <div class="server-details">
-                    <span class="server-name">{{ node.display_name }}</span>
-                    <span class="server-ping">
-                        {% if node.isConnected %}
-                            <span style="color: #4CAF50; font-weight: 500;">Доступно</span>
+            <div class="server-selector bounce" style="margin-top: 10px;">
+                <div class="server-info">
+                    <div class="server-icon-wrapper">
+                        {% if node.countryCode %}
+                            <img src="https://flagcdn.com/w80/{{ node.countryCode|lower }}.png" 
+                                 class="flag-img" 
+                                 alt="{{ node.countryCode }}">
                         {% else %}
-                            <span style="color: #F44336;">Недоступно</span>
+                            <span class="material-symbols-rounded">
+                                {% if node.isConnected %}lan{% else %}lan_off{% endif %}
+                            </span>
                         {% endif %}
-                    </span>
+                    </div>
+                    <div class="server-details">
+                        <span class="server-name">{{ node.display_name }}</span>
+                        <span class="server-ping">
+                            {% if node.isConnected %}
+                                <span style="color: #4CAF50; font-weight: 500;">Доступно</span>
+                            {% else %}
+                                <span style="color: #F44336;">Недоступно</span>
+                            {% endif %}
+                        </span>
+                    </div>
+                </div>
+                <span class="material-symbols-rounded" style="opacity: 0.3; font-size: 20px;">chevron_right</span>
+            </div>
+            {% empty %}
+            <div class="server-selector" style="margin-top: 16px; opacity: 0.7;">
+                <div class="server-info">
+                    <span class="material-symbols-rounded">dns</span>
+                    <div class="server-details">
+                        <span class="server-name">Серверы не найдены</span>
+                        <span class="server-ping">Попробуйте позже</span>
+                    </div>
                 </div>
             </div>
-            <span class="material-symbols-rounded" style="opacity: 0.3; font-size: 20px;">chevron_right</span>
+            {% endfor %}
         </div>
-        {% empty %}
-        <div class="server-selector" style="margin-top: 16px; opacity: 0.7;">
-            <div class="server-info">
-                <span class="material-symbols-rounded">dns</span>
-                <div class="server-details">
-                    <span class="server-name">Серверы не найдены</span>
-                    <span class="server-ping">Попробуйте позже</span>
+    </div>
+</div>
+
+<!-- Instruction Modal Overlay -->
+<div id="instruction-overlay" class="instruction-overlay" style="display: none; opacity: 0; transition: opacity 0.3s ease;">
+    <div class="instruction-modal bounce" style="transform: scale(0.9); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+        <div class="instruction-header">
+            <h3>Инструкция</h3>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button class="carousel-btn" id="instr-skip-btn" onclick="skipToLastSlide()" style="font-size: 13px; opacity: 0.7; color: var(--panel-icon); padding: 4px 8px;">Пропустить</button>
+                <span class="material-symbols-rounded instruction-close" onclick="closeInstructions()">close</span>
+            </div>
+        </div>
+        
+        <div class="carousel-container">
+            <div class="carousel-track" id="instruction-track">
+                <!-- Slide 1 -->
+                <div class="carousel-slide">
+                    <div class="slide-content">
+                        <div class="slide-icon"><span class="material-symbols-rounded">download</span></div>
+                        <h4>Шаг 1: Установка</h4>
+                        <p>Скачайте приложение Happ для вашего устройства.</p>
+                        <div class="platform-links">
+                            <a href="javascript:void(0)" onclick="downloadHiddify('ios')" class="platform-btn bounce" data-platform="ios">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                                </svg>
+                                iOS / macOS
+                            </a>
+                            <a href="javascript:void(0)" onclick="downloadHiddify('android')" class="platform-btn bounce" data-platform="android"><span class="material-symbols-rounded">android</span> Android</a>
+                            <a href="javascript:void(0)" onclick="downloadHiddify('windows')" class="platform-btn bounce" data-platform="windows"><span class="material-symbols-rounded">desktop_windows</span> Windows</a>
+                        </div>
+                    </div>
+                </div>
+                <!-- Slide 2 -->
+                <div class="carousel-slide">
+                    <div class="slide-content">
+                        <h4>Шаг 2: Фрагментация</h4>
+                        <p>Зайдите в настройки приложения и включите фрагментацию для обхода блокировок.</p>
+                        <p class="swipe-hint" style="font-size: 11px; opacity: 0.5; margin: -8px 0 4px 0;"><span class="material-symbols-rounded" style="font-size: 14px; vertical-align: middle;">swipe</span> Свайпните фото 👈</p>
+                        <div class="instruction-images">
+                            <img src="/static/insructions/settings.jpg" alt="Настройки" draggable="false">
+                            <img src="/static/insructions/frag.jpg" alt="Фрагментация" draggable="false">
+                        </div>
+                        <div class="gallery-dots">
+                            <div class="dot active"></div>
+                            <div class="dot"></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Slide 3 -->
+                <div class="carousel-slide">
+                    <div class="slide-content">
+                        <h4>Шаг 3: Авторизация Inbound</h4>
+                        <p>В тех же настройках переключите «Авторизация Inbound» в режим Авто.</p>
+                        <p class="swipe-hint" style="font-size: 11px; opacity: 0.5; margin: -8px 0 4px 0;"><span class="material-symbols-rounded" style="font-size: 14px; vertical-align: middle;">swipe</span> Свайпните фото 👈</p>
+                        <div class="instruction-images" style="flex-direction: row; gap: 8px;">
+                            <img src="/static/insructions/aut.jpg" alt="Inbound" draggable="false">
+                            <img src="/static/insructions/aut1.jpg" alt="Inbound 1" draggable="false">
+                            <img src="/static/insructions/aut2.jpg" alt="Авто" draggable="false">
+                        </div>
+                        <div class="gallery-dots">
+                            <div class="dot active"></div>
+                            <div class="dot"></div>
+                            <div class="dot"></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Slide 4 -->
+                <div class="carousel-slide">
+                    <div class="slide-content">
+                        <div class="slide-icon"><span class="material-symbols-rounded">vpn_key</span></div>
+                        <h4>Шаг 4: Подключение</h4>
+                        <p>Теперь всё готово! Нажмите кнопку ниже, чтобы импортировать подписку и подключиться к VPN.</p>
+                        <button class="action-btn bounce" style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); margin-top: 24px;" onclick="openSubLink()">
+                            <span class="material-symbols-rounded" style="font-size: 20px;">rocket_launch</span>
+                            Подключить VPN
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
-        {% endfor %}
+
+        <div class="carousel-footer">
+            <div class="carousel-dots" id="carousel-dots">
+                <span class="dot active"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+            </div>
+            <div class="carousel-nav">
+                <button class="carousel-btn prev-btn" id="instr-prev-btn" onclick="prevInstructionSlide()" style="visibility: hidden;">Назад</button>
+                <button class="carousel-btn next-btn" id="instr-next-btn" onclick="nextInstructionSlide()">Далее</button>
+            </div>
         </div>
     </div>
 </div>

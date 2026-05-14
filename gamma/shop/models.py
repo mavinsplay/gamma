@@ -23,7 +23,13 @@ class Tariff(models.Model):
     )
     has_proxy_bypass = models.BooleanField(
         default=False,
-        verbose_name="Proxy with Whitelist Bypass",
+        verbose_name="Proxy",
+    )
+    proxies = models.ManyToManyField(
+        'connect.Proxy',
+        blank=True,
+        verbose_name="Доступные прокси",
+        related_name='tariffs'
     )
 
     def __str__(self):

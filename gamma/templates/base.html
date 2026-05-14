@@ -8,9 +8,9 @@
     <!-- Telegram Web App API -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <!-- Material Symbols -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" rel="stylesheet" />
     <!-- Roboto Font -->
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=block" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
     <script>
         const CSRF_TOKEN = '{{ csrf_token }}';
@@ -29,7 +29,7 @@
                 <h3 id="modal-title">Заголовок</h3>
                 <p id="modal-message">Сообщение модального окна</p>
                 <div id="modal-input-container" style="display: none; margin: 15px 0;">
-                    <input type="number" id="modal-amount-input" class="modal-input" placeholder="Введите сумму..." min="1">
+                    <input type="text" id="modal-amount-input" class="modal-input">
                 </div>
                 <div class="modal-actions">
                     <button class="modal-btn secondary bounce" id="modal-close">Закрыть</button>

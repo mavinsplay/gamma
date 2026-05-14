@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
             model_name="tariff",
             name="has_proxy_bypass",
             field=models.BooleanField(
-                default=False, verbose_name="Proxy with Whitelist Bypass"
+                default=False, verbose_name="Proxy"
             ),
         ),
     ]

@@ -40,6 +40,7 @@ class RemnawaveClient:
             base_url=api_url,
             cookies={secret_name: secret_value},
             headers=headers,
+            timeout=30.0,
         )
 
         self.sdk = RemnawaveSDK(client=self.http_client)

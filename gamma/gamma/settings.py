@@ -14,6 +14,8 @@ SECRET_KEY = os.getenv(
     "4f7Z7JU2q8dXOiAgR2fW1niOZTLGUexLGo3E4LL0oSi8mg1p",
 )
 
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+
 REMNAWAVE_URL = os.getenv("REMNAWAVE_URL", "https://my-test-vpn.panel.ru")
 REMNAWAVE_TOKEN = os.getenv("REMNAWAVE_TOKEN", "YOUR_BEARER_TOKEN")
 REMNAWAVE_SECRET_NAME = os.getenv("REMNAWAVE_SECRET_NAME", "wBYQJWtq")
