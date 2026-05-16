@@ -36,7 +36,9 @@ class RemnawaveClient:
             "Safari/537.36",
         }
 
+        transport = httpx.AsyncHTTPTransport(retries=5)
         self.http_client = httpx.AsyncClient(
+            transport=transport,
             base_url=api_url,
             cookies={secret_name: secret_value},
             headers=headers,

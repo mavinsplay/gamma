@@ -15,21 +15,19 @@ SECRET_KEY = os.getenv(
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "gamma_net_bot")
+TELEGRAM_CLIENT_ID = os.getenv("TELEGRAM_CLIENT_ID", BOT_TOKEN.split(":")[0])
+TELEGRAM_CLIENT_SECRET = os.getenv("TELEGRAM_CLIENT_SECRET", "")
 
 REMNAWAVE_URL = os.getenv("REMNAWAVE_URL", "https://my-test-vpn.panel.ru")
 REMNAWAVE_TOKEN = os.getenv("REMNAWAVE_TOKEN", "YOUR_BEARER_TOKEN")
 REMNAWAVE_SECRET_NAME = os.getenv("REMNAWAVE_SECRET_NAME", "wBYQJWtq")
 REMNAWAVE_SECRET_VALUE = os.getenv("REMNAWAVE_SECRET_VALUE", "KuOsIrYu")
 
-DEBUG = True
+DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
 
-MOCK_TELEGRAM_USER_DATA = json.loads(
-    os.getenv(
-        "MOCK_TELEGRAM_USER_DATA",
-        '{"id": 123456789, "first_name": \
-            "Mock", "last_name": "User", "username": "mock_user"}',
-    ),
-)
+MOCK_DATA_ENV = os.getenv("MOCK_TELEGRAM_USER_DATA")
+MOCK_TELEGRAM_USER_DATA = json.loads(MOCK_DATA_ENV) if MOCK_DATA_ENV else None
 
 ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
 ADMIN_URL = os.getenv("ADMIN_URL", "admin/")
@@ -38,12 +36,12 @@ ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(
     ",",
 )
 
-CSRF_TRUSTED_ORIGINS = [
-    "https://*.ngrok-free.app",
-    "https://*.loca.lt",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-]
+CSRF_TRUSTED_ORIGINS = os.getenv(
+    "DJANGO_CSRF_TRUSTED_ORIGINS",
+    "https://gamma.ru",
+).split(",")
+
+SUPPORT_URL = "https://t.me/" + os.getenv("SUPPORT_USERNAME", "gamma_net_bot").replace("@", "")
 
 INSTALLED_APPS = [
     "django.contrib.admin",

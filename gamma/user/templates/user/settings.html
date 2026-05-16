@@ -1,6 +1,44 @@
 <div id="view-settings" class="view">
     <div class="view-content-wrapper">
 
+        <!-- Preferences Section -->
+        <div class="settings-section">
+            <div class="settings-section-header">
+                <span class="settings-section-label">Уведомления и оповещения</span>
+            </div>
+            <div class="settings-block">
+                <div class="slot-info-row" style="cursor: default;">
+                    <div class="slot-info-icon">
+                        <span class="material-symbols-rounded">event</span>
+                    </div>
+                    <div class="slot-info-text" style="flex: 1;">
+                        <span class="slot-info-title">Напоминание об оплате</span>
+                        <span class="slot-info-sub">За 3 дня до конца подписки</span>
+                    </div>
+                    <div class="switch-ui">
+                        <input type="checkbox" id="toggle-payment-reminder" {% if profile.payment_reminder_enabled %}checked{% endif %} style="display: none;" onchange="handleTogglePreference('payment_reminder', this.checked)">
+                        <label for="toggle-payment-reminder" class="slider round" style="cursor: pointer; position: absolute; top: 0; left: 0; right: 0; bottom: 0; margin: 0;"></label>
+                    </div>
+                </div>
+
+                <div class="settings-divider"></div>
+
+                <div class="slot-info-row" style="cursor: default;">
+                    <div class="slot-info-icon">
+                        <span class="material-symbols-rounded">notifications</span>
+                    </div>
+                    <div class="slot-info-text" style="flex: 1;">
+                        <span class="slot-info-title">Новостные рассылки</span>
+                        <span class="slot-info-sub">Анонсы и обновления</span>
+                    </div>
+                    <div class="switch-ui">
+                        <input type="checkbox" id="toggle-notifications" {% if profile.notifications_enabled %}checked{% endif %} style="display: none;" onchange="handleTogglePreference('notifications', this.checked)">
+                        <label for="toggle-notifications" class="slider round" style="cursor: pointer; position: absolute; top: 0; left: 0; right: 0; bottom: 0; margin: 0;"></label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Devices Section -->
         <div class="settings-section">
             <div class="settings-section-header">

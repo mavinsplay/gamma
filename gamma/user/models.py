@@ -24,6 +24,8 @@ class Profile(models.Model):
         blank=True,
         default=None,
     )
+    payment_reminder_enabled = models.BooleanField(default=True, verbose_name="Напоминание об оплате")
+    notifications_enabled = models.BooleanField(default=True, verbose_name="Уведомления")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

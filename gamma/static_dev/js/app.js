@@ -1,9 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
     const navItems = document.querySelectorAll('.nav-item');
     const navIndicator = document.querySelector('.nav-indicator');
+    const SAFE_MOCK_USER_DATA = (typeof MOCK_USER_DATA !== 'undefined') ? MOCK_USER_DATA : null;
     const views = document.querySelectorAll('.view');
     const pageTitle = document.getElementById('page-title');
     const pillNavItems = document.querySelectorAll('.nav-pill .nav-item');
+    window.authenticatedUserId = null;
 
     function isDesktop() {
         return window.innerWidth >= 768;
@@ -15,6 +17,15 @@ document.addEventListener('DOMContentLoaded', () => {
         tg.expand();
         tg.ready();
     }
+
+    // --- Viewport Height Fix for Mobile Browsers ---
+    function setVh() {
+        let vh = window.innerHeight * 0.01;
+        document.documentElement.style.setProperty('--vh', `${vh}px`);
+    }
+    setVh();
+    window.addEventListener('resize', setVh);
+    window.addEventListener('orientationchange', () => setTimeout(setVh, 100));
 
     /*
     // --- Security: URL Cleanup ---
@@ -40,26 +51,46 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateIndicator(activeItem) {
         if (!activeItem || !navIndicator) return;
 
-        if (activeItem.closest('.nav-pill')) {
+        const pill = activeItem.closest('.nav-pill');
+        
+        if (pill) {
+            // Normal tab: move and size
             const offsetL = activeItem.offsetLeft;
             const offsetT = activeItem.offsetTop;
             const width = activeItem.offsetWidth;
             const height = activeItem.offsetHeight;
 
             if (isDesktop()) {
-                // Vertical Rail mode
                 navIndicator.style.transform = `translateY(${offsetT}px)`;
                 navIndicator.style.height = `${height}px`;
-                navIndicator.style.width = 'auto'; // Width handled by CSS left/right
+                navIndicator.style.width = ''; 
             } else {
-                // Horizontal Pill mode
                 navIndicator.style.transform = `translateX(${offsetL}px)`;
                 navIndicator.style.width = `${width}px`;
-                navIndicator.style.height = 'auto'; // Height handled by CSS top/bottom
+                navIndicator.style.height = '';
             }
             navIndicator.style.opacity = '1';
         } else {
-            // Profile clicked
+            // Profile tab: just dim it, don't move or resize
+            // Special case: if this is the first run (e.g. refresh on profile), 
+            // position it over the first nav item so it's aligned.
+            if (!navIndicator.style.transform || navIndicator.style.transform === 'none') {
+                const firstItem = document.querySelector('.nav-pill .nav-item');
+                if (firstItem) {
+                    const offsetL = firstItem.offsetLeft;
+                    const offsetT = firstItem.offsetTop;
+                    const width = firstItem.offsetWidth;
+                    const height = firstItem.offsetHeight;
+                    
+                    if (isDesktop()) {
+                        navIndicator.style.transform = `translateY(${offsetT}px)`;
+                        navIndicator.style.height = `${height}px`;
+                    } else {
+                        navIndicator.style.transform = `translateX(${offsetL}px)`;
+                        navIndicator.style.width = `${width}px`;
+                    }
+                }
+            }
             navIndicator.style.opacity = '0.5';
         }
     }
@@ -79,6 +110,12 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.add('fonts-loaded');
         const initialActive = document.querySelector('.nav-item.active');
         updateIndicator(initialActive);
+        
+        // Secondary check after layout settle
+        setTimeout(() => {
+            const currentActive = document.querySelector('.nav-item.active');
+            updateIndicator(currentActive);
+        }, 100);
     });
 
     // Navigation Click Handler
@@ -228,31 +265,92 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function initTelegram() {
-        let user = null;
+    window.handleLogout = async () => {
+        try {
+            const response = await fetch('/user/logout/');
+            const data = await response.json();
+            if (data.success) {
+                window.location.reload();
+            }
+        } catch (error) {
+            console.error('Logout error:', error);
+            alert('Ошибка при выходе');
+        }
+    };
 
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe?.user) {
-            const tg = window.Telegram.WebApp;
-            tg.ready();
-            tg.expand();
-            user = tg.initDataUnsafe.user;
-        } else if (IS_DEBUG && MOCK_USER_DATA) {
+    function checkAdmin() {
+        if (window.authenticatedUserId && typeof ADMIN_ID !== 'undefined' && String(window.authenticatedUserId) === String(ADMIN_ID)) {
+            const adminLink = document.getElementById('admin-panel-link');
+            if (adminLink) adminLink.style.display = 'flex';
+        }
+    }
+
+    async function initTelegram() {
+        let user = null;
+        const authOverlay = document.getElementById('auth-overlay');
+
+        const tg = window.Telegram?.WebApp;
+        const isTelegramHash = window.location.hash.includes('tgWebAppData');
+
+        // 1. Check if inside Telegram Mini App (via API or URL hash)
+        if ((tg && tg.initData) || isTelegramHash) {
+            console.log('Telegram Mini-App environment detected.');
+            if (tg) {
+                tg.ready();
+                tg.expand();
+                if (tg.initDataUnsafe?.user) {
+                    user = tg.initDataUnsafe.user;
+                    window.authenticatedUserId = user.id;
+                    checkAdmin();
+                }
+            }
+            // Hide logout button in Telegram
+            const logoutElements = ['.logout-btn', '#logout-btn', '#logout-item'];
+            logoutElements.forEach(selector => {
+                const el = document.querySelector(selector);
+                if (el) el.style.display = 'none';
+            });
+
+            // ВАЖНО: Если мы в телеграме, мы НИКОГДА не делаем редирект отсюда.
+            // Синхронизация данных (startDataSync) всё поправит.
+        }
+        // 2. Check for Mock Data (Debug only)
+        else if (IS_DEBUG && SAFE_MOCK_USER_DATA) {
             console.log('Using mock user data for development');
-            user = MOCK_USER_DATA;
+            user = SAFE_MOCK_USER_DATA;
+            window.authenticatedUserId = user.id;
+            checkAdmin();
+        }
+        // 3. Check Backend Session (Browser mode)
+        else {
+            try {
+                const response = await fetch('/user/status/');
+                const data = await response.json();
+                if (data.authenticated) {
+                    user = data.user;
+                    window.authenticatedUserId = user.id;
+                    checkAdmin();
+                } else {
+                    // Редирект ТОЛЬКО если мы уверены, что это не Телеграм
+                    console.log('Not in Telegram and not authenticated. Redirecting...');
+                    window.location.href = '/user/login-page/';
+                    return;
+                }
+            } catch (error) {
+                console.error('Failed to check auth status:', error);
+            }
+        }
+
+        // Final Auth Check
+        if (user) {
+            // Authorized
+        } else {
+            // Should not happen if backend redirect is working
+            return;
         }
 
         if (user) {
-            // Check if URL has the correct ID
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('tg_id') != user.id) {
-                urlParams.set('tg_id', user.id);
-                if (user.username) {
-                    urlParams.set('tg_username', user.username);
-                }
-                window.location.search = urlParams.toString();
-                return;
-            }
-
+            // Update UI with user data
             const profileName = document.getElementById('profile-name');
             const profileUserid = document.getElementById('profile-userid');
             const connectionUsername = document.getElementById('connection-username');
@@ -280,6 +378,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     profileAvatar.innerHTML = `<span style="font-size: 28px; font-weight: 500;">${initial}</span>`;
                 }
             }
+
+            // Sync logic if needed (Legacy tg_id param logic can be removed or kept as fallback)
+            /*
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('tg_id') != user.id) {
+                urlParams.set('tg_id', user.id);
+                if (user.username) urlParams.set('tg_username', user.username);
+                window.location.search = urlParams.toString();
+                return;
+            }
+            */
         }
     }
 
@@ -362,7 +471,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.handleTopup = (initialAmount = '') => {
-        const message = initialAmount 
+        const message = initialAmount
             ? `На вашем счёте недостаточно ${initialAmount} ₽. Введите сумму для пополнения:`
             : 'Введите сумму, на которую вы хотите пополнить счёт:';
 
@@ -388,7 +497,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function performTopup(amount) {
         const tg = window.Telegram?.WebApp;
-        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+        const userId = window.authenticatedUserId;
 
         if (!userId || userId === 'undefined') {
             showModal({
@@ -476,8 +585,8 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingOverlay.classList.add('success');
         if (successIcon) successIcon.style.display = 'flex';
         if (spinner) spinner.style.display = 'none';
-        
-            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
             window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
         }
         setTimeout(() => {
@@ -502,7 +611,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const formData = new FormData();
             formData.append('tariff_id', tariffId);
             formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
-            
+
             // Pass initData for secure verification
             if (tg?.initData) {
                 formData.append('init_data', tg.initData);
@@ -567,8 +676,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.handleBuy = async (tariffId, price, tariffName = '', tariffDays = 0) => {
         const tg = window.Telegram?.WebApp;
-        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
-        const username = tg?.initDataUnsafe?.user?.username || MOCK_USER_DATA?.username;
+        const userId = window.authenticatedUserId;
+        const username = tg?.initDataUnsafe?.user?.username || SAFE_MOCK_USER_DATA?.username;
 
         if (!userId || userId === 'undefined') {
             showModal({
@@ -670,7 +779,7 @@ document.addEventListener('DOMContentLoaded', () => {
             onAction: async () => {
                 hideModal();
                 const tg = window.Telegram?.WebApp;
-                const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+                const userId = window.authenticatedUserId;
 
                 if (!userId || userId === 'undefined') {
                     showModal({
@@ -791,7 +900,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.handleConnect = async () => {
         const tg = window.Telegram?.WebApp;
-        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+        const userId = window.authenticatedUserId;
 
         if (!userId || userId === 'undefined') {
             showModal({
@@ -814,7 +923,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const response = await fetch(`/shop/get-sub-link-api/?${params.toString()}`);
-            
+
             let data;
             try {
                 data = await response.json();
@@ -861,7 +970,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.handleSetNodeStatus = (nodeId, nodeDataStr) => {
         const node = JSON.parse(decodeURIComponent(nodeDataStr));
         const tg = window.Telegram?.WebApp;
-        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+        const userId = window.authenticatedUserId;
 
         if (!userId || userId === 'undefined') {
             alert('Профиль не загружен');
@@ -960,7 +1069,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 manualOnlineWrapper.style.display = e.target.checked ? 'flex' : 'none';
             };
         }
-        
+
         if (manualOnlineCheck) {
             manualOnlineCheck.onchange = (e) => {
                 const isOnline = e.target.checked;
@@ -973,7 +1082,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.handleBuySlot = async () => {
         const tg = window.Telegram?.WebApp;
-        const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+        const userId = window.authenticatedUserId;
 
         if (!userId || userId === 'undefined') {
             showModal({
@@ -1055,7 +1164,7 @@ document.addEventListener('DOMContentLoaded', () => {
             onAction: async () => {
                 hideModal();
                 const tg = window.Telegram?.WebApp;
-                const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
+                const userId = window.authenticatedUserId;
 
                 if (!userId || userId === 'undefined') {
                     showModal({
@@ -1192,7 +1301,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.profile) {
             const balanceEl = document.getElementById('profile-balance');
             if (balanceEl) balanceEl.textContent = `${data.profile.balance.toFixed(0)} ₽`;
-            
+
             const tarifNameEl = document.getElementById('profile-tarif-name');
             if (tarifNameEl) tarifNameEl.textContent = data.profile.tarif_name;
 
@@ -1289,19 +1398,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const daysEl = document.getElementById('connection-remaining-days');
             const getBtn = document.getElementById('btn-get-link');
             const resultEl = document.getElementById('connection-result');
-            
+
             const wasActive = !!getBtn;
             const isActive = !!data.rw_user;
 
             if (wasActive !== isActive) {
                 // Redraw everything only if status changed
-                const username = document.getElementById('connection-username')?.textContent || `@${tg?.initDataUnsafe?.user?.username || MOCK_USER_DATA?.username || 'user'}`;
+                const username = document.getElementById('connection-username')?.textContent || `@${tg?.initDataUnsafe?.user?.username || SAFE_MOCK_USER_DATA?.username || 'user'}`;
                 let connHtml = `
                     <div class="info-item">
                         <span class="label">Пользователь</span>
                         <span class="value" id="connection-username">${username}</span>
                     </div>`;
-                
+
                 if (isActive) {
                     connHtml += `
                         <div class="info-item">
@@ -1354,14 +1463,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         btn.textContent = 'Уже активен';
                         btn.classList.add('owned');
                         btn.disabled = true;
-                        btn.onclick = null;
                     } else {
                         btn.textContent = 'Купить';
                         btn.classList.remove('owned');
                         btn.disabled = false;
-                        // The original onclick is preserved if we don't overwrite it, 
-                        // but since we are doing this dynamically, we should ensure it's correct.
-                        // Actually, it's better to not touch it if it's not the owned one.
                     }
                 }
             });
@@ -1372,10 +1477,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const remDays = data.rw_user.remaining_days || 0;
             const subRemDaysDisplay = document.getElementById('sub-remaining-days-display');
             const connRemDaysDisplay = document.getElementById('connection-remaining-days');
-            
+
             if (subRemDaysDisplay) subRemDaysDisplay.textContent = `Осталось дней: ${remDays}`;
             if (connRemDaysDisplay) connRemDaysDisplay.textContent = `${remDays} дней`;
-            
+
             window.REMAINING_DAYS = remDays;
         }
 
@@ -1486,7 +1591,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 devicesContainer.innerHTML = devicesHtml;
             }
         }
-        
+
         // Update Slot Purchase Section
         const slotContainer = document.getElementById('slot-purchase-container');
         if (slotContainer) {
@@ -1560,27 +1665,71 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    window.handleTogglePreference = async (prefType, value) => {
+        const tg = window.Telegram?.WebApp;
+        const userId = window.authenticatedUserId;
+
+        if (!userId && !tg?.initData) {
+            console.warn('Cannot update preference: No userId and no initData');
+            return;
+        }
+
+        try {
+            const formData = new FormData();
+            formData.append('type', prefType);
+            formData.append('value', value);
+            formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+            if (tg?.initData) {
+                formData.append('init_data', tg.initData);
+            } else {
+                formData.append('tg_id', userId);
+            }
+
+            const response = await fetch('/shop/update-preferences-api/', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                console.error('Failed to update preference');
+                // Could optionally revert the toggle UI here if needed
+            } else {
+                if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+                    window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
+                }
+            }
+        } catch (e) {
+            console.error('Error updating preference:', e);
+        }
+    };
+
     async function startDataSync() {
         const tg = window.Telegram?.WebApp;
-        
+
         window.syncNow = async () => {
-            const userId = tg?.initDataUnsafe?.user?.id || MOCK_USER_DATA?.id;
-            if (!userId || userId === 'undefined') {
-                console.warn('Sync skipped: userId not ready');
+            const userId = window.authenticatedUserId;
+            
+            // Allow sync if we have either userId OR initData (Mini App mode)
+            if (!userId && !tg?.initData) {
+                console.warn('Sync skipped: No userId and no initData');
                 return;
             }
 
             let url = `/shop/sync-data-api/`;
             const params = new URLSearchParams();
-            
+
             if (tg?.initData) {
                 params.append('init_data', tg.initData);
             } else {
                 params.append('tg_id', userId);
             }
-            
+            params.append('_t', Date.now());
+
             try {
-                const response = await fetch(`${url}?${params.toString()}`);
+                const response = await fetch(`${url}?${params.toString()}`, {
+                    headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+                });
                 if (response.ok) {
                     const data = await response.json();
                     updateUIWithSyncData(data);
@@ -1591,8 +1740,8 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         // Poll every 5 seconds
-        setInterval(window.syncNow, 5000);
-        
+        setInterval(window.syncNow, 10000);
+
         // Initial sync attempt
         window.syncNow();
     }
@@ -1600,13 +1749,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Instruction Carousel Logic ---
     let currentInstrSlide = 0;
     const totalInstrSlides = 4;
-    
+
     let galleriesInitialized = false;
-    
+
     function initInstructionGalleries() {
         if (galleriesInitialized) return;
         galleriesInitialized = true;
-        
+
         const galleries = document.querySelectorAll('.instruction-images');
         galleries.forEach(gallery => {
             let isDown = false;
@@ -1662,7 +1811,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             gallery.style.cursor = 'grab';
             gallery.style.userSelect = 'none';
-            
+
             // Dot updates on scroll
             gallery.addEventListener('scroll', () => {
                 const images = gallery.querySelectorAll('img');
@@ -1671,7 +1820,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let activeIndex = Math.round(gallery.scrollLeft / imageWidth);
                 if (activeIndex < 0) activeIndex = 0;
                 if (activeIndex >= images.length) activeIndex = images.length - 1;
-                
+
                 const dotsContainer = gallery.nextElementSibling;
                 if (dotsContainer && dotsContainer.classList.contains('gallery-dots')) {
                     dotsContainer.querySelectorAll('.dot').forEach((dot, idx) => {
@@ -1757,7 +1906,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (e) { console.error(e); }
         }
     };
-    
+
     window.downloadHiddify = (platform) => {
         let url = 'https://happ.su/';
         if (platform === 'ios' || platform === 'mac') {
@@ -1767,7 +1916,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (platform === 'windows') {
             url = 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe';
         }
-        
+
         if (window.Telegram && window.Telegram.WebApp) {
             window.Telegram.WebApp.openLink(url);
         } else {
@@ -1778,14 +1927,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function detectAndHighlightPlatform() {
         let platform = 'unknown';
         const tgPlatform = window.Telegram?.WebApp?.platform;
-        
+
         if (tgPlatform) {
             if (tgPlatform === 'android') platform = 'android';
             else if (tgPlatform === 'ios') platform = 'ios';
             else if (tgPlatform === 'macos' || tgPlatform === 'mac') platform = 'mac';
             else if (tgPlatform === 'windows' || tgPlatform === 'tdesktop') platform = 'windows';
         }
-        
+
         if (platform === 'unknown') {
             const ua = navigator.userAgent.toLowerCase();
             if (/android/.test(ua)) platform = 'android';
@@ -1793,7 +1942,7 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (/mac/.test(ua)) platform = 'mac';
             else if (/win/.test(ua)) platform = 'windows';
         }
-        
+
         document.querySelectorAll('.platform-btn').forEach(btn => {
             btn.classList.remove('recommended');
             const btnPlatform = btn.getAttribute('data-platform');
@@ -1812,67 +1961,67 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 300); // match transition duration
         }
     };
-    
+
     window.nextInstructionSlide = () => {
         if (currentInstrSlide < totalInstrSlides - 1) {
             currentInstrSlide++;
             updateInstructionCarousel();
         }
     };
-    
+
     window.skipToLastSlide = () => {
         currentInstrSlide = totalInstrSlides - 1;
         updateInstructionCarousel();
     };
-    
+
     window.prevInstructionSlide = () => {
         if (currentInstrSlide > 0) {
             currentInstrSlide--;
             updateInstructionCarousel();
         }
     };
-    
+
     function updateInstructionCarousel() {
         const track = document.getElementById('instruction-track');
         const dots = document.querySelectorAll('#carousel-dots .dot');
         const prevBtn = document.getElementById('instr-prev-btn');
         const nextBtn = document.getElementById('instr-next-btn');
         const skipBtn = document.getElementById('instr-skip-btn');
-        
+
         if (track) {
             track.style.transform = `translateX(-${currentInstrSlide * 25}%)`;
         }
-        
+
         if (dots) {
             dots.forEach((dot, index) => {
                 dot.classList.toggle('active', index === currentInstrSlide);
             });
         }
-        
+
         if (prevBtn) {
             prevBtn.style.visibility = currentInstrSlide === 0 ? 'hidden' : 'visible';
         }
-        
+
         if (skipBtn) {
             skipBtn.style.display = currentInstrSlide === totalInstrSlides - 1 ? 'none' : 'block';
         }
-        
+
         if (nextBtn) {
             if (currentInstrSlide === totalInstrSlides - 1) {
                 nextBtn.style.display = 'none';
             } else {
                 nextBtn.style.display = 'block';
-                
+
                 if (currentInstrSlide === 0) {
                     nextBtn.innerText = 'Далее';
                     nextBtn.style.opacity = '1';
                     nextBtn.disabled = false;
                 } else {
                     nextBtn.innerText = 'Я всё выполнил';
-                    
+
                     const currentSlideElement = document.querySelectorAll('.carousel-slide')[currentInstrSlide];
                     const gallery = currentSlideElement.querySelector('.instruction-images');
-                    
+
                     if (gallery) {
                         const checkScroll = () => {
                             if (gallery.clientWidth > 0 && gallery.scrollLeft + gallery.clientWidth >= gallery.scrollWidth - 10) {
@@ -1880,14 +2029,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                             return false;
                         };
-                        
+
                         if (checkScroll() || gallery.dataset.scrolledToEnd === 'true') {
                             nextBtn.style.opacity = '1';
                             nextBtn.disabled = false;
                         } else {
                             nextBtn.style.opacity = '0.3';
                             nextBtn.disabled = true;
-                            
+
                             if (!gallery.dataset.hasScrollListener) {
                                 gallery.dataset.hasScrollListener = 'true';
                                 gallery.addEventListener('scroll', () => {
@@ -1912,5 +2061,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    initTelegram();
     startDataSync();
 });

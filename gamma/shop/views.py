@@ -1,5 +1,6 @@
 import asyncio
 from decimal import Decimal
+import json
 import re
 import uuid
 
@@ -62,8 +63,7 @@ def app_index(request):
     telegram_id = request.GET.get("tg_id")
     telegram_username = request.GET.get("tg_username")
 
-    # In production, we MUST NOT trust tg_id from URL.
-    # We only allow it in DEBUG mode for easier testing.
+    # 1. Check for DEBUG mode (Legacy URL param)
     profile = None
     if settings.DEBUG and telegram_id:
         profile, created = Profile.objects.get_or_create(
@@ -77,8 +77,18 @@ def app_index(request):
         if not created and telegram_username and not profile.telegram_username:
             profile.telegram_username = telegram_username
             profile.save()
-    
-    # If not DEBUG or no ID in URL, profile will be None.
+
+    # 2. Handle authentication
+    # If we have a session user, use it.
+    if not profile and "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
+        profile = Profile.objects.filter(telegram_id=telegram_id).first()
+
+    # We allow the page to load without a redirect here.
+    # The JS in app.js will handle the redirect for browsers.
+    pass
+
+    # If not DEBUG and not logged in, profile will be None.
     # The JS will then call sync-data-api with initData to fetch/create the real profile.
 
     async def fetch_all():
@@ -150,6 +160,7 @@ def app_index(request):
         proxies = []
         if profile and profile.tarif:
             from connect.models import Proxy
+
             proxies = profile.tarif.proxies.filter(is_active=True)
 
         # Payment History logic
@@ -189,8 +200,13 @@ def app_index(request):
             "is_admin": str(telegram_id) == str(settings.ADMIN_TELEGRAM_ID),
             "admin_url": settings.ADMIN_URL,
             "mock_user_data": (
-                settings.MOCK_TELEGRAM_USER_DATA if settings.DEBUG else None
+                json.dumps(settings.MOCK_TELEGRAM_USER_DATA)
+                if settings.DEBUG and settings.MOCK_TELEGRAM_USER_DATA
+                else None
             ),
+            "bot_username": settings.TELEGRAM_BOT_USERNAME,
+            "admin_id": settings.ADMIN_TELEGRAM_ID,
+            "support_url": settings.SUPPORT_URL,
         },
     )
 
@@ -201,20 +217,22 @@ def buy_tariff_api(request):
 
     tariff_id = request.POST.get("tariff_id")
     init_data = request.POST.get("init_data")
-    
+
     # 1. Verify Identity
     is_valid, tg_user = verify_telegram_init_data(init_data)
-    
+
     if is_valid:
-        telegram_id = tg_user.get('id')
-        telegram_username = tg_user.get('username')
+        telegram_id = tg_user.get("id")
+        telegram_username = tg_user.get("username")
     elif settings.DEBUG:
         # Fallback to legacy/mock only in debug
         telegram_id = request.POST.get("tg_id")
         telegram_username = request.POST.get("tg_username")
         if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA["id"]
-            telegram_username = settings.MOCK_TELEGRAM_USER_DATA.get("username")
+            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
+            telegram_username = settings.MOCK_TELEGRAM_USER_DATA.get(
+                "username"
+            )
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -354,12 +372,12 @@ def topup_api(request):
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
     if is_valid:
-        telegram_id = tg_user.get('id')
-        telegram_username = tg_user.get('username')
+        telegram_id = tg_user.get("id")
+        telegram_username = tg_user.get("username")
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
         if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA["id"]
+            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -371,19 +389,28 @@ def topup_api(request):
     except (ValueError, TypeError):
         return JsonResponse({"error": "Invalid tg_id format"}, status=400)
 
+    try:
+        amount_dec = Decimal(str(amount))
+        if amount_dec <= 0:
+            return JsonResponse({"error": "Сумма должна быть больше нуля"}, status=400)
+        if amount_dec > 100000:
+            return JsonResponse({"error": "Сумма недопустима. Максимальная сумма пополнения — 100 000 рублей."}, status=400)
+    except Exception:
+        return JsonResponse({"error": "Некорректная сумма"}, status=400)
+
     profile, created = Profile.objects.get_or_create(telegram_id=telegram_id)
     # topup_api might not always get username but we update if it's there
     telegram_username = request.POST.get("tg_username")
     if telegram_username and profile.telegram_username != telegram_username:
         profile.telegram_username = telegram_username
         profile.save()
-    profile.balance += Decimal(str(amount))
+    profile.balance += amount_dec
     profile.save()
 
     # Create top-up order
     Order.objects.create(
         telegram_id=telegram_id,
-        amount=Decimal(str(amount)),
+        amount=amount_dec,
         order_type="TOPUP",
         status="PAID",
     )
@@ -403,9 +430,10 @@ def buy_slot_api(request):
     telegram_id = request.POST.get("tg_id")
     telegram_username = request.POST.get("tg_username")
 
-    if settings.DEBUG and settings.MOCK_TELEGRAM_USER_DATA["id"]:
+    has_mock = getattr(settings, "MOCK_TELEGRAM_USER_DATA", None) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
+    if settings.DEBUG and has_mock and settings.MOCK_TELEGRAM_USER_DATA.get("id"):
         if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA["id"]
+            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
             if not telegram_username:
                 telegram_username = settings.MOCK_TELEGRAM_USER_DATA.get(
                     "username"
@@ -415,8 +443,8 @@ def buy_slot_api(request):
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
     if is_valid:
-        telegram_id = tg_user.get('id')
-        telegram_username = tg_user.get('username')
+        telegram_id = tg_user.get("id")
+        telegram_username = tg_user.get("username")
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
     else:
@@ -492,12 +520,12 @@ def get_subscription_link_api(request):
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
     if is_valid:
-        telegram_id = tg_user.get('id')
-        telegram_username = tg_user.get('username')
+        telegram_id = tg_user.get("id")
+        telegram_username = tg_user.get("username")
     elif settings.DEBUG:
         telegram_id = request.GET.get("tg_id")
         if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA["id"]
+            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -528,7 +556,9 @@ def get_subscription_link_api(request):
             if not rw_user or not rw_user.get("uuid"):
                 # Auto-heal: If user has tariff in DB but missing in Remnawave, re-provision
                 if profile and profile.tarif:
-                    username = f"{profile.telegram_username or 'user'}_{telegram_id}"
+                    username = (
+                        f"{profile.telegram_username or 'user'}_{telegram_id}"
+                    )
                     rw_user = await client.create_user(
                         username=username,
                         days=profile.tarif.duration_days,
@@ -538,7 +568,9 @@ def get_subscription_link_api(request):
                         activeinternalsquads=[profile.tarif.squad_uuid],
                     )
                     if not rw_user or not rw_user.get("uuid"):
-                        raise ValueError("User not found and failed to re-provision")
+                        raise ValueError(
+                            "User not found and failed to re-provision"
+                        )
                 else:
                     raise ValueError("User not found")
             return await client.get_sub_link(rw_user["uuid"])
@@ -566,15 +598,16 @@ def delete_hwid_device_api(request):
     telegram_id = request.POST.get("tg_id")
     hwid = request.POST.get("hwid")
 
-    if settings.DEBUG and settings.MOCK_TELEGRAM_USER_DATA["id"]:
+    has_mock = getattr(settings, "MOCK_TELEGRAM_USER_DATA", None) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
+    if settings.DEBUG and has_mock and settings.MOCK_TELEGRAM_USER_DATA.get("id"):
         if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA["id"]
+            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
 
     init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
     if is_valid:
-        telegram_id = tg_user.get('id')
+        telegram_id = tg_user.get("id")
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
     else:
@@ -614,15 +647,16 @@ def extend_sub_api(request):
     telegram_id = request.POST.get("tg_id")
     months = request.POST.get("months")
 
-    if settings.DEBUG and settings.MOCK_TELEGRAM_USER_DATA["id"]:
+    has_mock = getattr(settings, "MOCK_TELEGRAM_USER_DATA", None) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
+    if settings.DEBUG and has_mock and settings.MOCK_TELEGRAM_USER_DATA.get("id"):
         if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA["id"]
+            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
 
     init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
     if is_valid:
-        telegram_id = tg_user.get('id')
+        telegram_id = tg_user.get("id")
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
     else:
@@ -784,28 +818,39 @@ def success_view(request, sub_id):
 def sync_data_api(request):
     init_data = request.GET.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
-    
+
     if is_valid:
-        telegram_id = tg_user.get('id')
-        telegram_username = tg_user.get('username')
-        
+        telegram_id = tg_user.get("id")
+        telegram_username = tg_user.get("username")
+
         # Securely create or update profile
         profile, created = Profile.objects.get_or_create(
             telegram_id=telegram_id,
             defaults={
                 "telegram_username": telegram_username,
                 "balance": 0.00,
-            }
+            },
         )
-        if not created and telegram_username and profile.telegram_username != telegram_username:
+        if (
+            not created
+            and telegram_username
+            and profile.telegram_username != telegram_username
+        ):
             profile.telegram_username = telegram_username
             profile.save()
-            
+
+    elif "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
+        profile = Profile.objects.filter(telegram_id=telegram_id).first()
     elif settings.DEBUG:
         telegram_id = request.GET.get("tg_id")
         if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA["id"]
-        
+            # Check if settings.MOCK_TELEGRAM_USER_DATA is not None
+            if settings.MOCK_TELEGRAM_USER_DATA:
+                telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
+            else:
+                return JsonResponse({"error": "No mock data"}, status=400)
+
         try:
             telegram_id = int(telegram_id)
             profile = Profile.objects.filter(telegram_id=telegram_id).first()
@@ -816,7 +861,9 @@ def sync_data_api(request):
 
     if not profile:
         # If profile doesn't exist and we couldn't create it
-        return JsonResponse({"success": True, "profile": None, "rw_user": None})
+        return JsonResponse(
+            {"success": True, "profile": None, "rw_user": None}
+        )
 
     async def fetch_sync_data():
         client = RemnawaveClient()
@@ -849,14 +896,21 @@ def sync_data_api(request):
                 except Exception:
                     pass
 
-            return raw_nodes, rw_user, hwid_devices, isinstance(results[0] if results else None, Exception)
+            return (
+                raw_nodes,
+                rw_user,
+                hwid_devices,
+                isinstance(results[0] if results else None, Exception),
+            )
         finally:
             await client.close()
 
     try:
         from datetime import datetime, timezone
 
-        raw_nodes, rw_user, hwid_devices, nodes_error = async_to_sync(fetch_sync_data)()
+        raw_nodes, rw_user, hwid_devices, nodes_error = async_to_sync(
+            fetch_sync_data
+        )()
         nodes_data = []
         for node in raw_nodes:
             flag, name = extract_flag(node.get("name", ""))
@@ -900,28 +954,29 @@ def sync_data_api(request):
         proxies_data = []
         if profile and profile.tarif:
             from connect.models import Proxy
+
             active_proxies = profile.tarif.proxies.filter(is_active=True)
             for p in active_proxies:
-                proxies_data.append({
-                    "name": p.name,
-                    "connection_url": p.connection_url
-                })
+                proxies_data.append(
+                    {"name": p.name, "connection_url": p.connection_url}
+                )
 
         is_admin = str(telegram_id) == str(settings.ADMIN_TELEGRAM_ID)
 
         from connect.models import NodeStatus
+
         statuses = {s.node_id: s for s in NodeStatus.objects.all()}
-        
+
         online_count = 0
         offline_count = 0
-        
+
         for node in nodes_data:
             node_id = str(node.get("id") or node.get("uuid") or "")
             node["id"] = node_id
-            
+
             custom = statuses.get(node_id)
             is_online = node.get("isConnected")
-            
+
             if custom:
                 node["custom_status"] = custom.status_text
                 node["use_manual_status"] = custom.use_manual_status
@@ -932,7 +987,7 @@ def sync_data_api(request):
                 node["custom_status"] = None
                 node["use_manual_status"] = False
                 node["manual_is_online"] = True
-                
+
             if is_online:
                 online_count += 1
             else:
@@ -948,8 +1003,12 @@ def sync_data_api(request):
                         "tarif_name": (
                             profile.tarif.name if profile.tarif else "—"
                         ),
-                        "tarif_price": float(profile.tarif.price) if profile.tarif else 0,
-                        "tarif_days": profile.tarif.duration_days if profile.tarif else 0,
+                        "tarif_price": (
+                            float(profile.tarif.price) if profile.tarif else 0
+                        ),
+                        "tarif_days": (
+                            profile.tarif.duration_days if profile.tarif else 0
+                        ),
                     }
                     if profile
                     else None
@@ -966,3 +1025,44 @@ def sync_data_api(request):
         )
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+def update_preferences_api(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    telegram_id = request.POST.get("tg_id")
+    init_data = request.POST.get("init_data")
+    is_valid, tg_user = verify_telegram_init_data(init_data)
+
+    if is_valid:
+        telegram_id = tg_user.get("id")
+    elif settings.DEBUG:
+        telegram_id = request.POST.get("tg_id")
+    else:
+        return JsonResponse({"error": "Invalid auth"}, status=403)
+
+    if not telegram_id:
+        return JsonResponse({"error": "Missing tg_id"}, status=400)
+
+    try:
+        telegram_id = int(telegram_id)
+    except (ValueError, TypeError):
+        return JsonResponse({"error": "Invalid tg_id format"}, status=400)
+
+    profile = Profile.objects.filter(telegram_id=telegram_id).first()
+    if not profile:
+        return JsonResponse({"error": "Profile not found"}, status=404)
+
+    pref_type = request.POST.get("type")
+    value = request.POST.get("value") == "true"
+
+    if pref_type == "payment_reminder":
+        profile.payment_reminder_enabled = value
+    elif pref_type == "notifications":
+        profile.notifications_enabled = value
+    else:
+        return JsonResponse({"error": "Invalid type"}, status=400)
+
+    profile.save()
+    return JsonResponse({"success": True})

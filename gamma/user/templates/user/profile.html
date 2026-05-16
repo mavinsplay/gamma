@@ -34,15 +34,13 @@
         </div>
 
         <div class="settings-list">
-            {% if is_admin %}
-            <a href="/{{ admin_url }}" class="settings-item bounce" style="text-decoration: none; color: inherit; border: 1px solid rgba(255, 159, 10, 0.15); margin-bottom: 4px;">
+            <a id="admin-panel-link" href="/{{ admin_url }}" class="settings-item bounce" style="text-decoration: none; color: inherit; border: 1px solid rgba(255, 159, 10, 0.15); margin-bottom: 4px; {% if not is_admin %}display: none;{% endif %}">
                 <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(255, 159, 10, 0.15); display: flex; align-items: center; justify-content: center; margin-right: 4px;">
                     <span class="material-symbols-rounded" style="color: #FF9F0A; font-size: 20px;">admin_panel_settings</span>
                 </div>
                 <span style="font-weight: 500;">Админ-панель</span>
                 <span class="material-symbols-rounded arrow">chevron_right</span>
             </a>
-            {% endif %}
             
             <div class="settings-item bounce" onclick="activateTabById('view-history', 'История платежей')">
                 <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(208, 188, 255, 0.1); display: flex; align-items: center; justify-content: center; margin-right: 4px;">
@@ -52,12 +50,19 @@
                 <span class="material-symbols-rounded arrow" style="opacity: 0.3;">chevron_right</span>
             </div>
             
-            <div class="settings-item bounce">
+            <a href="{{ support_url }}" target="_blank" class="settings-item bounce" style="text-decoration: none; color: inherit; display: flex; align-items: center;">
                 <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: center; margin-right: 4px;">
                     <span class="material-symbols-rounded" style="opacity: 0.7; font-size: 20px;">help</span>
                 </div>
                 <span style="font-weight: 500;">Поддержка</span>
                 <span class="material-symbols-rounded arrow" style="opacity: 0.3;">chevron_right</span>
+            </a>
+            <div id="logout-item" class="settings-item bounce" onclick="handleLogout()" style="margin-top: 12px; border: 1px solid rgba(255, 180, 171, 0.15); pointer-events: auto;">
+                <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(255, 180, 171, 0.15); display: flex; align-items: center; justify-content: center; margin-right: 4px;">
+                    <span class="material-symbols-rounded" style="color: #FFB4AB; font-size: 20px;">logout</span>
+                </div>
+                <span style="font-weight: 500; color: #FFB4AB;">Выйти</span>
+                <span class="material-symbols-rounded arrow" style="opacity: 0.3; color: #FFB4AB;">chevron_right</span>
             </div>
         </div>
     </div>
