@@ -1009,6 +1009,8 @@ def sync_data_api(request):
                         "tarif_days": (
                             profile.tarif.duration_days if profile.tarif else 0
                         ),
+                        "payment_reminder_enabled": profile.payment_reminder_enabled,
+                        "notifications_enabled": profile.notifications_enabled,
                     }
                     if profile
                     else None

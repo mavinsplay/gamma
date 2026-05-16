@@ -99,12 +99,9 @@ async def subscription_reminder_task():
     while True:
         try:
             users = await sync_to_async(list)(Profile.objects.filter(payment_reminder_enabled=True, tarif__isnull=False).select_related("tarif"))
-            
             if users:
                 client = RemnawaveClient()
                 try:
-                    # У RemnawaveClient есть метод получения всех пользователей (надо проверить, если ли get_users, но можно использовать get_user_by_tgid для каждого)
-                    # Но лучше если есть метод или получать по одному (с задержкой)
                     for profile in users:
                         rw_user = await client.get_user_by_tgid(profile.telegram_id)
                         if isinstance(rw_user, list):
@@ -115,13 +112,14 @@ async def subscription_reminder_task():
                             try:
                                 expire_dt = datetime.fromisoformat(expire_str)
                                 delta = expire_dt - datetime.now(timezone.utc)
+                                print(delta.days)
                                 # Если осталось от 2 до 3 дней
-                                if 2 <= delta.days < 3:
-                                    text = f"🔔 <b>Напоминание</b>\n\nВаша подписка на тариф <b>{profile.tarif.name}</b> истекает примерно через 3 дня!\n\nПожалуйста, продлите подписку в панели управления."
+                                if 1 <= delta.days < 3:
+                                    ds = "день" if delta.days == 1 else "дня" if delta.days == 2 else "дней"
+                                    text = f"🔔 <b>Напоминание</b>\n\nВаша подписка на тариф <b>{profile.tarif.name}</b> истекает примерно через {delta.days} {ds}!\n\nПожалуйста, продлите подписку в панели управления."
                                     await bot.send_message(profile.telegram_id, text, parse_mode="HTML")
                             except ValueError:
                                 pass
-                        await asyncio.sleep(0.5)
                 finally:
                     await client.close()
         except Exception as e:

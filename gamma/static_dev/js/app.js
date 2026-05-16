@@ -1316,6 +1316,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.CURRENT_TARIFF_NAME = data.profile.tarif_name;
                 window.OPTIMISTIC_HAS_SUB = false; // Reset once we have real data from Remnawave
             }
+
+            // Update settings toggles
+            const paymentReminderToggle = document.getElementById('toggle-payment-reminder');
+            const notificationsToggle = document.getElementById('toggle-notifications');
+            if (paymentReminderToggle && data.profile.payment_reminder_enabled !== undefined) {
+                paymentReminderToggle.checked = data.profile.payment_reminder_enabled;
+            }
+            if (notificationsToggle && data.profile.notifications_enabled !== undefined) {
+                notificationsToggle.checked = data.profile.notifications_enabled;
+            }
         }
 
         // Update Proxy
