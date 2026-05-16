@@ -93,26 +93,49 @@ class RemnawaveClient:
     ):
         # Fetch current user to merge data
         current_user = await self.get_user(uuid)
-        
+
         # Extract activeInternalSquads UUIDs if they are dictionaries
         squads = current_user.get("activeInternalSquads", [])
         squad_uuids = [
-            s.get("uuid") if isinstance(s, dict) else s
-            for s in squads
+            s.get("uuid") if isinstance(s, dict) else s for s in squads
         ]
 
         payload = {
-            "username": username if username is not None else current_user.get("username", ""),
+            "username": (
+                username
+                if username is not None
+                else current_user.get("username", "")
+            ),
             "uuid": uuid,
-            "status": status if status is not None else current_user.get("status", "ACTIVE"),
-            "trafficLimitBytes": trafficlimitbytes if trafficlimitbytes is not None else current_user.get("trafficLimitBytes", 0),
+            "status": (
+                status
+                if status is not None
+                else current_user.get("status", "ACTIVE")
+            ),
+            "trafficLimitBytes": (
+                trafficlimitbytes
+                if trafficlimitbytes is not None
+                else current_user.get("trafficLimitBytes", 0)
+            ),
             "trafficLimitStrategy": "NO_RESET",
-            "expireAt": expire_at if expire_at is not None else current_user.get("expireAt", ""),
+            "expireAt": (
+                expire_at
+                if expire_at is not None
+                else current_user.get("expireAt", "")
+            ),
             "description": current_user.get("description"),
             "tag": current_user.get("tag", ""),
-            "telegramId": telegramid if telegramid is not None else current_user.get("telegramId"),
+            "telegramId": (
+                telegramid
+                if telegramid is not None
+                else current_user.get("telegramId")
+            ),
             "email": current_user.get("email"),
-            "hwidDeviceLimit": hwiddevicelimit if hwiddevicelimit is not None else current_user.get("hwidDeviceLimit", 0),
+            "hwidDeviceLimit": (
+                hwiddevicelimit
+                if hwiddevicelimit is not None
+                else current_user.get("hwidDeviceLimit", 0)
+            ),
             "activeInternalSquads": squad_uuids,
             "externalSquadUuid": current_user.get("externalSquadUuid"),
         }
@@ -195,7 +218,9 @@ if __name__ == "__main__":
             secret_value=os.getenv("REMNAWAVE_SECRET_VALUE"),
         )
         try:
-            user = await client.get_user_hwid_devices("276a990a-2cc2-4756-ba6b-9af734c2c9cd")
+            user = await client.get_user_hwid_devices(
+                "276a990a-2cc2-4756-ba6b-9af734c2c9cd"
+            )
             print(user)
         except Exception as e:
             print(f"Error: {e}")  # noqa: T201

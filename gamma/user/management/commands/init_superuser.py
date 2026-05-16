@@ -34,9 +34,13 @@ class Command(BaseCommand):
             )
 
             self.stdout.write(
-                self.style.SUCCESS(f"Superuser created\ successfully!\nUSERNAME: {superuser_name}\nPASSWORD: {superuser_password}"),
+                self.style.SUCCESS(
+                    f"Superuser created\ successfully!\nUSERNAME: {superuser_name}\nPASSWORD: {superuser_password}"
+                ),
             )
         else:
             self.stdout.write(
-                self.style.SUCCESS(f"Superuser already exist!\nUSERNAME: {superuser_name}\nPASSWORD: {superuser_password}"),
+                self.style.SUCCESS(
+                    f"Superuser already exist!\nUSERNAME: {superuser_name}\nPASSWORD: {superuser_password}"
+                ),
             )

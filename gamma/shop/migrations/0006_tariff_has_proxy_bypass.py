@@ -13,8 +13,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="tariff",
             name="has_proxy_bypass",
-            field=models.BooleanField(
-                default=False, verbose_name="Proxy"
-            ),
+            field=models.BooleanField(default=False, verbose_name="Proxy"),
         ),
     ]

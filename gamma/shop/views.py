@@ -392,9 +392,16 @@ def topup_api(request):
     try:
         amount_dec = Decimal(str(amount))
         if amount_dec <= 0:
-            return JsonResponse({"error": "Сумма должна быть больше нуля"}, status=400)
+            return JsonResponse(
+                {"error": "Сумма должна быть больше нуля"}, status=400
+            )
         if amount_dec > 100000:
-            return JsonResponse({"error": "Сумма недопустима. Максимальная сумма пополнения — 100 000 рублей."}, status=400)
+            return JsonResponse(
+                {
+                    "error": "Сумма недопустима. Максимальная сумма пополнения — 100 000 рублей."
+                },
+                status=400,
+            )
     except Exception:
         return JsonResponse({"error": "Некорректная сумма"}, status=400)
 
@@ -430,8 +437,14 @@ def buy_slot_api(request):
     telegram_id = request.POST.get("tg_id")
     telegram_username = request.POST.get("tg_username")
 
-    has_mock = getattr(settings, "MOCK_TELEGRAM_USER_DATA", None) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
-    if settings.DEBUG and has_mock and settings.MOCK_TELEGRAM_USER_DATA.get("id"):
+    has_mock = getattr(
+        settings, "MOCK_TELEGRAM_USER_DATA", None
+    ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
+    if (
+        settings.DEBUG
+        and has_mock
+        and settings.MOCK_TELEGRAM_USER_DATA.get("id")
+    ):
         if not telegram_id:
             telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
             if not telegram_username:
@@ -598,8 +611,14 @@ def delete_hwid_device_api(request):
     telegram_id = request.POST.get("tg_id")
     hwid = request.POST.get("hwid")
 
-    has_mock = getattr(settings, "MOCK_TELEGRAM_USER_DATA", None) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
-    if settings.DEBUG and has_mock and settings.MOCK_TELEGRAM_USER_DATA.get("id"):
+    has_mock = getattr(
+        settings, "MOCK_TELEGRAM_USER_DATA", None
+    ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
+    if (
+        settings.DEBUG
+        and has_mock
+        and settings.MOCK_TELEGRAM_USER_DATA.get("id")
+    ):
         if not telegram_id:
             telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
 
@@ -647,8 +666,14 @@ def extend_sub_api(request):
     telegram_id = request.POST.get("tg_id")
     months = request.POST.get("months")
 
-    has_mock = getattr(settings, "MOCK_TELEGRAM_USER_DATA", None) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
-    if settings.DEBUG and has_mock and settings.MOCK_TELEGRAM_USER_DATA.get("id"):
+    has_mock = getattr(
+        settings, "MOCK_TELEGRAM_USER_DATA", None
+    ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
+    if (
+        settings.DEBUG
+        and has_mock
+        and settings.MOCK_TELEGRAM_USER_DATA.get("id")
+    ):
         if not telegram_id:
             telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
 

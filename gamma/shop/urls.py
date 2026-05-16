@@ -25,5 +25,9 @@ urlpatterns = [
     ),
     path("success/<int:sub_id>/", views.success_view, name="payment_success"),
     path("sync-data-api/", views.sync_data_api, name="sync_data_api"),
-    path("update-preferences-api/", views.update_preferences_api, name="update_preferences_api"),
+    path(
+        "update-preferences-api/",
+        views.update_preferences_api,
+        name="update_preferences_api",
+    ),
 ]

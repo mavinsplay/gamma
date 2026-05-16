@@ -26,10 +26,10 @@ class Tariff(models.Model):
         verbose_name="Proxy",
     )
     proxies = models.ManyToManyField(
-        'connect.Proxy',
+        "connect.Proxy",
         blank=True,
         verbose_name="Доступные прокси",
-        related_name='tariffs'
+        related_name="tariffs",
     )
 
     def __str__(self):
@@ -46,10 +46,14 @@ class Order(models.Model):
         ("PURCHASE", "Purchase"),
         ("TOPUP", "Top-up"),
     )
-    tariff = models.ForeignKey(Tariff, on_delete=models.SET_NULL, null=True, blank=True)
+    tariff = models.ForeignKey(
+        Tariff, on_delete=models.SET_NULL, null=True, blank=True
+    )
     telegram_id = models.BigIntegerField()
     amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    order_type = models.CharField(max_length=10, choices=TYPE_CHOICES, default="PURCHASE")
+    order_type = models.CharField(
+        max_length=10, choices=TYPE_CHOICES, default="PURCHASE"
+    )
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,

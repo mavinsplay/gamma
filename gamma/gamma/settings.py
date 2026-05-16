@@ -41,7 +41,9 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
     "https://gamma.ru",
 ).split(",")
 
-SUPPORT_URL = "https://t.me/" + os.getenv("SUPPORT_USERNAME", "gamma_net_bot").replace("@", "")
+SUPPORT_URL = "https://t.me/" + os.getenv(
+    "SUPPORT_USERNAME", "gamma_net_bot"
+).replace("@", "")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
