@@ -106,25 +106,40 @@ async def subscription_reminder_task():
                         rw_user = await client.get_user_by_tgid(profile.telegram_id)
                         if isinstance(rw_user, list):
                             rw_user = rw_user[0] if len(rw_user) > 0 else None
-                            
+
                         if rw_user and rw_user.get("expireAt"):
                             expire_str = rw_user["expireAt"].replace("Z", "+00:00")
                             try:
                                 expire_dt = datetime.fromisoformat(expire_str)
                                 delta = expire_dt - datetime.now(timezone.utc)
                                 print(delta.days)
-                                # Если осталось от 2 до 3 дней
-                                if 1 <= delta.days < 3:
-                                    ds = "день" if delta.days == 1 else "дня" if delta.days == 2 else "дней"
+
+                                # Если подписка активна (больше 0 дней) - сбрасываем флаг
+                                if delta.days > 0:
+                                    if profile.subscription_expired_notification_sent:
+                                        profile.subscription_expired_notification_sent = False
+                                        await sync_to_async(profile.save)()
+
+                                # Если осталось от 1 до 2 дней - напоминание о скором окончании
+                                elif 1 <= delta.days < 3:
+                                    ds = "день" if delta.days == 1 else "дня"
                                     text = f"🔔 <b>Напоминание</b>\n\nВаша подписка на тариф <b>{profile.tarif.name}</b> истекает примерно через {delta.days} {ds}!\n\nПожалуйста, продлите подписку в панели управления."
                                     await bot.send_message(profile.telegram_id, text, parse_mode="HTML")
+
+                                # Если подписка истекла (0 или меньше дней) - отправляем один раз
+                                elif delta.days <= 0 and not profile.subscription_expired_notification_sent:
+                                    text = f"🔔 <b>Напоминание</b>\n\nВаша подписка на тариф <b>{profile.tarif.name}</b> истекла!\n\nПожалуйста, продлите подписку в панели управления."
+                                    await bot.send_message(profile.telegram_id, text, parse_mode="HTML")
+                                    # Отмечаем что уведомление отправлено
+                                    profile.subscription_expired_notification_sent = True
+                                    await sync_to_async(profile.save)()
                             except ValueError:
                                 pass
                 finally:
                     await client.close()
         except Exception as e:
             logging.error(f"Error in reminder task: {e}")
-            
+
         await asyncio.sleep(24 * 3600)  # Check once a day
 
 async def main() -> None:
