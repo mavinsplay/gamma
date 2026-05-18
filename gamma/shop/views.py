@@ -89,7 +89,7 @@ def app_index(request):
     pass
 
     # If not DEBUG and not logged in, profile will be None.
-    # The JS will then call sync-data-api with initData to fetch/create the real profile.
+    # JS calls sync-data-api with initData to fetch/create the profile.
 
     async def fetch_all():
         client = RemnawaveClient()
@@ -117,7 +117,7 @@ def app_index(request):
             if rw_user and rw_user.get("uuid"):
                 try:
                     hwid_devices = await client.get_user_hwid_devices(
-                        rw_user["uuid"]
+                        rw_user["uuid"],
                     )
                 except Exception:
                     pass
@@ -159,22 +159,20 @@ def app_index(request):
         # Proxy Bypass logic
         proxies = []
         if profile and profile.tarif:
-            from connect.models import Proxy
-
             proxies = profile.tarif.proxies.filter(is_active=True)
 
         # Payment History logic
         payments = []
         if profile:
             payments = Order.objects.filter(telegram_id=telegram_id).order_by(
-                "-created_at"
+                "-created_at",
             )[:20]
 
     except Exception as e:
         import traceback
 
         traceback.print_exc()
-        print(f"Exception in app_index: {e}")
+        print(f"Exception in app_index: {e}")  # noqa: T201
         nodes_data = []
         rw_user = None
         hwid_devices = []
@@ -231,7 +229,7 @@ def buy_tariff_api(request):
         if not telegram_id:
             telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
             telegram_username = settings.MOCK_TELEGRAM_USER_DATA.get(
-                "username"
+                "username",
             )
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
@@ -268,6 +266,7 @@ def buy_tariff_api(request):
                 rw_user = await client.get_user_by_tgid(telegram_id)
                 if isinstance(rw_user, list):
                     rw_user = rw_user[0] if len(rw_user) > 0 else None
+
                 if not rw_user or not rw_user.get("uuid"):
                     raise ValueError("User not found in Remnawave")
 
@@ -393,12 +392,17 @@ def topup_api(request):
         amount_dec = Decimal(str(amount))
         if amount_dec <= 0:
             return JsonResponse(
-                {"error": "Сумма должна быть больше нуля"}, status=400
+                {"error": "Сумма должна быть больше нуля"},
+                status=400,
             )
+
         if amount_dec > 100000:
             return JsonResponse(
                 {
-                    "error": "Сумма недопустима. Максимальная сумма пополнения — 100 000 рублей."
+                    "error": (
+                        "Сумма недопустима. Максимальная"
+                        " сумма пополнения — 100 000 рублей."
+                    ),
                 },
                 status=400,
             )
@@ -411,6 +415,7 @@ def topup_api(request):
     if telegram_username and profile.telegram_username != telegram_username:
         profile.telegram_username = telegram_username
         profile.save()
+
     profile.balance += amount_dec
     profile.save()
 
@@ -438,7 +443,9 @@ def buy_slot_api(request):
     telegram_username = request.POST.get("tg_username")
 
     has_mock = getattr(
-        settings, "MOCK_TELEGRAM_USER_DATA", None
+        settings,
+        "MOCK_TELEGRAM_USER_DATA",
+        None,
     ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
     if (
         settings.DEBUG
@@ -449,7 +456,7 @@ def buy_slot_api(request):
             telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
             if not telegram_username:
                 telegram_username = settings.MOCK_TELEGRAM_USER_DATA.get(
-                    "username"
+                    "username",
                 )
 
     init_data = request.POST.get("init_data")
@@ -494,6 +501,7 @@ def buy_slot_api(request):
             rw_user = await client.get_user_by_tgid(telegram_id)
             if isinstance(rw_user, list):
                 rw_user = rw_user[0] if len(rw_user) > 0 else None
+
             if not rw_user or not rw_user.get("uuid"):
                 raise ValueError("User not found in Remnawave")
 
@@ -501,7 +509,8 @@ def buy_slot_api(request):
             new_limit = current_limit + 1
 
             return await client.update_user(
-                uuid=rw_user["uuid"], hwiddevicelimit=new_limit
+                uuid=rw_user["uuid"],
+                hwiddevicelimit=new_limit,
             )
         finally:
             await client.close()
@@ -511,7 +520,7 @@ def buy_slot_api(request):
             profile.balance -= slot_price
             profile.save()
 
-            # Note: We probably want to record this in Order model too, but skipping for now or maybe just deduct.
+            # Record in Order model too, but skipping for now.
             rw_data = async_to_sync(add_slot)()
 
         return JsonResponse(
@@ -563,11 +572,11 @@ def get_subscription_link_api(request):
                 if isinstance(rw_user, list):
                     rw_user = rw_user[0] if len(rw_user) > 0 else None
             except Exception as e:
-                print(f"Error fetching user from Remnawave: {e}")
+                print(f"Error fetching user from Remnawave: {e}")  # noqa: T201
                 rw_user = None
 
             if not rw_user or not rw_user.get("uuid"):
-                # Auto-heal: If user has tariff in DB but missing in Remnawave, re-provision
+                # Auto-heal: user has tariff in DB but missing in Remnawave
                 if profile and profile.tarif:
                     username = (
                         f"{profile.telegram_username or 'user'}_{telegram_id}"
@@ -582,10 +591,12 @@ def get_subscription_link_api(request):
                     )
                     if not rw_user or not rw_user.get("uuid"):
                         raise ValueError(
-                            "User not found and failed to re-provision"
+                            "User not found and failed to re-provision",
                         )
+
                 else:
                     raise ValueError("User not found")
+
             return await client.get_sub_link(rw_user["uuid"])
         finally:
             await client.close()
@@ -596,9 +607,10 @@ def get_subscription_link_api(request):
             {
                 "success": True,
                 "link": sub_data.get(
-                    "url", sub_data.get("subscriptionUrl", "")
+                    "url",
+                    sub_data.get("subscriptionUrl", ""),
                 ),
-            }
+            },
         )
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
@@ -612,7 +624,9 @@ def delete_hwid_device_api(request):
     hwid = request.POST.get("hwid")
 
     has_mock = getattr(
-        settings, "MOCK_TELEGRAM_USER_DATA", None
+        settings,
+        "MOCK_TELEGRAM_USER_DATA",
+        None,
     ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
     if (
         settings.DEBUG
@@ -646,8 +660,10 @@ def delete_hwid_device_api(request):
             rw_user = await client.get_user_by_tgid(telegram_id)
             if isinstance(rw_user, list):
                 rw_user = rw_user[0] if len(rw_user) > 0 else None
+
             if not rw_user or not rw_user.get("uuid"):
                 raise ValueError("User not found in Remnawave")
+
             await client.delete_hwid_device(rw_user["uuid"], hwid)
         finally:
             await client.close()
@@ -667,7 +683,9 @@ def promo_api(request):
     telegram_id = request.POST.get("tg_id")
 
     has_mock = getattr(
-        settings, "MOCK_TELEGRAM_USER_DATA", None
+        settings,
+        "MOCK_TELEGRAM_USER_DATA",
+        None,
     ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
     if (
         settings.DEBUG
@@ -702,7 +720,8 @@ def promo_api(request):
         promo = PromoCode.objects.get(code__iexact=code, is_active=True)
     except PromoCode.DoesNotExist:
         return JsonResponse(
-            {"error": "Промокод не найден или неактивен"}, status=400
+            {"error": "Промокод не найден или неактивен"},
+            status=400,
         )
 
     profile, created = Profile.objects.get_or_create(telegram_id=telegram_id)
@@ -712,12 +731,14 @@ def promo_api(request):
     try:
         with transaction.atomic():
             promo = PromoCode.objects.select_for_update().get(
-                pk=promo.pk, is_active=True
+                pk=promo.pk,
+                is_active=True,
             )
             profile = Profile.objects.select_for_update().get(pk=profile.pk)
 
             if PromoCodeUsage.objects.filter(
-                promo_code=promo, profile=profile
+                promo_code=promo,
+                profile=profile,
             ).exists():
                 return JsonResponse(
                     {"error": "Этот промокод уже был использован"},
@@ -753,11 +774,12 @@ def promo_api(request):
                             now = datetime.now(timezone.utc)
                             if current_expire_str:
                                 expire_str = current_expire_str.replace(
-                                    "Z", "+00:00"
+                                    "Z",
+                                    "+00:00",
                                 )
                                 try:
                                     expire_dt = datetime.fromisoformat(
-                                        expire_str
+                                        expire_str,
                                     )
                                     if expire_dt < now:
                                         expire_dt = now
@@ -767,10 +789,11 @@ def promo_api(request):
                                 expire_dt = now
 
                             new_expire_dt = expire_dt + timedelta(
-                                days=days_to_extend
+                                days=days_to_extend,
                             )
                             new_expire_str = new_expire_dt.isoformat().replace(
-                                "+00:00", "Z"
+                                "+00:00",
+                                "Z",
                             )
 
                             await client.update_user(
@@ -785,7 +808,8 @@ def promo_api(request):
             PromoCodeUsage.objects.create(promo_code=promo, profile=profile)
     except Exception as e:
         return JsonResponse(
-            {"error": f"Ошибка применения промокода: {e}"}, status=500
+            {"error": f"Ошибка применения промокода: {e}"},
+            status=500,
         )
 
     return JsonResponse(
@@ -806,7 +830,9 @@ def extend_sub_api(request):
     months = request.POST.get("months")
 
     has_mock = getattr(
-        settings, "MOCK_TELEGRAM_USER_DATA", None
+        settings,
+        "MOCK_TELEGRAM_USER_DATA",
+        None,
     ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
     if (
         settings.DEBUG
@@ -844,17 +870,15 @@ def extend_sub_api(request):
     profile = get_object_or_404(Profile, telegram_id=telegram_id)
     if not profile.tarif:
         return JsonResponse(
-            {"error": "No active tariff to extend"}, status=400
+            {"error": "No active tariff to extend"},
+            status=400,
         )
 
-    # Calculate price proportionally: (tariff price / duration days) * (months * 30)
-    # We'll assume a standard 30-day month for simplicity, or just calculate price directly
-    # If the user's base tariff is for 30 days, 1 month = tariff.price.
     price_per_month = profile.tarif.price / Decimal(
-        str(profile.tarif.duration_days / 30.0)
+        str(profile.tarif.duration_days / 30.0),
     )
     total_price = Decimal(str(price_per_month * months)).quantize(
-        Decimal("0.00")
+        Decimal("0.00"),
     )
 
     if profile.balance < total_price:
@@ -874,6 +898,7 @@ def extend_sub_api(request):
             rw_user = await client.get_user_by_tgid(telegram_id)
             if isinstance(rw_user, list):
                 rw_user = rw_user[0] if len(rw_user) > 0 else None
+
             if not rw_user or not rw_user.get("uuid"):
                 raise ValueError("User not found in Remnawave")
 
@@ -896,7 +921,8 @@ def extend_sub_api(request):
             new_expire_str = new_expire_dt.isoformat().replace("+00:00", "Z")
 
             return await client.update_user(
-                uuid=rw_user["uuid"], expire_at=new_expire_str
+                uuid=rw_user["uuid"],
+                expire_at=new_expire_str,
             )
         finally:
             await client.close()
@@ -1026,7 +1052,7 @@ def sync_data_api(request):
     if not profile:
         # If profile doesn't exist and we couldn't create it
         return JsonResponse(
-            {"success": True, "profile": None, "rw_user": None}
+            {"success": True, "profile": None, "rw_user": None},
         )
 
     async def fetch_sync_data():
@@ -1055,7 +1081,7 @@ def sync_data_api(request):
             if rw_user and rw_user.get("uuid"):
                 try:
                     hwid_devices = await client.get_user_hwid_devices(
-                        rw_user["uuid"]
+                        rw_user["uuid"],
                     )
                 except Exception:
                     pass
@@ -1073,7 +1099,7 @@ def sync_data_api(request):
         from datetime import datetime, timezone
 
         raw_nodes, rw_user, hwid_devices, nodes_error = async_to_sync(
-            fetch_sync_data
+            fetch_sync_data,
         )()
         nodes_data = []
         for node in raw_nodes:
@@ -1100,7 +1126,7 @@ def sync_data_api(request):
         payments = []
         if profile:
             qs = Order.objects.filter(telegram_id=telegram_id).order_by(
-                "-created_at"
+                "-created_at",
             )[:20]
             for p in qs:
                 payments.append(
@@ -1111,18 +1137,16 @@ def sync_data_api(request):
                         "status": p.status,
                         "created_at": p.created_at.strftime("%d.%m.%Y %H:%M"),
                         "tariff_name": p.tariff.name if p.tariff else None,
-                    }
+                    },
                 )
 
         # Proxy Bypass logic
         proxies_data = []
         if profile and profile.tarif:
-            from connect.models import Proxy
-
             active_proxies = profile.tarif.proxies.filter(is_active=True)
             for p in active_proxies:
                 proxies_data.append(
-                    {"name": p.name, "connection_url": p.connection_url}
+                    {"name": p.name, "connection_url": p.connection_url},
                 )
 
         is_admin = str(telegram_id) == str(settings.ADMIN_TELEGRAM_ID)
@@ -1173,8 +1197,12 @@ def sync_data_api(request):
                         "tarif_days": (
                             profile.tarif.duration_days if profile.tarif else 0
                         ),
-                        "payment_reminder_enabled": profile.payment_reminder_enabled,
-                        "notifications_enabled": profile.notifications_enabled,
+                        "payment_reminder_enabled": (
+                            profile.payment_reminder_enabled
+                        ),
+                        "notifications_enabled": (
+                            profile.notifications_enabled
+                        ),
                     }
                     if profile
                     else None
@@ -1187,7 +1215,7 @@ def sync_data_api(request):
                 "offline_count": offline_count,
                 "payments": payments,
                 "proxies": proxies_data,
-            }
+            },
         )
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)

@@ -219,9 +219,9 @@ if __name__ == "__main__":
         )
         try:
             user = await client.get_user_hwid_devices(
-                "276a990a-2cc2-4756-ba6b-9af734c2c9cd"
+                "",
             )
-            print(user)
+            print(user)  # noqa: T201
         except Exception as e:
             print(f"Error: {e}")  # noqa: T201
         finally:

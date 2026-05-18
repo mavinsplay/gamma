@@ -1,11 +1,15 @@
 import json
+
+from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import render
-from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
-from django.conf import settings
-from .models import NodeStatus
+from django.views.decorators.http import require_POST
+
+from connect.models import NodeStatus
 from shop.utils import verify_telegram_init_data
+
+__all__ = ()
 
 
 @csrf_exempt
@@ -23,7 +27,8 @@ def set_node_status_api(request):
 
     if str(telegram_id) != str(settings.ADMIN_TELEGRAM_ID):
         return JsonResponse(
-            {"success": False, "error": "Unauthorized"}, status=403
+            {"success": False, "error": "Unauthorized"},
+            status=403,
         )
 
     node_id = request.POST.get("node_id")
@@ -33,7 +38,8 @@ def set_node_status_api(request):
 
     if not node_id:
         return JsonResponse(
-            {"success": False, "error": "Node ID required"}, status=400
+            {"success": False, "error": "Node ID required"},
+            status=400,
         )
 
     status, created = NodeStatus.objects.update_or_create(
@@ -49,7 +55,7 @@ def set_node_status_api(request):
 
 
 def open_sub_redirect(request):
-    """Opens happ:// deep link via system browser (works inside Telegram Mini App)."""
+    """Open happ:// deep link via system browser (works in Telegram Mini App)."""  # noqa: E501
     sub_link = request.GET.get("link", "")
     # sub_link is already a full https:// URL; happ uses happ:// + that URL
     happ_link = "happ://" + sub_link if sub_link else ""

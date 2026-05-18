@@ -1,24 +1,31 @@
 import asyncio
+from datetime import datetime, timezone
 import logging
 import os
 import sys
-from dotenv import load_dotenv
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "gamma"))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "gamma.settings")
-import django
+
+from aiogram import Bot, Dispatcher, F, types  # noqa: E402
+from aiogram.filters import Command, CommandStart  # noqa: E402
+from aiogram.fsm.context import FSMContext  # noqa: E402
+from aiogram.fsm.state import State, StatesGroup  # noqa: E402
+from aiogram.types import (  # noqa: E402
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    WebAppInfo,
+)
+from asgiref.sync import sync_to_async  # noqa: E402
+import django  # noqa: E402
+from dotenv import load_dotenv  # noqa: E402
 
 django.setup()
 
-from user.models import Profile
-from asgiref.sync import sync_to_async
+from connect.services.remnawave import RemnawaveClient  # noqa: E402
+from user.models import Profile  # noqa: E402
 
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart, Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.types import WebAppInfo
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+__all__ = ()
 
 load_dotenv()
 
@@ -45,7 +52,8 @@ class BroadcastState(StatesGroup):
 
 
 SUPPORT_USERNAME = os.getenv(
-    "SUPPORT_USERNAME", "@o3o20"
+    "SUPPORT_USERNAME",
+    "@o3o20",
 ).lstrip("@")
 
 
@@ -60,13 +68,13 @@ async def command_start_handler(message: types.Message) -> None:
                 InlineKeyboardButton(
                     text="👤 Личный кабинет",
                     web_app=WebAppInfo(url=WEBAPP_URL),
-                )
+                ),
             ],
             [
                 InlineKeyboardButton(
                     text="📡 Статус серверов",
                     web_app=WebAppInfo(url=status_url),
-                )
+                ),
             ],
             [
                 InlineKeyboardButton(
@@ -74,7 +82,7 @@ async def command_start_handler(message: types.Message) -> None:
                     url=support_url,
                 ),
             ],
-        ]
+        ],
     )
 
     await message.answer(
@@ -94,7 +102,9 @@ async def command_start_handler(message: types.Message) -> None:
 async def broadcast_command(message: types.Message, state: FSMContext):
     await message.answer(
         "📢 <b>Режим рассылки</b>\n\n"
-        "Отправьте сообщение (текст, фото, кружочек и т.д.). Оно будет разослано всем пользователям с включенными уведомлениями.\n"
+        "Отправьте сообщение (текст, фото, кружочек и т.д.). "
+        "Оно будет разослано всем пользователям "
+        "с включенными уведомлениями.\n"
         "Для отмены напишите /cancel",
         parse_mode="HTML",
     )
@@ -111,8 +121,9 @@ async def cancel_broadcast(message: types.Message, state: FSMContext):
 def get_users_for_broadcast():
     return list(
         Profile.objects.filter(notifications_enabled=True).values_list(
-            "telegram_id", flat=True
-        )
+            "telegram_id",
+            flat=True,
+        ),
     )
 
 
@@ -138,70 +149,83 @@ async def process_broadcast(message: types.Message, state: FSMContext):
     )
 
 
-from connect.services.remnawave import RemnawaveClient
-from datetime import datetime, timedelta, timezone
-
-
 async def subscription_reminder_task():
     while True:
         try:
             users = await sync_to_async(list)(
                 Profile.objects.filter(
-                    payment_reminder_enabled=True, tarif__isnull=False
-                ).select_related("tarif")
+                    payment_reminder_enabled=True,
+                    tarif__isnull=False,
+                ).select_related("tarif"),
             )
             if users:
                 client = RemnawaveClient()
                 try:
                     for profile in users:
                         rw_user = await client.get_user_by_tgid(
-                            profile.telegram_id
+                            profile.telegram_id,
                         )
                         if isinstance(rw_user, list):
                             rw_user = rw_user[0] if len(rw_user) > 0 else None
 
                         if rw_user and rw_user.get("expireAt"):
                             expire_str = rw_user["expireAt"].replace(
-                                "Z", "+00:00"
+                                "Z",
+                                "+00:00",
                             )
                             try:
                                 expire_dt = datetime.fromisoformat(expire_str)
                                 delta = expire_dt - datetime.now(timezone.utc)
-                                print(delta.days)
+                                # noqa: T201
 
-                                # Если подписка активна (больше 0 дней) - сбрасываем флаг
+                                # Подписка активна — сбрасываем флаг
                                 if delta.days > 0:
                                     if (
-                                        profile.subscription_expired_notification_sent
+                                        profile.subscription_expired_notification_sent  # noqa: E501
                                     ):
-                                        profile.subscription_expired_notification_sent = (
+                                        profile.subscription_expired_notification_sent = (  # noqa: E501
                                             False
                                         )
                                         await sync_to_async(profile.save)()
 
-                                # Если осталось от 1 до 2 дней - напоминание о скором окончании
+                                # 1-2 дня до конца — напоминание
                                 elif 1 <= delta.days < 3:
                                     ds = "день" if delta.days == 1 else "дня"
-                                    text = f"🔔 <b>Напоминание</b>\n\nВаша подписка на тариф <b>{profile.tarif.name}</b> истекает примерно через {delta.days} {ds}!\n\nПожалуйста, продлите подписку в панели управления."
+                                    text = (
+                                        "🔔 <b>Напоминание</b>\n\n"
+                                        f"Ваша подписка на тариф "
+                                        f"<b>{profile.tarif.name}</b> "
+                                        f"истекает примерно через "
+                                        f"{delta.days} {ds}!\n\n"
+                                        "Пожалуйста, продлите подписку "
+                                        "в панели управления."
+                                    )
                                     await bot.send_message(
                                         profile.telegram_id,
                                         text,
                                         parse_mode="HTML",
                                     )
 
-                                # Если подписка истекла (0 или меньше дней) - отправляем один раз
+                                # Подписка истекла — отправляем один раз
                                 elif (
                                     delta.days <= 0
-                                    and not profile.subscription_expired_notification_sent
+                                    and not profile.subscription_expired_notification_sent  # noqa: E501
                                 ):
-                                    text = f"🔔 <b>Напоминание</b>\n\nВаша подписка на тариф <b>{profile.tarif.name}</b> истекла!\n\nПожалуйста, продлите подписку в панели управления."
+                                    text = (
+                                        "🔔 <b>Напоминание</b>\n\n"
+                                        f"Ваша подписка на тариф "
+                                        f"<b>{profile.tarif.name}</b> "
+                                        f"истекла!\n\n"
+                                        "Пожалуйста, продлите подписку "
+                                        "в панели управления."
+                                    )
                                     await bot.send_message(
                                         profile.telegram_id,
                                         text,
                                         parse_mode="HTML",
                                     )
                                     # Отмечаем что уведомление отправлено
-                                    profile.subscription_expired_notification_sent = (
+                                    profile.subscription_expired_notification_sent = (  # noqa: E501
                                         True
                                     )
                                     await sync_to_async(profile.save)()

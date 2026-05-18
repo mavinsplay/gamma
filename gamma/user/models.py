@@ -25,10 +25,12 @@ class Profile(models.Model):
         default=None,
     )
     payment_reminder_enabled = models.BooleanField(
-        default=True, verbose_name="Напоминание об оплате"
+        default=True,
+        verbose_name="Напоминание об оплате",
     )
     notifications_enabled = models.BooleanField(
-        default=True, verbose_name="Уведомления"
+        default=True,
+        verbose_name="Уведомления",
     )
     subscription_expired_notification_sent = models.BooleanField(
         default=False,

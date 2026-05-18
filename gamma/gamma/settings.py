@@ -42,7 +42,8 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
 ).split(",")
 
 SUPPORT_URL = "https://t.me/" + os.getenv(
-    "SUPPORT_USERNAME", "gamma_net_bot"
+    "SUPPORT_USERNAME",
+    "gamma_net_bot",
 ).replace("@", "")
 
 INSTALLED_APPS = [

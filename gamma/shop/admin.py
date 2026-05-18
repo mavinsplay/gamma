@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import Tariff, Order, PromoCode, PromoCodeUsage
+
+from shop.models import Order, PromoCode, PromoCodeUsage, Tariff
+
+__all__ = ()
 
 
 @admin.register(Tariff)

@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import Proxy
+
+from connect.models import Proxy
+
+__all__ = ()
 
 
 @admin.register(Proxy)

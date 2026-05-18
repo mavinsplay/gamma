@@ -1,8 +1,11 @@
-import hmac
 import hashlib
+import hmac
 import json
 from urllib.parse import parse_qsl
+
 from django.conf import settings
+
+__all__ = ()
 
 
 def verify_telegram_init_data(init_data: str):
@@ -23,16 +26,21 @@ def verify_telegram_init_data(init_data: str):
 
         # 2. Sort keys and create data_check_string
         data_check_string = "\n".join(
-            [f"{k}={v}" for k, v in sorted(parsed_data.items())]
+            [f"{k}={v}" for k, v in sorted(parsed_data.items())],
         )
 
         # 3. Get secret key from Bot Token
-        # The secret key is HMAC_SHA256(data_check_string, HMAC_SHA256("WebAppData", bot_token))
+        # secret key = HMAC_SHA256(data_check_string,
+        #                HMAC_SHA256("WebAppData", bot_token))
         secret_key = hmac.new(
-            b"WebAppData", settings.BOT_TOKEN.encode(), hashlib.sha256
+            b"WebAppData",
+            settings.BOT_TOKEN.encode(),
+            hashlib.sha256,
         ).digest()
         calculated_hash = hmac.new(
-            secret_key, data_check_string.encode(), hashlib.sha256
+            secret_key,
+            data_check_string.encode(),
+            hashlib.sha256,
         ).hexdigest()
 
         # 4. Compare hashes
@@ -42,7 +50,7 @@ def verify_telegram_init_data(init_data: str):
 
         return False, None
     except Exception as e:
-        print(f"Verification error: {e}")
+        print(f"Verification error: {e}")  # noqa: T201
         return False, None
 
 
@@ -63,6 +71,7 @@ def verify_telegram_login_data(data: dict):
     for k, v in sorted(data.items()):
         if v is not None:
             check_list.append(f"{k}={v}")
+
     data_check_string = "\n".join(check_list)
 
     # 2. Secret key is SHA256(bot_token)
@@ -70,7 +79,9 @@ def verify_telegram_login_data(data: dict):
 
     # 3. Calculate HMAC-SHA256
     calculated_hash = hmac.new(
-        secret_key, data_check_string.encode(), hashlib.sha256
+        secret_key,
+        data_check_string.encode(),
+        hashlib.sha256,
     ).hexdigest()
 
     return calculated_hash == received_hash

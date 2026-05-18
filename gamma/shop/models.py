@@ -49,12 +49,17 @@ class Order(models.Model):
         ("TOPUP", "Top-up"),
     )
     tariff = models.ForeignKey(
-        Tariff, on_delete=models.SET_NULL, null=True, blank=True
+        Tariff,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
     )
     telegram_id = models.BigIntegerField()
     amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     order_type = models.CharField(
-        max_length=10, choices=TYPE_CHOICES, default="PURCHASE"
+        max_length=10,
+        choices=TYPE_CHOICES,
+        default="PURCHASE",
     )
     status = models.CharField(
         max_length=20,
@@ -73,10 +78,14 @@ class PromoCode(models.Model):
         ("DAYS", "Дни подписки"),
     )
     code = models.CharField(
-        max_length=50, unique=True, verbose_name="Промокод"
+        max_length=50,
+        unique=True,
+        verbose_name="Промокод",
     )
     reward_type = models.CharField(
-        max_length=10, choices=REWARD_CHOICES, verbose_name="Тип награды"
+        max_length=10,
+        choices=REWARD_CHOICES,
+        verbose_name="Тип награды",
     )
     reward_value = models.DecimalField(
         max_digits=10,
@@ -86,7 +95,8 @@ class PromoCode(models.Model):
     )
     is_active = models.BooleanField(default=True, verbose_name="Активен")
     created_at = models.DateTimeField(
-        auto_now_add=True, verbose_name="Дата создания"
+        auto_now_add=True,
+        verbose_name="Дата создания",
     )
 
     def __str__(self):
@@ -102,10 +112,14 @@ class PromoCode(models.Model):
 
 class PromoCodeUsage(models.Model):
     promo_code = models.ForeignKey(
-        PromoCode, on_delete=models.CASCADE, related_name="usages"
+        PromoCode,
+        on_delete=models.CASCADE,
+        related_name="usages",
     )
     profile = models.ForeignKey(
-        "user.Profile", on_delete=models.CASCADE, related_name="promo_usages"
+        "user.Profile",
+        on_delete=models.CASCADE,
+        related_name="promo_usages",
     )
     used_at = models.DateTimeField(auto_now_add=True)
 

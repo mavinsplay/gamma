@@ -1,15 +1,19 @@
-from django.http import JsonResponse
-from django.contrib.auth import logout
-from django.shortcuts import render, redirect
-from django.conf import settings
-from django.urls import reverse
-from user.models import Profile
+import base64
+import hashlib
 import json
 import secrets
-import requests
-import hashlib
-import base64
 from urllib.parse import urlencode
+
+from django.conf import settings
+from django.contrib.auth import logout
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
+from django.urls import reverse
+import requests
+
+from user.models import Profile
+
+__all__ = ()
 
 
 def _get_redirect_uri(request):
@@ -66,7 +70,10 @@ def telegram_login_callback(request):
             request,
             "user/login.html",
             {
-                "error": "Ошибка авторизации: неверный state или код отсутствует.",
+                "error": (
+                    "Ошибка авторизации: неверный state"
+                    " или код отсутствует."
+                ),
                 "bot_username": settings.TELEGRAM_BOT_USERNAME,
             },
         )
@@ -75,9 +82,10 @@ def telegram_login_callback(request):
     redirect_uri = _get_redirect_uri(request)
 
     # Basic Auth: base64(client_id:client_secret)
-    credentials = base64.b64encode(
-        f"{settings.TELEGRAM_CLIENT_ID}:{settings.TELEGRAM_CLIENT_SECRET}".encode()
-    ).decode()
+    auth_str = (
+        f"{settings.TELEGRAM_CLIENT_ID}" f":{settings.TELEGRAM_CLIENT_SECRET}"
+    )
+    credentials = base64.b64encode(auth_str.encode()).decode()
 
     payload = {
         "grant_type": "authorization_code",
@@ -92,7 +100,7 @@ def telegram_login_callback(request):
             "https://oauth.telegram.org/token",
             data=payload,
             headers={
-                "Authorization": f"Basic {credentials}",  # обязательный заголовок
+                "Authorization": (f"Basic {credentials}"),
                 "Content-Type": "application/x-www-form-urlencoded",
             },
         )
@@ -103,7 +111,13 @@ def telegram_login_callback(request):
                 request,
                 "user/login.html",
                 {
-                    "error": f"Ошибка токена: {data.get('error_description', data.get('error', data))}",
+                    "error": "Ошибка токена: "
+                    + str(
+                        data.get(
+                            "error_description",
+                            data.get("error", data),
+                        ),
+                    ),
                     "bot_username": settings.TELEGRAM_BOT_USERNAME,
                 },
             )
@@ -151,4 +165,5 @@ def logout_view(request):
     logout(request)
     if "tg_user" in request.session:
         del request.session["tg_user"]
+
     return JsonResponse({"success": True})

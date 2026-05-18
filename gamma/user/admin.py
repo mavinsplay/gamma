@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import Profile
+
+from user.models import Profile
+
+__all__ = ()
 
 
 @admin.register(Profile)
