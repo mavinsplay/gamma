@@ -714,9 +714,7 @@ def promo_api(request):
             promo = PromoCode.objects.select_for_update().get(
                 pk=promo.pk, is_active=True
             )
-            profile = Profile.objects.select_for_update().get(
-                pk=profile.pk
-            )
+            profile = Profile.objects.select_for_update().get(pk=profile.pk)
 
             if PromoCodeUsage.objects.filter(
                 promo_code=promo, profile=profile
@@ -733,22 +731,16 @@ def promo_api(request):
                 days_to_extend = int(promo.reward_value)
                 if days_to_extend <= 0:
                     return JsonResponse(
-                        {
-                            "error": "Некорректное значение промокода"
-                        },
+                        {"error": "Некорректное значение промокода"},
                         status=400,
                     )
 
                 async def extend_via_promo():
                     client = RemnawaveClient()
                     try:
-                        rw_user = await client.get_user_by_tgid(
-                            telegram_id
-                        )
+                        rw_user = await client.get_user_by_tgid(telegram_id)
                         if isinstance(rw_user, list):
-                            rw_user = (
-                                rw_user[0] if len(rw_user) > 0 else None
-                            )
+                            rw_user = rw_user[0] if len(rw_user) > 0 else None
 
                         if rw_user and rw_user.get("uuid"):
                             from datetime import (
@@ -760,16 +752,12 @@ def promo_api(request):
                             current_expire_str = rw_user.get("expireAt")
                             now = datetime.now(timezone.utc)
                             if current_expire_str:
-                                expire_str = (
-                                    current_expire_str.replace(
-                                        "Z", "+00:00"
-                                    )
+                                expire_str = current_expire_str.replace(
+                                    "Z", "+00:00"
                                 )
                                 try:
-                                    expire_dt = (
-                                        datetime.fromisoformat(
-                                            expire_str
-                                        )
+                                    expire_dt = datetime.fromisoformat(
+                                        expire_str
                                     )
                                     if expire_dt < now:
                                         expire_dt = now
@@ -781,10 +769,8 @@ def promo_api(request):
                             new_expire_dt = expire_dt + timedelta(
                                 days=days_to_extend
                             )
-                            new_expire_str = (
-                                new_expire_dt.isoformat().replace(
-                                    "+00:00", "Z"
-                                )
+                            new_expire_str = new_expire_dt.isoformat().replace(
+                                "+00:00", "Z"
                             )
 
                             await client.update_user(
@@ -796,9 +782,7 @@ def promo_api(request):
 
                 async_to_sync(extend_via_promo)()
 
-            PromoCodeUsage.objects.create(
-                promo_code=promo, profile=profile
-            )
+            PromoCodeUsage.objects.create(promo_code=promo, profile=profile)
     except Exception as e:
         return JsonResponse(
             {"error": f"Ошибка применения промокода: {e}"}, status=500
