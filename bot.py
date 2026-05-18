@@ -44,19 +44,50 @@ class BroadcastState(StatesGroup):
     waiting_for_message = State()
 
 
+SUPPORT_USERNAME = os.getenv(
+    "SUPPORT_USERNAME", "@o3o20"
+).lstrip("@")
+
+
 @dp.message(CommandStart())
 async def command_start_handler(message: types.Message) -> None:
-    web_app_btn = InlineKeyboardButton(
-        text="🚀 Открыть VPN",
-        web_app=WebAppInfo(url=WEBAPP_URL),
+    status_url = f"{WEBAPP_URL}?tab=connection"
+    support_url = f"https://t.me/{SUPPORT_USERNAME}"
+
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👤 Личный кабинет",
+                    web_app=WebAppInfo(url=WEBAPP_URL),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📡 Статус серверов",
+                    web_app=WebAppInfo(url=status_url),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🆘 Чат с поддержкой",
+                    url=support_url,
+                ),
+            ],
+        ]
     )
-    markup = InlineKeyboardMarkup(inline_keyboard=[[web_app_btn]])
-    welcome_text = (
-        f"Привет, {message.from_user.first_name}! 👋\n\n"
-        f"Добро пожаловать в наш VPN сервис. Нажми на кнопку ниже, "
-        f"чтобы открыть панель управления."
+
+    await message.answer(
+        f"✨ <b>Добро пожаловать в Gamma VPN</b>\n\n"
+        f"Привет, {message.from_user.first_name}! 👋\n"
+        f"Быстрый и надёжный VPN для ежедневного использования.\n\n"
+        f"• 🚀 <b>Скорость</b> без ограничений\n"
+        f"• 🌍 <b>Серверы</b> в разных странах\n"
+        f"• 🔒 <b>Защита</b> ваших данных\n\n"
+        f"Выберите действие:",
+        parse_mode="HTML",
+        reply_markup=markup,
     )
-    await message.answer(welcome_text, reply_markup=markup)
 
 
 @dp.message(Command("broadcast"), F.from_user.id == ADMIN_ID)

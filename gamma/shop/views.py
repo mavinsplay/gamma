@@ -707,71 +707,102 @@ def promo_api(request):
 
     profile, created = Profile.objects.get_or_create(telegram_id=telegram_id)
 
-    if PromoCodeUsage.objects.filter(
-        promo_code=promo, profile=profile
-    ).exists():
-        return JsonResponse(
-            {"error": "Этот промокод уже был использован"}, status=400
-        )
-
     days_to_extend = None
 
-    if promo.reward_type == "BALANCE":
-        profile.balance += promo.reward_value
-        profile.save()
-    elif promo.reward_type == "DAYS":
-        days_to_extend = int(promo.reward_value)
-        if days_to_extend <= 0:
-            return JsonResponse(
-                {"error": "Некорректное значение промокода"}, status=400
+    try:
+        with transaction.atomic():
+            promo = PromoCode.objects.select_for_update().get(
+                pk=promo.pk, is_active=True
+            )
+            profile = Profile.objects.select_for_update().get(
+                pk=profile.pk
             )
 
-        async def extend_via_promo():
-            client = RemnawaveClient()
-            try:
-                rw_user = await client.get_user_by_tgid(telegram_id)
-                if isinstance(rw_user, list):
-                    rw_user = rw_user[0] if len(rw_user) > 0 else None
+            if PromoCodeUsage.objects.filter(
+                promo_code=promo, profile=profile
+            ).exists():
+                return JsonResponse(
+                    {"error": "Этот промокод уже был использован"},
+                    status=400,
+                )
 
-                if rw_user and rw_user.get("uuid"):
-                    from datetime import datetime, timedelta, timezone
+            if promo.reward_type == "BALANCE":
+                profile.balance += promo.reward_value
+                profile.save()
+            elif promo.reward_type == "DAYS":
+                days_to_extend = int(promo.reward_value)
+                if days_to_extend <= 0:
+                    return JsonResponse(
+                        {
+                            "error": "Некорректное значение промокода"
+                        },
+                        status=400,
+                    )
 
-                    current_expire_str = rw_user.get("expireAt")
-                    now = datetime.now(timezone.utc)
-                    if current_expire_str:
-                        expire_str = current_expire_str.replace(
-                            "Z", "+00:00"
+                async def extend_via_promo():
+                    client = RemnawaveClient()
+                    try:
+                        rw_user = await client.get_user_by_tgid(
+                            telegram_id
                         )
-                        try:
-                            expire_dt = datetime.fromisoformat(expire_str)
-                            if expire_dt < now:
+                        if isinstance(rw_user, list):
+                            rw_user = (
+                                rw_user[0] if len(rw_user) > 0 else None
+                            )
+
+                        if rw_user and rw_user.get("uuid"):
+                            from datetime import (
+                                datetime,
+                                timedelta,
+                                timezone,
+                            )
+
+                            current_expire_str = rw_user.get("expireAt")
+                            now = datetime.now(timezone.utc)
+                            if current_expire_str:
+                                expire_str = (
+                                    current_expire_str.replace(
+                                        "Z", "+00:00"
+                                    )
+                                )
+                                try:
+                                    expire_dt = (
+                                        datetime.fromisoformat(
+                                            expire_str
+                                        )
+                                    )
+                                    if expire_dt < now:
+                                        expire_dt = now
+                                except ValueError:
+                                    expire_dt = now
+                            else:
                                 expire_dt = now
-                        except ValueError:
-                            expire_dt = now
-                    else:
-                        expire_dt = now
 
-                    new_expire_dt = expire_dt + timedelta(
-                        days=days_to_extend
-                    )
-                    new_expire_str = new_expire_dt.isoformat().replace(
-                        "+00:00", "Z"
-                    )
+                            new_expire_dt = expire_dt + timedelta(
+                                days=days_to_extend
+                            )
+                            new_expire_str = (
+                                new_expire_dt.isoformat().replace(
+                                    "+00:00", "Z"
+                                )
+                            )
 
-                    await client.update_user(
-                        uuid=rw_user["uuid"], expire_at=new_expire_str
-                    )
-            finally:
-                await client.close()
+                            await client.update_user(
+                                uuid=rw_user["uuid"],
+                                expire_at=new_expire_str,
+                            )
+                    finally:
+                        await client.close()
 
-        try:
-            async_to_sync(extend_via_promo)()
-        except Exception as e:
-            return JsonResponse(
-                {"error": f"Ошибка применения промокода: {e}"}, status=500
+                async_to_sync(extend_via_promo)()
+
+            PromoCodeUsage.objects.create(
+                promo_code=promo, profile=profile
             )
-
-    PromoCodeUsage.objects.create(promo_code=promo, profile=profile)
+    except Exception as e:
+        return JsonResponse(
+            {"error": f"Ошибка применения промокода: {e}"}, status=500
+        )
 
     return JsonResponse(
         {

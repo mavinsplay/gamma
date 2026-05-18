@@ -33,10 +33,10 @@
                 </div>
             </div>
             {% else %}
-            <button class="action-btn bounce" style="margin-top: 16px; opacity: 0.5;" disabled>
-                <span class="material-symbols-rounded">link_off</span>
-                Нет активной подписки
-            </button>
+            <div id="no-sub-loading" style="display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 16px; padding: 20px; opacity: 0.6;">
+                <div class="spinner" style="width: 28px; height: 28px; border-width: 3px;"></div>
+                <span style="font-size: 14px;">Загрузка данных...</span>
+            </div>
             {% endif %}
         </div>
         {% if proxies %}

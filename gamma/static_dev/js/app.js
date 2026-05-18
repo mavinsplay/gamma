@@ -219,6 +219,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Deep-link: ?tab=view-xxx overrides saved tab
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab');
+    if (tabParam) {
+        const viewId = tabParam.startsWith('view-') ? tabParam : 'view-' + tabParam;
+        const item = Array.from(navItems).find(
+            i => i.getAttribute('data-target') === viewId
+        );
+        if (item) {
+            sessionStorage.setItem('activeTab', viewId);
+            activateTab(item);
+            // Force sync immediately to populate data
+            setTimeout(() => {
+                if (window.syncNow) window.syncNow();
+            }, 100);
+        }
+    }
+
     // Restore active tab after page reload
     const savedTab = sessionStorage.getItem('activeTab');
     if (savedTab) {
