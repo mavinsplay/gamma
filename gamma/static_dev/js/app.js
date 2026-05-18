@@ -569,6 +569,94 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Promo Code Handler
+    window.handlePromoCode = () => {
+        showModal({
+            title: 'Промокод',
+            message: 'Введите ваш промокод:',
+            icon: 'redeem',
+            actionText: 'Активировать',
+            showInput: true,
+            inputValue: '',
+            inputPlaceholder: 'Введите промокод',
+            inputType: 'text',
+            onAction: async () => {
+                const code = modalAmountInput.value.trim();
+                if (!code) {
+                    alert('Пожалуйста, введите промокод.');
+                    return;
+                }
+
+                showLoading('Активация промокода...');
+
+                const tg = window.Telegram?.WebApp;
+                const userId = window.authenticatedUserId;
+
+                try {
+                    const formData = new FormData();
+                    formData.append('code', code);
+                    formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+                    if (tg?.initData) {
+                        formData.append('init_data', tg.initData);
+                    } else {
+                        formData.append('tg_id', userId);
+                    }
+
+                    const response = await fetch('/shop/promo-api/', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data.success) {
+                        const balanceAmount = document.getElementById('profile-balance');
+                        if (balanceAmount) {
+                            balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
+                        }
+
+                        const rewardText = data.reward_type === 'BALANCE'
+                            ? `Ваш баланс пополнен на ${data.reward_value.toFixed(0)} ₽`
+                            : `Подписка продлена на ${data.reward_value.toFixed(0)} дней`;
+
+                        showSuccessAnim(() => {
+                            showModal({
+                                title: 'Промокод активирован!',
+                                message: rewardText,
+                                icon: 'check_circle',
+                                actionText: 'Отлично',
+                                onAction: () => {
+                                    hideModal();
+                                    if (window.syncNow) window.syncNow();
+                                }
+                            });
+                        });
+                        if (window.syncNow) window.syncNow();
+                    } else {
+                        hideLoading();
+                        showModal({
+                            title: 'Ошибка',
+                            message: data.error || 'Не удалось активировать промокод.',
+                            icon: 'error',
+                            actionText: 'Ок',
+                            onAction: hideModal
+                        });
+                    }
+                } catch (error) {
+                    hideLoading();
+                    showModal({
+                        title: 'Ошибка сети',
+                        message: 'Проверьте интернет-соединение.',
+                        icon: 'cloud_off',
+                        actionText: 'Ок',
+                        onAction: hideModal
+                    });
+                }
+            }
+        });
+    };
+
     // Loading Animation
     const loadingOverlay = document.getElementById('loading-overlay');
     const loadingText = document.getElementById('loading-text');

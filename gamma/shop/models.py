@@ -3,6 +3,8 @@ from django.db import models
 __all__ = [
     "Tariff",
     "Order",
+    "PromoCode",
+    "PromoCodeUsage",
 ]
 
 
@@ -63,3 +65,54 @@ class Order(models.Model):
 
     def __str__(self):
         return f"Order {self.id} - {self.status}"
+
+
+class PromoCode(models.Model):
+    REWARD_CHOICES = (
+        ("BALANCE", "Баланс"),
+        ("DAYS", "Дни подписки"),
+    )
+    code = models.CharField(
+        max_length=50, unique=True, verbose_name="Промокод"
+    )
+    reward_type = models.CharField(
+        max_length=10, choices=REWARD_CHOICES, verbose_name="Тип награды"
+    )
+    reward_value = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        verbose_name="Сумма (₽) / Дни",
+        help_text="Сумма в рублях для BALANCE, количество дней для DAYS",
+    )
+    is_active = models.BooleanField(default=True, verbose_name="Активен")
+    created_at = models.DateTimeField(
+        auto_now_add=True, verbose_name="Дата создания"
+    )
+
+    def __str__(self):
+        return (
+            f"{self.code} — "
+            f"{self.get_reward_type_display()} {self.reward_value}"
+        )
+
+    class Meta:
+        verbose_name = "Промокод"
+        verbose_name_plural = "Промокоды"
+
+
+class PromoCodeUsage(models.Model):
+    promo_code = models.ForeignKey(
+        PromoCode, on_delete=models.CASCADE, related_name="usages"
+    )
+    profile = models.ForeignKey(
+        "user.Profile", on_delete=models.CASCADE, related_name="promo_usages"
+    )
+    used_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.promo_code.code} — {self.profile}"
+
+    class Meta:
+        unique_together = ("promo_code", "profile")
+        verbose_name = "Использование промокода"
+        verbose_name_plural = "Использования промокодов"

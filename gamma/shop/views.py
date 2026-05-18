@@ -11,7 +11,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from connect.services.remnawave import RemnawaveClient
-from shop.models import Order, Tariff
+from shop.models import Order, PromoCode, PromoCodeUsage, Tariff
 from shop.utils import verify_telegram_init_data
 from user.models import Profile
 
@@ -657,6 +657,130 @@ def delete_hwid_device_api(request):
         return JsonResponse({"success": True})
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+def promo_api(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    code = request.POST.get("code", "").strip()
+    telegram_id = request.POST.get("tg_id")
+
+    has_mock = getattr(
+        settings, "MOCK_TELEGRAM_USER_DATA", None
+    ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
+    if (
+        settings.DEBUG
+        and has_mock
+        and settings.MOCK_TELEGRAM_USER_DATA.get("id")
+    ):
+        if not telegram_id:
+            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
+
+    init_data = request.POST.get("init_data")
+    is_valid, tg_user = verify_telegram_init_data(init_data)
+
+    if is_valid:
+        telegram_id = tg_user.get("id")
+    elif settings.DEBUG:
+        telegram_id = request.POST.get("tg_id")
+    else:
+        return JsonResponse({"error": "Invalid auth"}, status=403)
+
+    if not telegram_id:
+        return JsonResponse({"error": "Missing tg_id"}, status=400)
+
+    try:
+        telegram_id = int(telegram_id)
+    except (ValueError, TypeError):
+        return JsonResponse({"error": "Invalid tg_id format"}, status=400)
+
+    if not code:
+        return JsonResponse({"error": "Введите промокод"}, status=400)
+
+    try:
+        promo = PromoCode.objects.get(code__iexact=code, is_active=True)
+    except PromoCode.DoesNotExist:
+        return JsonResponse(
+            {"error": "Промокод не найден или неактивен"}, status=400
+        )
+
+    profile, created = Profile.objects.get_or_create(telegram_id=telegram_id)
+
+    if PromoCodeUsage.objects.filter(
+        promo_code=promo, profile=profile
+    ).exists():
+        return JsonResponse(
+            {"error": "Этот промокод уже был использован"}, status=400
+        )
+
+    days_to_extend = None
+
+    if promo.reward_type == "BALANCE":
+        profile.balance += promo.reward_value
+        profile.save()
+    elif promo.reward_type == "DAYS":
+        days_to_extend = int(promo.reward_value)
+        if days_to_extend <= 0:
+            return JsonResponse(
+                {"error": "Некорректное значение промокода"}, status=400
+            )
+
+        async def extend_via_promo():
+            client = RemnawaveClient()
+            try:
+                rw_user = await client.get_user_by_tgid(telegram_id)
+                if isinstance(rw_user, list):
+                    rw_user = rw_user[0] if len(rw_user) > 0 else None
+
+                if rw_user and rw_user.get("uuid"):
+                    from datetime import datetime, timedelta, timezone
+
+                    current_expire_str = rw_user.get("expireAt")
+                    now = datetime.now(timezone.utc)
+                    if current_expire_str:
+                        expire_str = current_expire_str.replace(
+                            "Z", "+00:00"
+                        )
+                        try:
+                            expire_dt = datetime.fromisoformat(expire_str)
+                            if expire_dt < now:
+                                expire_dt = now
+                        except ValueError:
+                            expire_dt = now
+                    else:
+                        expire_dt = now
+
+                    new_expire_dt = expire_dt + timedelta(
+                        days=days_to_extend
+                    )
+                    new_expire_str = new_expire_dt.isoformat().replace(
+                        "+00:00", "Z"
+                    )
+
+                    await client.update_user(
+                        uuid=rw_user["uuid"], expire_at=new_expire_str
+                    )
+            finally:
+                await client.close()
+
+        try:
+            async_to_sync(extend_via_promo)()
+        except Exception as e:
+            return JsonResponse(
+                {"error": f"Ошибка применения промокода: {e}"}, status=500
+            )
+
+    PromoCodeUsage.objects.create(promo_code=promo, profile=profile)
+
+    return JsonResponse(
+        {
+            "success": True,
+            "new_balance": float(profile.balance),
+            "reward_type": promo.reward_type,
+            "reward_value": float(promo.reward_value),
+        },
+    )
 
 
 def extend_sub_api(request):

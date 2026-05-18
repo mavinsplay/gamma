@@ -30,4 +30,5 @@ urlpatterns = [
         views.update_preferences_api,
         name="update_preferences_api",
     ),
+    path("promo-api/", views.promo_api, name="promo_api"),
 ]
