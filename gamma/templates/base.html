@@ -18,6 +18,7 @@
         const MOCK_USER_DATA = {% if mock_user_data %}{{ mock_user_data|safe }}{% else %}null{% endif %};
         const BOT_USERNAME = '{{ bot_username|default:"" }}';
         const ADMIN_ID = '{{ admin_id|default:"" }}';
+        const HAS_PENDING_PAYMENT = {{ has_pending_payment|yesno:"true,false" }};
     </script>
 </head>
 <body>
@@ -51,6 +52,20 @@
             <div class="loading-text" id="loading-text">Обработка...</div>
         </div>
         
+        {% if not debug %}
+        <!-- Pending Payment Banner -->
+        <div id="pending-payment-banner" class="pending-payment-banner" style="display: none;">
+            <div class="pending-payment-content">
+                <span class="material-symbols-rounded pending-payment-icon">hourglass_top</span>
+                <div class="pending-payment-text">
+                    <span class="pending-payment-title">Платёж обрабатывается</span>
+                    <span class="pending-payment-subtitle">Не закрывайте приложение</span>
+                </div>
+                <span class="material-symbols-rounded pending-payment-close" onclick="dismissPendingBanner()">close</span>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Header -->
         <header class="app-header">
             <h1 id="page-title">Тарифы</h1>

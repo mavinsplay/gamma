@@ -43,6 +43,8 @@ class Order(models.Model):
         ("PENDING", "Pending"),
         ("PAID", "Paid"),
         ("FAILED", "Failed"),
+        ("REFUNDED", "Refunded"),
+        ("CHARGEBACK", "Chargeback"),
     )
     TYPE_CHOICES = (
         ("PURCHASE", "Purchase"),

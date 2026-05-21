@@ -8,6 +8,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "gamma"))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "gamma.settings")
 
 from aiogram import Bot, Dispatcher, F, types  # noqa: E402
+from aiogram.exceptions import TelegramNetworkError  # noqa: E402
 from aiogram.filters import Command, CommandStart  # noqa: E402
 from aiogram.fsm.context import FSMContext  # noqa: E402
 from aiogram.fsm.state import State, StatesGroup  # noqa: E402
@@ -242,7 +243,20 @@ async def subscription_reminder_task():
 async def main() -> None:
     logging.info("Бот успешно запущен и готов к работе!")
     asyncio.create_task(subscription_reminder_task())
-    await dp.start_polling(bot)
+
+    retry_delay = 5
+    while True:
+        try:
+            await dp.start_polling(bot)
+            break
+        except TelegramNetworkError as e:
+            logging.warning(
+                "Не удалось подключиться к Telegram API: %s. "
+                "Повтор через %d сек.",
+                e, retry_delay,
+            )
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 120)
 
 
 if __name__ == "__main__":

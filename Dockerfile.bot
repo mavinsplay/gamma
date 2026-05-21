@@ -1,0 +1,12 @@
+FROM python:3.12.4-slim
+
+WORKDIR /app
+
+COPY ./requirements /requirements
+RUN pip install -r /requirements/prod.txt
+RUN rm -rf /requirements
+
+COPY ./gamma /app/gamma
+COPY bot.py /app/bot.py
+
+CMD python bot.py

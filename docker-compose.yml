@@ -1,0 +1,134 @@
+name: "gamma"
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: gamma_postgres
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./for_docker/postgres_data:/var/lib/postgresql/data
+    restart: always
+    networks:
+      - gamma_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  django_gamma:
+    build: .
+    container_name: django
+    env_file:
+      - ./.env
+    environment:
+      DJANGO_POSTGRESQL_HOST: postgres
+      DJANGO_DATABASE_SELECT: postgresql
+    restart: always
+    volumes:
+      - ./for_docker/static:/gamma/static
+      - ./for_docker/media:/gamma/media
+      - ./for_docker/logs/django:/gamma/logs
+    depends_on:
+      - postgres
+    profiles:
+      - prod
+      - dev
+    networks:
+      - gamma_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+        tag: "django"
+  nginx-dev:
+    image: nginx:latest
+    container_name: gamma_nginx_dev
+    profiles: ["dev"]
+    ports:
+      - "8000:80"
+    volumes:
+      - ./for_docker/nginx-confs/gamma_dev.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./gamma/static_dev:/gamma/static:ro
+      - ./for_docker/media:/gamma/media:ro
+      - ./for_docker/logs/nginx:/var/log/nginx
+    depends_on:
+      - django_gamma
+    restart: always
+    networks:
+      - gamma_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # nginx + certbot for production
+  nginx-prod:
+    image: jonasal/nginx-certbot:latest
+    container_name: gamma_nginx_prod
+    profiles: ["prod"]
+    env_file: .env
+    environment:
+      - NGINX_MAX_BODY_SIZE=50G
+      - STAGING=${CERTBOT_STAGING}
+      - CERTBOT_EMAIL=${CERTBOT_EMAIL}
+      - SSL_DOMAIN=gamma.careerpiter.ru
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./for_docker/nginx-confs/gamma_prod.conf:/etc/nginx/user_conf.d/gamma.conf:ro
+      - ./for_docker/static:/gamma/static:ro
+      - ./for_docker/media:/gamma/media:rw
+      - ./for_docker/nginx-body:/var/lib/nginx/body:rw
+      - ./for_docker/letsencrypt_webroot:/var/www/letsencrypt:rw
+      - ./for_docker/logs/nginx:/var/log/nginx
+      - ./for_docker/nginx_certificates:/etc/letsencrypt
+    depends_on:
+      - django_gamma
+    restart: always
+    networks:
+      - gamma_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: gamma_bot
+    env_file:
+      - ./.env
+    environment:
+      DJANGO_POSTGRESQL_HOST: postgres
+      DJANGO_DATABASE_SELECT: postgresql
+    restart: always
+    depends_on:
+      - postgres
+      - django_gamma
+    profiles:
+      - prod
+      - dev
+    networks:
+      - gamma_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+        tag: "bot"
+
+networks:
+  gamma_net:
+    name: gamma
+    driver: bridge
+

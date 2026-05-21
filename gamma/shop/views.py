@@ -24,7 +24,10 @@ __all__ = [
     "delete_hwid_device_api",
     "pally_webhook_api",
     "success_view",
+    "fail_view",
     "sync_data_api",
+    "refund_webhook_api",
+    "chargeback_webhook_api",
 ]
 
 
@@ -167,6 +170,13 @@ def app_index(request):
                 "-created_at",
             )[:20]
 
+        # Pending payment check
+        has_pending_payment = Order.objects.filter(
+            telegram_id=telegram_id,
+            status="PENDING",
+            order_type="TOPUP",
+        ).exists() if profile else False
+
     except Exception as e:
         import traceback
 
@@ -179,6 +189,7 @@ def app_index(request):
         offline_count = 0
         proxies = []
         payments = []
+        has_pending_payment = False
 
     return render(
         request,
@@ -204,6 +215,7 @@ def app_index(request):
             "bot_username": settings.TELEGRAM_BOT_USERNAME,
             "admin_id": settings.ADMIN_TELEGRAM_ID,
             "support_url": settings.SUPPORT_URL,
+            "has_pending_payment": has_pending_payment,
         },
     )
 
@@ -389,6 +401,21 @@ def topup_api(request):
         })
 
     # Production: create PENDING order and redirect to Pally
+    # Check for existing PENDING topup — prevent concurrent transactions
+    existing_pending = Order.objects.filter(
+        telegram_id=telegram_id,
+        status="PENDING",
+        order_type="TOPUP",
+    ).first()
+    if existing_pending:
+        return JsonResponse(
+            {
+                "error": "У вас уже есть ожидающий платёж. Дождитесь его завершения.",
+                "existing_order_id": existing_pending.id,
+            },
+            status=409,
+        )
+
     order = Order.objects.create(
         telegram_id=telegram_id,
         amount=amount_dec,
@@ -1007,7 +1034,92 @@ def extend_sub_api(request):
 
 
 def success_view(request, sub_id):
-    return render(request, "shop/success.html", {"sub": {}})
+    order = get_object_or_404(Order, id=sub_id)
+    return render(request, "shop/success.html", {"order": order})
+
+
+def fail_view(request, sub_id):
+    order = get_object_or_404(Order, id=sub_id)
+    error_message = None
+    if order.status == "FAILED":
+        error_message = "Платёж был отклонён платёжной системой."
+    elif order.status == "PENDING":
+        error_message = "Платёж ещё не завершён. Попробуйте обновить страницу позже."
+    else:
+        error_message = "Платёж был отменён."
+    return render(
+        request,
+        "shop/fail.html",
+        {"order": order, "error_message": error_message},
+    )
+
+
+@csrf_exempt
+def refund_webhook_api(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    try:
+        if request.content_type == "application/json":
+            data = json.loads(request.body)
+        else:
+            data = request.POST.dict()
+
+        inv_id = data.get("InvId") or data.get("order_id")
+        if not inv_id:
+            return JsonResponse({"error": "Missing order id"}, status=400)
+
+        with transaction.atomic():
+            order = Order.objects.select_for_update().get(id=inv_id)
+            if order.status in ("PAID", "REFUNDED"):
+                order.status = "REFUNDED"
+                order.save(update_fields=["status"])
+
+                profile = Profile.objects.select_for_update().get(
+                    telegram_id=order.telegram_id,
+                )
+                profile.balance -= order.amount
+                profile.save(update_fields=["balance"])
+
+        return JsonResponse({"success": True})
+    except Order.DoesNotExist:
+        return JsonResponse({"error": "Order not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def chargeback_webhook_api(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    try:
+        if request.content_type == "application/json":
+            data = json.loads(request.body)
+        else:
+            data = request.POST.dict()
+
+        inv_id = data.get("InvId") or data.get("order_id")
+        if not inv_id:
+            return JsonResponse({"error": "Missing order id"}, status=400)
+
+        with transaction.atomic():
+            order = Order.objects.select_for_update().get(id=inv_id)
+            if order.status in ("PAID", "REFUNDED"):
+                order.status = "CHARGEBACK"
+                order.save(update_fields=["status"])
+
+                profile = Profile.objects.select_for_update().get(
+                    telegram_id=order.telegram_id,
+                )
+                profile.balance -= order.amount
+                profile.save(update_fields=["balance"])
+
+        return JsonResponse({"success": True})
+    except Order.DoesNotExist:
+        return JsonResponse({"error": "Order not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
 
 
 def sync_data_api(request):
@@ -1158,6 +1270,12 @@ def sync_data_api(request):
 
         from connect.models import NodeStatus
 
+        has_pending_payment = Order.objects.filter(
+            telegram_id=telegram_id,
+            status="PENDING",
+            order_type="TOPUP",
+        ).exists() if profile else False
+
         statuses = {s.node_id: s for s in NodeStatus.objects.all()}
 
         online_count = 0
@@ -1220,6 +1338,7 @@ def sync_data_api(request):
                 "offline_count": offline_count,
                 "payments": payments,
                 "proxies": proxies_data,
+                "has_pending_payment": has_pending_payment,
             },
         )
     except Exception as e:

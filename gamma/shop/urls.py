@@ -19,6 +19,13 @@ urlpatterns = [
     ),
     path("payment-webhook/", views.pally_webhook_api, name="pally_webhook_api"),
     path("success/<int:sub_id>/", views.success_view, name="payment_success"),
+    path("fail/<int:sub_id>/", views.fail_view, name="payment_fail"),
+    path("refund-webhook/", views.refund_webhook_api, name="refund_webhook"),
+    path(
+        "chargeback-webhook/",
+        views.chargeback_webhook_api,
+        name="chargeback_webhook",
+    ),
     path("sync-data-api/", views.sync_data_api, name="sync_data_api"),
     path(
         "update-preferences-api/",

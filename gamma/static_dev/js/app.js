@@ -547,6 +547,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (response.ok) {
+                // If payment_url is returned — redirect to payment gateway
+                if (data.payment_url) {
+                    if (tg?.openLink) {
+                        tg.openLink(data.payment_url);
+                    } else {
+                        window.location.href = data.payment_url;
+                    }
+                    updatePendingBanner(true);
+                    if (window.syncNow) window.syncNow();
+                    return;
+                }
+
+                // Debug mode: instant credit
                 const balanceAmount = document.getElementById('profile-balance');
                 if (balanceAmount) {
                     balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
@@ -567,6 +580,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 // Also trigger sync immediately in background
                 if (window.syncNow) window.syncNow();
+            } else if (response.status === 409) {
+                updatePendingBanner(true);
+                showModal({
+                    title: 'Платёж уже выполняется',
+                    message: data.error || 'У вас уже есть ожидающий платёж. Дождитесь его завершения.',
+                    icon: 'hourglass_top',
+                    actionText: 'Ок',
+                    onAction: hideModal
+                });
             } else {
                 showModal({
                     title: 'Ошибка',
@@ -2176,6 +2198,38 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
+
+    // Pending Payment Banner
+    const pendingBanner = document.getElementById('pending-payment-banner');
+
+    window.dismissPendingBanner = () => {
+        if (pendingBanner) {
+            pendingBanner.style.display = 'none';
+        }
+    };
+
+    function updatePendingBanner(hasPending) {
+        if (!pendingBanner) return;
+        if (!IS_DEBUG && hasPending) {
+            pendingBanner.style.display = 'block';
+        } else {
+            pendingBanner.style.display = 'none';
+        }
+    }
+
+    // Initial load check (skip in DEBUG mode — payments are instant)
+    if (!IS_DEBUG && typeof HAS_PENDING_PAYMENT !== 'undefined') {
+        updatePendingBanner(HAS_PENDING_PAYMENT);
+    }
+
+    // Extend sync data handler to include pending payment
+    const originalUpdateUI = updateUIWithSyncData;
+    updateUIWithSyncData = function(data) {
+        originalUpdateUI(data);
+        if (data.has_pending_payment !== undefined) {
+            updatePendingBanner(data.has_pending_payment);
+        }
+    };
 
     initTelegram();
     startDataSync();

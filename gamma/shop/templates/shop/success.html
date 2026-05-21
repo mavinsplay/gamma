@@ -15,22 +15,41 @@
             <div style="width: 80px; height: 80px; background-color: rgba(129, 199, 132, 0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 24px;">
                 <span class="material-symbols-rounded" style="font-size: 48px; color: #81C784;">task_alt</span>
             </div>
-            
+
             <h1 style="font-size: 28px; margin-bottom: 16px;">Спасибо за покупку!</h1>
-            <p style="color: var(--md-sys-color-on-surface-variant); margin-bottom: 32px;">Ваш VPN успешно создан и готов к использованию.</p>
-            
+            <p style="color: var(--md-sys-color-on-surface-variant); margin-bottom: 32px;">
+                {% if order.order_type == "TOPUP" %}
+                    Ваш баланс успешно пополнен на {{ order.amount|floatformat:0 }} ₽.
+                {% else %}
+                    Ваш VPN успешно создан и готов к использованию.
+                {% endif %}
+            </p>
+
             <div class="settings-card" style="text-align: left; margin-bottom: 24px;">
-                <h2 style="font-size: 16px; margin-bottom: 12px; color: var(--md-sys-color-primary);">Ваша ссылка (Ключ подписки)</h2>
-                <div style="background-color: rgba(0,0,0,0.2); padding: 16px; border-radius: 12px; word-break: break-all; font-family: monospace; font-size: 14px; margin-bottom: 16px;">
-                    {{ sub.subscription_url }}
+                <h2 style="font-size: 16px; margin-bottom: 12px; color: var(--md-sys-color-primary);">
+                    {% if order.order_type == "TOPUP" %}
+                        Детали транзакции
+                    {% else %}
+                        Ваша ссылка (Ключ подписки)
+                    {% endif %}
+                </h2>
+                <div style="display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: var(--panel-icon);">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="opacity: 0.7;">Сумма</span>
+                        <span style="font-weight: 500;">{{ order.amount|floatformat:0 }} ₽</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="opacity: 0.7;">Дата</span>
+                        <span style="font-weight: 500;">{{ order.created_at|date:"d.m.Y H:i" }}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="opacity: 0.7;">Статус</span>
+                        <span style="font-weight: 500; color: #81C784;">Успешно</span>
+                    </div>
                 </div>
-                <button class="action-btn bounce" onclick="navigator.clipboard.writeText('{{ sub.subscription_url }}'); alert('Скопировано!');">
-                    <span class="material-symbols-rounded">content_copy</span>
-                    Скопировать ключ
-                </button>
             </div>
 
-            <a href="{% url 'home' %}" class="action-btn bounce" style="text-decoration: none; background-color: var(--panel-bg);">
+            <a href="/" class="action-btn bounce" style="text-decoration: none; background-color: var(--panel-bg);">
                 <span class="material-symbols-rounded">home</span>
                 Вернуться в приложение
             </a>
