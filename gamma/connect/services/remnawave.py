@@ -90,15 +90,20 @@ class RemnawaveClient:
         hwiddevicelimit: int = None,
         telegramid: int = None,
         status: str = None,
+        activeinternalsquads: list = None,
     ):
         # Fetch current user to merge data
         current_user = await self.get_user(uuid)
 
         # Extract activeInternalSquads UUIDs if they are dictionaries
         squads = current_user.get("activeInternalSquads", [])
-        squad_uuids = [
-            s.get("uuid") if isinstance(s, dict) else s for s in squads
-        ]
+        squad_uuids = (
+            activeinternalsquads
+            if activeinternalsquads is not None
+            else [
+                s.get("uuid") if isinstance(s, dict) else s for s in squads
+            ]
+        )
 
         payload = {
             "username": (

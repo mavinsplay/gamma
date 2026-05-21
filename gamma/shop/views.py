@@ -284,6 +284,7 @@ def buy_tariff_api(request):
                         expire_at=new_expire,
                         trafficlimitbytes=tariff.traffic_limit_bytes,
                         hwiddevicelimit=tariff.device_limit,
+                        activeinternalsquads=[tariff.squad_uuid],
                     )
                 finally:
                     await client.close()
