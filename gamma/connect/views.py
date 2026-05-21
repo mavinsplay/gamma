@@ -20,6 +20,8 @@ def set_node_status_api(request):
 
     if is_valid:
         telegram_id = tg_user.get("id")
+    elif "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
     else:

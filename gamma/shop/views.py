@@ -232,6 +232,9 @@ def buy_tariff_api(request):
     if is_valid:
         telegram_id = tg_user.get("id")
         telegram_username = tg_user.get("username")
+    elif "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
+        telegram_username = request.session["tg_user"].get("username")
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
         telegram_username = request.POST.get("tg_username")
@@ -355,6 +358,9 @@ def topup_api(request):
     if is_valid:
         telegram_id = tg_user.get("id")
         telegram_username = tg_user.get("username")
+    elif "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
+        telegram_username = request.session["tg_user"].get("username")
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
         telegram_username = request.POST.get("tg_username")
@@ -539,6 +545,9 @@ def buy_slot_api(request):
     if is_valid:
         telegram_id = tg_user.get("id")
         telegram_username = tg_user.get("username")
+    elif "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
+        telegram_username = request.session["tg_user"].get("username")
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
     else:
@@ -619,6 +628,9 @@ def get_subscription_link_api(request):
     if is_valid:
         telegram_id = tg_user.get("id")
         telegram_username = tg_user.get("username")
+    elif "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
+        telegram_username = request.session["tg_user"].get("username")
     elif settings.DEBUG:
         telegram_id = request.GET.get("tg_id")
         if not telegram_id:
@@ -716,6 +728,8 @@ def delete_hwid_device_api(request):
 
     if is_valid:
         telegram_id = tg_user.get("id")
+    elif "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
     else:
@@ -775,6 +789,8 @@ def promo_api(request):
 
     if is_valid:
         telegram_id = tg_user.get("id")
+    elif "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
     else:
@@ -922,6 +938,8 @@ def extend_sub_api(request):
 
     if is_valid:
         telegram_id = tg_user.get("id")
+    elif "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
     else:
@@ -1355,6 +1373,8 @@ def update_preferences_api(request):
 
     if is_valid:
         telegram_id = tg_user.get("id")
+    elif "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
     else:
