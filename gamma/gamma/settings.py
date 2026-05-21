@@ -9,10 +9,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv()
 
-SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY",
-    "4f7Z7JU2q8dXOiAgR2fW1niOZTLGUexLGo3E4LL0oSi8mg1p",
-)
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    if os.getenv("DJANGO_DEBUG", "False").lower() == "true":
+        SECRET_KEY = "4f7Z7JU2q8dXOiAgR2fW1niOZTLGUexLGo3E4LL0oSi8mg1p"
+    else:
+        raise ValueError("DJANGO_SECRET_KEY must be set in production.")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "gamma_net_bot")
@@ -24,7 +26,7 @@ REMNAWAVE_TOKEN = os.getenv("REMNAWAVE_TOKEN", "YOUR_BEARER_TOKEN")
 REMNAWAVE_SECRET_NAME = os.getenv("REMNAWAVE_SECRET_NAME", "wBYQJWtq")
 REMNAWAVE_SECRET_VALUE = os.getenv("REMNAWAVE_SECRET_VALUE", "KuOsIrYu")
 
-DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
+DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
 
 MOCK_DATA_ENV = os.getenv("MOCK_TELEGRAM_USER_DATA")
 MOCK_TELEGRAM_USER_DATA = json.loads(MOCK_DATA_ENV) if MOCK_DATA_ENV else None
@@ -32,14 +34,25 @@ MOCK_TELEGRAM_USER_DATA = json.loads(MOCK_DATA_ENV) if MOCK_DATA_ENV else None
 ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
 ADMIN_URL = os.getenv("ADMIN_URL", "admin/")
 
-ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(
-    ",",
-)
+ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
+if not DEBUG and "*" in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.remove("*")
+    if not ALLOWED_HOSTS:
+        raise ValueError("DJANGO_ALLOWED_HOSTS must be set in production.")
 
 CSRF_TRUSTED_ORIGINS = os.getenv(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
     "https://gamma.ru",
 ).split(",")
+
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 SUPPORT_URL = "https://t.me/" + os.getenv(
     "SUPPORT_USERNAME",
@@ -124,20 +137,16 @@ else:
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        "NAME": "django.contrib.auth.password_validati\
-            on.UserAttributeSimilarityValidator",
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        "NAME": "django.contrib.auth.password_valida\
-            tion.MinimumLengthValidator",
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        "NAME": "django.contrib.auth.password_validat\
-            ion.CommonPasswordValidator",
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        "NAME": "django.contrib.auth.password_validat\
-            ion.NumericPasswordValidator",
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
@@ -164,3 +173,11 @@ STATICFILES_DIRS = [
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Pally payment gateway
+PALLY_API_URL = os.getenv(
+    "PALLY_API_URL",
+    "https://pal24.pro/api/v1/bill/create",
+)
+PALLY_API_KEY = os.getenv("PALLY_API_KEY", "")
+PALLY_SHOP_ID = os.getenv("PALLY_SHOP_ID", "")

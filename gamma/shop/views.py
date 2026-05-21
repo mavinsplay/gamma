@@ -22,8 +22,7 @@ __all__ = [
     "buy_slot_api",
     "get_subscription_link_api",
     "delete_hwid_device_api",
-    "checkout_view",
-    "mock_payment_view",
+    "pally_webhook_api",
     "success_view",
     "sync_data_api",
 ]
@@ -216,21 +215,17 @@ def buy_tariff_api(request):
     tariff_id = request.POST.get("tariff_id")
     init_data = request.POST.get("init_data")
 
-    # 1. Verify Identity
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
     if is_valid:
         telegram_id = tg_user.get("id")
         telegram_username = tg_user.get("username")
     elif settings.DEBUG:
-        # Fallback to legacy/mock only in debug
         telegram_id = request.POST.get("tg_id")
         telegram_username = request.POST.get("tg_username")
         if not telegram_id:
             telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
-            telegram_username = settings.MOCK_TELEGRAM_USER_DATA.get(
-                "username",
-            )
+            telegram_username = settings.MOCK_TELEGRAM_USER_DATA.get("username")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -238,61 +233,50 @@ def buy_tariff_api(request):
         return JsonResponse({"error": "Missing params"}, status=400)
 
     tariff = get_object_or_404(Tariff, id=tariff_id)
-    profile, created = Profile.objects.get_or_create(telegram_id=telegram_id)
-    if telegram_username and profile.telegram_username != telegram_username:
-        profile.telegram_username = telegram_username
-        profile.save()
 
-    if profile.balance < tariff.price:
-        missing = tariff.price - profile.balance
-        return JsonResponse(
-            {
-                "error": "insufficient_funds",
-                "missing_amount": float(missing),
-                "tariff_price": float(tariff.price),
-            },
-            status=400,
-        )
+    with transaction.atomic():
+        profile, created = Profile.objects.select_for_update().get_or_create(telegram_id=telegram_id)
+        if telegram_username and profile.telegram_username != telegram_username:
+            profile.telegram_username = telegram_username
+            profile.save(update_fields=['telegram_username'])
 
-    replace = request.POST.get("replace") == "true"
+        if profile.balance < tariff.price:
+            missing = tariff.price - profile.balance
+            return JsonResponse(
+                {
+                    "error": "insufficient_funds",
+                    "missing_amount": float(missing),
+                    "tariff_price": float(tariff.price),
+                },
+                status=400,
+            )
 
-    if replace:
-        # Replace existing subscription — update user in Remnawave
-        async def replace_sub():
-            from datetime import datetime, timedelta, timezone
+        replace = request.POST.get("replace") == "true"
 
-            client = RemnawaveClient()
-            try:
-                rw_user = await client.get_user_by_tgid(telegram_id)
-                if isinstance(rw_user, list):
-                    rw_user = rw_user[0] if len(rw_user) > 0 else None
-
-                if not rw_user or not rw_user.get("uuid"):
-                    raise ValueError("User not found in Remnawave")
-
-                new_expire = (
-                    (
-                        datetime.now(timezone.utc)
-                        + timedelta(days=tariff.duration_days)
+        if replace:
+            async def replace_sub():
+                from datetime import datetime, timedelta, timezone
+                client = RemnawaveClient()
+                try:
+                    rw_user = await client.get_user_by_tgid(telegram_id)
+                    if isinstance(rw_user, list):
+                        rw_user = rw_user[0] if len(rw_user) > 0 else None
+                    if not rw_user or not rw_user.get("uuid"):
+                        raise ValueError("User not found in Remnawave")
+                    new_expire = ((datetime.now(timezone.utc) + timedelta(days=tariff.duration_days)).isoformat().replace("+00:00", "Z"))
+                    return await client.update_user(
+                        uuid=rw_user["uuid"],
+                        expire_at=new_expire,
+                        trafficlimitbytes=tariff.traffic_limit_bytes,
+                        hwiddevicelimit=tariff.device_limit,
                     )
-                    .isoformat()
-                    .replace("+00:00", "Z")
-                )
+                finally:
+                    await client.close()
 
-                return await client.update_user(
-                    uuid=rw_user["uuid"],
-                    expire_at=new_expire,
-                    trafficlimitbytes=tariff.traffic_limit_bytes,
-                    hwiddevicelimit=tariff.device_limit,
-                )
-            finally:
-                await client.close()
-
-        try:
-            with transaction.atomic():
+            try:
                 profile.balance -= tariff.price
                 profile.tarif = tariff
-                profile.save()
+                profile.save(update_fields=['balance', 'tarif'])
 
                 Order.objects.create(
                     tariff=tariff,
@@ -304,40 +288,30 @@ def buy_tariff_api(request):
 
                 rw_data = async_to_sync(replace_sub)()
 
-            return JsonResponse(
-                {
-                    "success": True,
-                    "new_balance": float(profile.balance),
-                    "sub": rw_data,
-                },
-            )
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=500)
+                return JsonResponse({"success": True, "new_balance": float(profile.balance), "sub": rw_data})
+            except Exception as e:
+                return JsonResponse({"error": str(e)}, status=500)
 
-    # Create user in Remnawave (new subscription)
-    async def provision():
-        client = RemnawaveClient()
-        username = f"{telegram_username}_{telegram_id}"
+        async def provision():
+            client = RemnawaveClient()
+            username = f"{telegram_username}_{telegram_id}"
+            try:
+                return await client.create_user(
+                    username=username,
+                    days=tariff.duration_days,
+                    trafficlimitbytes=tariff.traffic_limit_bytes,
+                    hwiddevicelimit=tariff.device_limit,
+                    telegramid=int(telegram_id),
+                    activeinternalsquads=[tariff.squad_uuid],
+                )
+            finally:
+                await client.close()
+
         try:
-            return await client.create_user(
-                username=username,
-                days=tariff.duration_days,
-                trafficlimitbytes=tariff.traffic_limit_bytes,
-                hwiddevicelimit=tariff.device_limit,
-                telegramid=int(telegram_id),
-                activeinternalsquads=[tariff.squad_uuid],
-            )
-        finally:
-            await client.close()
-
-    try:
-        with transaction.atomic():
-            # Deduct balance
             profile.balance -= tariff.price
             profile.tarif = tariff
-            profile.save()
+            profile.save(update_fields=['balance', 'tarif'])
 
-            # Create Order
             Order.objects.create(
                 tariff=tariff,
                 telegram_id=telegram_id,
@@ -346,19 +320,16 @@ def buy_tariff_api(request):
                 status="PAID",
             )
 
-            # Provision VPN via Remnawave
             rw_data = async_to_sync(provision)()
 
-        return JsonResponse(
-            {
-                "success": True,
-                "new_balance": float(profile.balance),
-                "sub": rw_data,
-            },
-        )
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+            return JsonResponse({"success": True, "new_balance": float(profile.balance), "sub": rw_data})
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
 
+
+import requests
+from django.views.decorators.csrf import csrf_exempt
+import hashlib
 
 def topup_api(request):
     if request.method != "POST":
@@ -366,7 +337,6 @@ def topup_api(request):
 
     telegram_id = request.POST.get("tg_id")
     amount = request.POST.get("amount", 0)
-
     init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
@@ -375,6 +345,7 @@ def topup_api(request):
         telegram_username = tg_user.get("username")
     elif settings.DEBUG:
         telegram_id = request.POST.get("tg_id")
+        telegram_username = request.POST.get("tg_username")
         if not telegram_id:
             telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
     else:
@@ -385,54 +356,130 @@ def topup_api(request):
 
     try:
         telegram_id = int(telegram_id)
-    except (ValueError, TypeError):
-        return JsonResponse({"error": "Invalid tg_id format"}, status=400)
-
-    try:
         amount_dec = Decimal(str(amount))
-        if amount_dec <= 0:
-            return JsonResponse(
-                {"error": "Сумма должна быть больше нуля"},
-                status=400,
-            )
-
-        if amount_dec > 100000:
-            return JsonResponse(
-                {
-                    "error": (
-                        "Сумма недопустима. Максимальная"
-                        " сумма пополнения — 100 000 рублей."
-                    ),
-                },
-                status=400,
-            )
+        if amount_dec <= 0 or amount_dec > 100000:
+            return JsonResponse({"error": "Некорректная сумма"}, status=400)
     except Exception:
-        return JsonResponse({"error": "Некорректная сумма"}, status=400)
+        return JsonResponse({"error": "Некорректные параметры"}, status=400)
 
     profile, created = Profile.objects.get_or_create(telegram_id=telegram_id)
-    # topup_api might not always get username but we update if it's there
-    telegram_username = request.POST.get("tg_username")
     if telegram_username and profile.telegram_username != telegram_username:
         profile.telegram_username = telegram_username
-        profile.save()
+        profile.save(update_fields=['telegram_username'])
 
-    profile.balance += amount_dec
-    profile.save()
+    # DEBUG mode: instantly credit balance for easy local testing
+    if settings.DEBUG:
+        with transaction.atomic():
+            profile = Profile.objects.select_for_update().get(
+                telegram_id=telegram_id
+            )
+            profile.balance += amount_dec
+            profile.save(update_fields=['balance'])
 
-    # Create top-up order
-    Order.objects.create(
+            Order.objects.create(
+                telegram_id=telegram_id,
+                amount=amount_dec,
+                order_type="TOPUP",
+                status="PAID",
+            )
+
+        return JsonResponse({
+            "success": True,
+            "new_balance": float(profile.balance),
+        })
+
+    # Production: create PENDING order and redirect to Pally
+    order = Order.objects.create(
         telegram_id=telegram_id,
         amount=amount_dec,
         order_type="TOPUP",
-        status="PAID",
+        status="PENDING",
     )
 
-    return JsonResponse(
-        {
-            "success": True,
-            "new_balance": float(profile.balance),
-        },
-    )
+    pally_api_url = getattr(settings, "PALLY_API_URL", "https://pal24.pro/api/v1/bill/create")
+    pally_api_key = getattr(settings, "PALLY_API_KEY", "")
+    pally_shop_id = getattr(settings, "PALLY_SHOP_ID", "")
+
+    payload = {
+        "amount": float(amount_dec),
+        "order_id": str(order.id),
+        "description": f"Пополнение баланса Gamma VPN (ID: {telegram_id})",
+        "type": "normal",
+        "shop_id": pally_shop_id,
+        "currency_in": "RUB",
+        "payer_pays_commission": 1,
+        "name": "Платёж",
+    }
+
+    try:
+        if not pally_api_key:
+            payment_url = f"https://pally.info/pay/mock_{order.id}"
+        else:
+            response = requests.post(
+                pally_api_url,
+                data=payload,
+                headers={"Authorization": f"Bearer {pally_api_key}"},
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+            payment_url = data.get("link_page_url") or data.get("link_url")
+
+        return JsonResponse({"success": True, "payment_url": payment_url})
+    except Exception as e:
+        order.status = "FAILED"
+        order.save(update_fields=['status'])
+        return JsonResponse({"error": "Ошибка платежной системы", "details": str(e)}, status=500)
+
+
+@csrf_exempt
+def pally_webhook_api(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+        
+    try:
+        if request.content_type == "application/json":
+            data = json.loads(request.body)
+        else:
+            data = request.POST.dict()
+        
+        status = data.get("Status")
+        inv_id = data.get("InvId")
+        out_sum = data.get("OutSum")
+        signature = data.get("SignatureValue", "")
+        
+        pally_api_key = getattr(settings, "PALLY_API_KEY", "")
+        
+        if pally_api_key and signature:
+            sign_string = f"{out_sum}:{inv_id}:{pally_api_key}"
+            expected_sign = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
+            
+            if expected_sign != signature.upper():
+                return JsonResponse({"error": "Invalid signature"}, status=403)
+                
+        if status == "SUCCESS":
+            with transaction.atomic():
+                order = Order.objects.select_for_update().get(id=inv_id)
+                if order.status == "PENDING":
+                    order.status = "PAID"
+                    order.save(update_fields=['status'])
+                    
+                    profile = Profile.objects.select_for_update().get(telegram_id=order.telegram_id)
+                    profile.balance += order.amount
+                    profile.save(update_fields=['balance'])
+                    
+        elif status == "FAIL":
+            with transaction.atomic():
+                order = Order.objects.select_for_update().get(id=inv_id)
+                if order.status == "PENDING":
+                    order.status = "FAILED"
+                    order.save(update_fields=['status'])
+                    
+        return JsonResponse({"success": True})
+    except Order.DoesNotExist:
+        return JsonResponse({"error": "Order not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
 
 
 def buy_slot_api(request):
@@ -479,59 +526,60 @@ def buy_slot_api(request):
         return JsonResponse({"error": "Invalid tg_id format"}, status=400)
 
     slot_price = Decimal("100.00")
-    profile, created = Profile.objects.get_or_create(telegram_id=telegram_id)
-    if telegram_username and profile.telegram_username != telegram_username:
-        profile.telegram_username = telegram_username
-        profile.save()
+    
+    with transaction.atomic():
+        profile, created = Profile.objects.select_for_update().get_or_create(telegram_id=telegram_id)
+        if telegram_username and profile.telegram_username != telegram_username:
+            profile.telegram_username = telegram_username
+            profile.save(update_fields=['telegram_username'])
 
-    if profile.balance < slot_price:
-        missing = slot_price - profile.balance
-        return JsonResponse(
-            {
-                "error": "insufficient_funds",
-                "missing_amount": float(missing),
-                "slot_price": float(slot_price),
-            },
-            status=400,
-        )
-
-    async def add_slot():
-        client = RemnawaveClient()
-        try:
-            rw_user = await client.get_user_by_tgid(telegram_id)
-            if isinstance(rw_user, list):
-                rw_user = rw_user[0] if len(rw_user) > 0 else None
-
-            if not rw_user or not rw_user.get("uuid"):
-                raise ValueError("User not found in Remnawave")
-
-            current_limit = rw_user.get("hwidDeviceLimit", 0)
-            new_limit = current_limit + 1
-
-            return await client.update_user(
-                uuid=rw_user["uuid"],
-                hwiddevicelimit=new_limit,
+        if profile.balance < slot_price:
+            missing = slot_price - profile.balance
+            return JsonResponse(
+                {
+                    "error": "insufficient_funds",
+                    "missing_amount": float(missing),
+                    "slot_price": float(slot_price),
+                },
+                status=400,
             )
-        finally:
-            await client.close()
 
-    try:
-        with transaction.atomic():
+        async def add_slot():
+            client = RemnawaveClient()
+            try:
+                rw_user = await client.get_user_by_tgid(telegram_id)
+                if isinstance(rw_user, list):
+                    rw_user = rw_user[0] if len(rw_user) > 0 else None
+
+                if not rw_user or not rw_user.get("uuid"):
+                    raise ValueError("User not found in Remnawave")
+
+                current_limit = rw_user.get("hwidDeviceLimit", 0)
+                new_limit = current_limit + 1
+
+                return await client.update_user(
+                    uuid=rw_user["uuid"],
+                    hwiddevicelimit=new_limit,
+                )
+            finally:
+                await client.close()
+
+        try:
             profile.balance -= slot_price
-            profile.save()
+            profile.save(update_fields=['balance'])
 
             # Record in Order model too, but skipping for now.
             rw_data = async_to_sync(add_slot)()
 
-        return JsonResponse(
-            {
-                "success": True,
-                "new_balance": float(profile.balance),
-                "new_limit": rw_data.get("hwidDeviceLimit"),
-            },
-        )
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+            return JsonResponse(
+                {
+                    "success": True,
+                    "new_balance": float(profile.balance),
+                    "new_limit": rw_data.get("hwidDeviceLimit"),
+                },
+            )
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
 
 
 def get_subscription_link_api(request):
@@ -867,70 +915,70 @@ def extend_sub_api(request):
     except ValueError:
         return JsonResponse({"error": "Invalid months value"}, status=400)
 
-    profile = get_object_or_404(Profile, telegram_id=telegram_id)
-    if not profile.tarif:
-        return JsonResponse(
-            {"error": "No active tariff to extend"},
-            status=400,
-        )
-
-    price_per_month = profile.tarif.price / Decimal(
-        str(profile.tarif.duration_days / 30.0),
-    )
-    total_price = Decimal(str(price_per_month * months)).quantize(
-        Decimal("0.00"),
-    )
-
-    if profile.balance < total_price:
-        missing = total_price - profile.balance
-        return JsonResponse(
-            {
-                "error": "insufficient_funds",
-                "missing_amount": float(missing),
-                "extension_price": float(total_price),
-            },
-            status=400,
-        )
-
-    async def extend_remnawave():
-        client = RemnawaveClient()
-        try:
-            rw_user = await client.get_user_by_tgid(telegram_id)
-            if isinstance(rw_user, list):
-                rw_user = rw_user[0] if len(rw_user) > 0 else None
-
-            if not rw_user or not rw_user.get("uuid"):
-                raise ValueError("User not found in Remnawave")
-
-            current_expire_str = rw_user.get("expireAt")
-            from datetime import datetime, timedelta, timezone
-
-            now = datetime.now(timezone.utc)
-            if current_expire_str:
-                expire_str = current_expire_str.replace("Z", "+00:00")
-                try:
-                    expire_dt = datetime.fromisoformat(expire_str)
-                    if expire_dt < now:
-                        expire_dt = now
-                except ValueError:
-                    expire_dt = now
-            else:
-                expire_dt = now
-
-            new_expire_dt = expire_dt + timedelta(days=months * 30)
-            new_expire_str = new_expire_dt.isoformat().replace("+00:00", "Z")
-
-            return await client.update_user(
-                uuid=rw_user["uuid"],
-                expire_at=new_expire_str,
+    with transaction.atomic():
+        profile = get_object_or_404(Profile.objects.select_for_update(), telegram_id=telegram_id)
+        if not profile.tarif:
+            return JsonResponse(
+                {"error": "No active tariff to extend"},
+                status=400,
             )
-        finally:
-            await client.close()
 
-    try:
-        with transaction.atomic():
+        price_per_month = profile.tarif.price / Decimal(
+            str(profile.tarif.duration_days / 30.0),
+        )
+        total_price = Decimal(str(price_per_month * months)).quantize(
+            Decimal("0.00"),
+        )
+
+        if profile.balance < total_price:
+            missing = total_price - profile.balance
+            return JsonResponse(
+                {
+                    "error": "insufficient_funds",
+                    "missing_amount": float(missing),
+                    "extension_price": float(total_price),
+                },
+                status=400,
+            )
+
+        async def extend_remnawave():
+            client = RemnawaveClient()
+            try:
+                rw_user = await client.get_user_by_tgid(telegram_id)
+                if isinstance(rw_user, list):
+                    rw_user = rw_user[0] if len(rw_user) > 0 else None
+
+                if not rw_user or not rw_user.get("uuid"):
+                    raise ValueError("User not found in Remnawave")
+
+                current_expire_str = rw_user.get("expireAt")
+                from datetime import datetime, timedelta, timezone
+
+                now = datetime.now(timezone.utc)
+                if current_expire_str:
+                    expire_str = current_expire_str.replace("Z", "+00:00")
+                    try:
+                        expire_dt = datetime.fromisoformat(expire_str)
+                        if expire_dt < now:
+                            expire_dt = now
+                    except ValueError:
+                        expire_dt = now
+                else:
+                    expire_dt = now
+
+                new_expire_dt = expire_dt + timedelta(days=months * 30)
+                new_expire_str = new_expire_dt.isoformat().replace("+00:00", "Z")
+
+                return await client.update_user(
+                    uuid=rw_user["uuid"],
+                    expire_at=new_expire_str,
+                )
+            finally:
+                await client.close()
+
+        try:
             profile.balance -= total_price
-            profile.save()
+            profile.save(update_fields=['balance'])
 
             Order.objects.create(
                 tariff=profile.tarif,
@@ -948,57 +996,14 @@ def extend_sub_api(request):
                     "new_balance": float(profile.balance),
                 },
             )
-    except Exception as e:
-        import traceback
-
-        traceback.print_exc()
-        return JsonResponse({"error": str(e)}, status=500)
-
-
-def checkout_view(request, tariff_id):
-    tariff = get_object_or_404(Tariff, id=tariff_id)
-    telegram_id = request.GET.get("tg_id", "123456789")
-
-    if request.method == "POST":
-        order = Order.objects.create(
-            tariff=tariff,
-            telegram_id=telegram_id,
-            status="PENDING",
-        )
-        return redirect("mock_payment", order_id=order.id)
-
-    return render(
-        request,
-        "shop/checkout.html",
-        {"tariff": tariff, "telegram_id": telegram_id},
-    )
-
-
-def mock_payment_view(request, order_id):
-    order = get_object_or_404(Order, id=order_id)
-    if request.method == "POST":
-        order.status = "PAID"
-        order.save()
-
-        # Provision VPN via Remnawave
-        client = RemnawaveClient()
-        username = f"tg_{order.telegram_id}_{uuid.uuid4().hex[:6]}"
-
-        try:
-            rw_data = client.create_user(
-                username=username,
-                days=order.tariff.duration_days,
-                trafficlimitbytes=order.tariff.traffic_limit_bytes,
-            )
-
-            return render(request, "shop/success.html", {"sub": rw_data})
-
         except Exception as e:
-            order.status = "FAILED"
-            order.save()
-            return render(request, "shop/error.html", {"error": str(e)})
+            import traceback
 
-    return render(request, "shop/mock_payment.html", {"order": order})
+            traceback.print_exc()
+            return JsonResponse({"error": str(e)}, status=500)
+
+
+
 
 
 def success_view(request, sub_id):
