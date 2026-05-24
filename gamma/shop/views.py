@@ -1,14 +1,17 @@
 import asyncio
 from decimal import Decimal
+import hashlib
 import json
 import re
 import uuid
 
-from asgiref.sync import async_to_sync
+import requests
+from asgiref.sync import async_to_sync  # noqa: I100
 from django.conf import settings
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.csrf import csrf_exempt
 
 from connect.services.remnawave import RemnawaveClient
 from shop.models import Order, PromoCode, PromoCodeUsage, Tariff
@@ -62,35 +65,38 @@ def country_code_to_flag(code):
 
 def app_index(request):
     tariffs = Tariff.objects.filter(is_active=True).order_by("-price")
-    telegram_id = request.GET.get("tg_id")
-    telegram_username = request.GET.get("tg_username")
-
-    # 1. Check for DEBUG mode (Legacy URL param)
+    telegram_id = None
+    telegram_username = None
     profile = None
-    if settings.DEBUG and telegram_id:
-        profile, created = Profile.objects.get_or_create(
-            telegram_id=telegram_id,
-            defaults={
-                "telegram_username": telegram_username,
-                "balance": 0.00,
-                "tarif": None,
-            },
-        )
-        if not created and telegram_username and not profile.telegram_username:
-            profile.telegram_username = telegram_username
-            profile.save()
 
-    # 2. Handle authentication
-    # If we have a session user, use it.
-    if not profile and "tg_user" in request.session:
+    # 1. Try authenticated session
+    if "tg_user" in request.session:
         telegram_id = request.session["tg_user"]["id"]
+        telegram_username = request.session["tg_user"].get("username")
         profile = Profile.objects.filter(telegram_id=telegram_id).first()
 
-    # We allow the page to load without a redirect here.
-    # The JS in app.js will handle the redirect for browsers.
-    pass
+    # 2. DEBUG fallback — only from configured mock user, NEVER from URL params
+    if not profile and settings.DEBUG:
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if mock and mock.get("id"):
+            telegram_id = mock.get("id")
+            telegram_username = mock.get("username")
+            profile, created = Profile.objects.get_or_create(
+                telegram_id=telegram_id,
+                defaults={
+                    "telegram_username": telegram_username,
+                    "balance": 0.00,
+                    "tarif": None,
+                },
+            )
+            if (
+                not created
+                and telegram_username
+                and not profile.telegram_username
+            ):
+                profile.telegram_username = telegram_username
+                profile.save()
 
-    # If not DEBUG and not logged in, profile will be None.
     # JS calls sync-data-api with initData to fetch/create the profile.
 
     async def fetch_all():
@@ -236,11 +242,11 @@ def buy_tariff_api(request):
         telegram_id = request.session["tg_user"]["id"]
         telegram_username = request.session["tg_user"].get("username")
     elif settings.DEBUG:
-        telegram_id = request.POST.get("tg_id")
-        telegram_username = request.POST.get("tg_username")
-        if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
-            telegram_username = settings.MOCK_TELEGRAM_USER_DATA.get("username")
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if not mock:
+            return JsonResponse({"error": "No mock data configured"}, status=400)
+        telegram_id = mock.get("id")
+        telegram_username = mock.get("username")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -305,8 +311,8 @@ def buy_tariff_api(request):
                 rw_data = async_to_sync(replace_sub)()
 
                 return JsonResponse({"success": True, "new_balance": float(profile.balance), "sub": rw_data})
-            except Exception as e:
-                return JsonResponse({"error": str(e)}, status=500)
+            except Exception:
+                return JsonResponse({"error": "Ошибка при замене подписки"}, status=500)
 
         async def provision():
             client = RemnawaveClient()
@@ -339,19 +345,14 @@ def buy_tariff_api(request):
             rw_data = async_to_sync(provision)()
 
             return JsonResponse({"success": True, "new_balance": float(profile.balance), "sub": rw_data})
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=500)
+        except Exception:
+            return JsonResponse({"error": "Ошибка при покупке тарифа"}, status=500)
 
-
-import requests
-from django.views.decorators.csrf import csrf_exempt
-import hashlib
 
 def topup_api(request):
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
-    telegram_id = request.POST.get("tg_id")
     amount = request.POST.get("amount", 0)
     init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
@@ -363,10 +364,11 @@ def topup_api(request):
         telegram_id = request.session["tg_user"]["id"]
         telegram_username = request.session["tg_user"].get("username")
     elif settings.DEBUG:
-        telegram_id = request.POST.get("tg_id")
-        telegram_username = request.POST.get("tg_username")
-        if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if not mock:
+            return JsonResponse({"error": "No mock data configured"}, status=400)
+        telegram_id = mock.get("id")
+        telegram_username = mock.get("username")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -460,10 +462,10 @@ def topup_api(request):
             payment_url = data.get("link_page_url") or data.get("link_url")
 
         return JsonResponse({"success": True, "payment_url": payment_url})
-    except Exception as e:
+    except Exception:
         order.status = "FAILED"
         order.save(update_fields=['status'])
-        return JsonResponse({"error": "Ошибка платежной системы", "details": str(e)}, status=500)
+        return JsonResponse({"error": "Ошибка платежной системы"}, status=500)
 
 
 @csrf_exempt
@@ -483,14 +485,28 @@ def pally_webhook_api(request):
         signature = data.get("SignatureValue", "")
         
         pally_api_key = getattr(settings, "PALLY_API_KEY", "")
-        
-        if pally_api_key and signature:
-            sign_string = f"{out_sum}:{inv_id}:{pally_api_key}"
-            expected_sign = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
-            
-            if expected_sign != signature.upper():
-                return JsonResponse({"error": "Invalid signature"}, status=403)
-                
+
+        if not pally_api_key:
+            return JsonResponse(
+                {"error": "Payment gateway not configured"},
+                status=500,
+            )
+        if not signature:
+            return JsonResponse(
+                {"error": "Missing signature"},
+                status=403,
+            )
+        sign_string = f"{out_sum}:{inv_id}:{pally_api_key}"
+        expected_sign = hashlib.md5(
+            sign_string.encode("utf-8"),
+        ).hexdigest().upper()
+
+        if expected_sign != signature.upper():
+            return JsonResponse(
+                {"error": "Invalid signature"},
+                status=403,
+            )
+
         if status == "SUCCESS":
             with transaction.atomic():
                 order = Order.objects.select_for_update().get(id=inv_id)
@@ -512,33 +528,13 @@ def pally_webhook_api(request):
         return JsonResponse({"success": True})
     except Order.DoesNotExist:
         return JsonResponse({"error": "Order not found"}, status=404)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+    except Exception:
+        return JsonResponse({"error": "Ошибка обработки платежа"}, status=500)
 
 
 def buy_slot_api(request):
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
-
-    telegram_id = request.POST.get("tg_id")
-    telegram_username = request.POST.get("tg_username")
-
-    has_mock = getattr(
-        settings,
-        "MOCK_TELEGRAM_USER_DATA",
-        None,
-    ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
-    if (
-        settings.DEBUG
-        and has_mock
-        and settings.MOCK_TELEGRAM_USER_DATA.get("id")
-    ):
-        if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
-            if not telegram_username:
-                telegram_username = settings.MOCK_TELEGRAM_USER_DATA.get(
-                    "username",
-                )
 
     init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
@@ -550,7 +546,11 @@ def buy_slot_api(request):
         telegram_id = request.session["tg_user"]["id"]
         telegram_username = request.session["tg_user"].get("username")
     elif settings.DEBUG:
-        telegram_id = request.POST.get("tg_id")
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if not mock:
+            return JsonResponse({"error": "No mock data configured"}, status=400)
+        telegram_id = mock.get("id")
+        telegram_username = mock.get("username")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -615,14 +615,11 @@ def buy_slot_api(request):
                     "new_limit": rw_data.get("hwidDeviceLimit"),
                 },
             )
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=500)
+        except Exception:
+            return JsonResponse({"error": "Ошибка при покупке слота"}, status=500)
 
 
 def get_subscription_link_api(request):
-    telegram_id = request.GET.get("tg_id")
-    telegram_username = request.POST.get("tg_username")
-
     init_data = request.GET.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
@@ -633,9 +630,11 @@ def get_subscription_link_api(request):
         telegram_id = request.session["tg_user"]["id"]
         telegram_username = request.session["tg_user"].get("username")
     elif settings.DEBUG:
-        telegram_id = request.GET.get("tg_id")
-        if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if not mock:
+            return JsonResponse({"error": "No mock data configured"}, status=400)
+        telegram_id = mock.get("id")
+        telegram_username = mock.get("username")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -700,29 +699,15 @@ def get_subscription_link_api(request):
                 ),
             },
         )
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+    except Exception:
+        return JsonResponse({"error": "Ошибка получения ссылки"}, status=500)
 
 
 def delete_hwid_device_api(request):
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
-    telegram_id = request.POST.get("tg_id")
     hwid = request.POST.get("hwid")
-
-    has_mock = getattr(
-        settings,
-        "MOCK_TELEGRAM_USER_DATA",
-        None,
-    ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
-    if (
-        settings.DEBUG
-        and has_mock
-        and settings.MOCK_TELEGRAM_USER_DATA.get("id")
-    ):
-        if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
 
     init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
@@ -732,7 +717,10 @@ def delete_hwid_device_api(request):
     elif "tg_user" in request.session:
         telegram_id = request.session["tg_user"]["id"]
     elif settings.DEBUG:
-        telegram_id = request.POST.get("tg_id")
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if not mock:
+            return JsonResponse({"error": "No mock data configured"}, status=400)
+        telegram_id = mock.get("id")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -761,8 +749,8 @@ def delete_hwid_device_api(request):
     try:
         async_to_sync(do_delete)()
         return JsonResponse({"success": True})
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+    except Exception:
+        return JsonResponse({"error": "Ошибка удаления устройства"}, status=500)
 
 
 def promo_api(request):
@@ -770,20 +758,6 @@ def promo_api(request):
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
     code = request.POST.get("code", "").strip()
-    telegram_id = request.POST.get("tg_id")
-
-    has_mock = getattr(
-        settings,
-        "MOCK_TELEGRAM_USER_DATA",
-        None,
-    ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
-    if (
-        settings.DEBUG
-        and has_mock
-        and settings.MOCK_TELEGRAM_USER_DATA.get("id")
-    ):
-        if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
 
     init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
@@ -793,7 +767,10 @@ def promo_api(request):
     elif "tg_user" in request.session:
         telegram_id = request.session["tg_user"]["id"]
     elif settings.DEBUG:
-        telegram_id = request.POST.get("tg_id")
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if not mock:
+            return JsonResponse({"error": "No mock data configured"}, status=400)
+        telegram_id = mock.get("id")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -898,9 +875,9 @@ def promo_api(request):
                 async_to_sync(extend_via_promo)()
 
             PromoCodeUsage.objects.create(promo_code=promo, profile=profile)
-    except Exception as e:
+    except Exception:
         return JsonResponse(
-            {"error": f"Ошибка применения промокода: {e}"},
+            {"error": "Ошибка применения промокода"},
             status=500,
         )
 
@@ -918,21 +895,7 @@ def extend_sub_api(request):
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
-    telegram_id = request.POST.get("tg_id")
     months = request.POST.get("months")
-
-    has_mock = getattr(
-        settings,
-        "MOCK_TELEGRAM_USER_DATA",
-        None,
-    ) and isinstance(settings.MOCK_TELEGRAM_USER_DATA, dict)
-    if (
-        settings.DEBUG
-        and has_mock
-        and settings.MOCK_TELEGRAM_USER_DATA.get("id")
-    ):
-        if not telegram_id:
-            telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
 
     init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
@@ -942,7 +905,10 @@ def extend_sub_api(request):
     elif "tg_user" in request.session:
         telegram_id = request.session["tg_user"]["id"]
     elif settings.DEBUG:
-        telegram_id = request.POST.get("tg_id")
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if not mock:
+            return JsonResponse({"error": "No mock data configured"}, status=400)
+        telegram_id = mock.get("id")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -1042,23 +1008,40 @@ def extend_sub_api(request):
                     "new_balance": float(profile.balance),
                 },
             )
-        except Exception as e:
-            import traceback
-
-            traceback.print_exc()
-            return JsonResponse({"error": str(e)}, status=500)
+        except Exception:
+            return JsonResponse({"error": "Ошибка продления подписки"}, status=500)
 
 
 
+
+
+def _get_authorized_telegram_id(request):
+    init_data = request.GET.get("init_data") or request.POST.get("init_data")
+    is_valid, tg_user = verify_telegram_init_data(init_data)
+    if is_valid:
+        return tg_user.get("id")
+    if "tg_user" in request.session:
+        return request.session["tg_user"]["id"]
+    if settings.DEBUG:
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if mock:
+            return mock.get("id")
+    return None
 
 
 def success_view(request, sub_id):
     order = get_object_or_404(Order, id=sub_id)
+    uid = _get_authorized_telegram_id(request)
+    if uid is not None and int(order.telegram_id) != int(uid):
+        return JsonResponse({"error": "Forbidden"}, status=403)
     return render(request, "shop/success.html", {"order": order})
 
 
 def fail_view(request, sub_id):
     order = get_object_or_404(Order, id=sub_id)
+    uid = _get_authorized_telegram_id(request)
+    if uid is not None and int(order.telegram_id) != int(uid):
+        return JsonResponse({"error": "Forbidden"}, status=403)
     error_message = None
     if order.status == "FAILED":
         error_message = "Платёж был отклонён платёжной системой."
@@ -1085,6 +1068,31 @@ def refund_webhook_api(request):
             data = request.POST.dict()
 
         inv_id = data.get("InvId") or data.get("order_id")
+        out_sum = data.get("OutSum")
+        signature = data.get("SignatureValue", "")
+
+        pally_api_key = getattr(settings, "PALLY_API_KEY", "")
+
+        if not pally_api_key:
+            return JsonResponse(
+                {"error": "Payment gateway not configured"},
+                status=500,
+            )
+        if not signature:
+            return JsonResponse(
+                {"error": "Missing signature"},
+                status=403,
+            )
+        sign_string = f"{out_sum}:{inv_id}:{pally_api_key}"
+        expected_sign = hashlib.md5(
+            sign_string.encode("utf-8"),
+        ).hexdigest().upper()
+        if expected_sign != signature.upper():
+            return JsonResponse(
+                {"error": "Invalid signature"},
+                status=403,
+            )
+
         if not inv_id:
             return JsonResponse({"error": "Missing order id"}, status=400)
 
@@ -1103,8 +1111,11 @@ def refund_webhook_api(request):
         return JsonResponse({"success": True})
     except Order.DoesNotExist:
         return JsonResponse({"error": "Order not found"}, status=404)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+    except Exception:
+        return JsonResponse(
+            {"error": "Internal server error"},
+            status=500,
+        )
 
 
 @csrf_exempt
@@ -1119,6 +1130,31 @@ def chargeback_webhook_api(request):
             data = request.POST.dict()
 
         inv_id = data.get("InvId") or data.get("order_id")
+        out_sum = data.get("OutSum")
+        signature = data.get("SignatureValue", "")
+
+        pally_api_key = getattr(settings, "PALLY_API_KEY", "")
+
+        if not pally_api_key:
+            return JsonResponse(
+                {"error": "Payment gateway not configured"},
+                status=500,
+            )
+        if not signature:
+            return JsonResponse(
+                {"error": "Missing signature"},
+                status=403,
+            )
+        sign_string = f"{out_sum}:{inv_id}:{pally_api_key}"
+        expected_sign = hashlib.md5(
+            sign_string.encode("utf-8"),
+        ).hexdigest().upper()
+        if expected_sign != signature.upper():
+            return JsonResponse(
+                {"error": "Invalid signature"},
+                status=403,
+            )
+
         if not inv_id:
             return JsonResponse({"error": "Missing order id"}, status=400)
 
@@ -1137,8 +1173,11 @@ def chargeback_webhook_api(request):
         return JsonResponse({"success": True})
     except Order.DoesNotExist:
         return JsonResponse({"error": "Order not found"}, status=404)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+    except Exception:
+        return JsonResponse(
+            {"error": "Internal server error"},
+            status=500,
+        )
 
 
 def sync_data_api(request):
@@ -1169,19 +1208,11 @@ def sync_data_api(request):
         telegram_id = request.session["tg_user"]["id"]
         profile = Profile.objects.filter(telegram_id=telegram_id).first()
     elif settings.DEBUG:
-        telegram_id = request.GET.get("tg_id")
-        if not telegram_id:
-            # Check if settings.MOCK_TELEGRAM_USER_DATA is not None
-            if settings.MOCK_TELEGRAM_USER_DATA:
-                telegram_id = settings.MOCK_TELEGRAM_USER_DATA.get("id")
-            else:
-                return JsonResponse({"error": "No mock data"}, status=400)
-
-        try:
-            telegram_id = int(telegram_id)
-            profile = Profile.objects.filter(telegram_id=telegram_id).first()
-        except (ValueError, TypeError):
-            profile = None
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if not mock:
+            return JsonResponse({"error": "No mock data configured"}, status=400)
+        telegram_id = mock.get("id")
+        profile = Profile.objects.filter(telegram_id=telegram_id).first()
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 
@@ -1360,15 +1391,14 @@ def sync_data_api(request):
                 "has_pending_payment": has_pending_payment,
             },
         )
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+    except Exception:
+        return JsonResponse({"error": "Ошибка синхронизации данных"}, status=500)
 
 
 def update_preferences_api(request):
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
-    telegram_id = request.POST.get("tg_id")
     init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
@@ -1377,7 +1407,10 @@ def update_preferences_api(request):
     elif "tg_user" in request.session:
         telegram_id = request.session["tg_user"]["id"]
     elif settings.DEBUG:
-        telegram_id = request.POST.get("tg_id")
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if not mock:
+            return JsonResponse({"error": "No mock data configured"}, status=400)
+        telegram_id = mock.get("id")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
 

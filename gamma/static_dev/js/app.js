@@ -535,8 +535,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (tg?.initData) {
                 formData.append('init_data', tg.initData);
-            } else {
-                formData.append('tg_id', userId);
             }
 
             const response = await fetch('/shop/topup-api/', {
@@ -639,8 +637,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (tg?.initData) {
                         formData.append('init_data', tg.initData);
-                    } else {
-                        formData.append('tg_id', userId);
                     }
 
                     const response = await fetch('/shop/promo-api/', {
@@ -743,10 +739,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // Pass initData for secure verification
             if (tg?.initData) {
                 formData.append('init_data', tg.initData);
-            } else {
-                // Fallback for dev
-                formData.append('tg_id', userId);
-                formData.append('tg_username', username);
             }
 
             if (replace) formData.append('replace', 'true');
@@ -929,8 +921,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (tg?.initData) {
                         formData.append('init_data', tg.initData);
-                    } else {
-                        formData.append('tg_id', userId);
                     }
 
                     const response = await fetch('/shop/extend-sub-api/', {
@@ -1016,10 +1006,14 @@ document.addEventListener('DOMContentLoaded', () => {
             // Inside Telegram Mini App: happ:// can't be opened directly from WebView.
             // Open our server-side redirect page in the system browser via Telegram API —
             // the system browser handles the happ:// deep link correctly.
+            const tg = window.Telegram.WebApp;
+            const params = new URLSearchParams({ link: currentSubLink });
+            if (tg.initData) {
+                params.append('init_data', tg.initData);
+            }
             const redirectUrl = window.location.origin
-                + '/connect/open-sub/?link='
-                + encodeURIComponent(currentSubLink);
-            window.Telegram.WebApp.openLink(redirectUrl, { try_instant_view: false });
+                + '/connect/open-sub/?' + params.toString();
+            tg.openLink(redirectUrl, { try_instant_view: false });
         } else {
             // Regular browser: direct deep link works fine
             window.location.href = 'happ://' + currentSubLink;
@@ -1046,8 +1040,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const params = new URLSearchParams();
             if (tg?.initData) {
                 params.append('init_data', tg.initData);
-            } else {
-                params.append('tg_id', userId);
             }
 
             const response = await fetch(`/shop/get-sub-link-api/?${params.toString()}`);
@@ -1165,8 +1157,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (tg?.initData) {
                         formData.append('init_data', tg.initData);
-                    } else {
-                        formData.append('tg_id', userId);
                     }
 
                     const response = await fetch('/connect/set-node-status-api/', {
@@ -1236,8 +1226,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (tg?.initData) {
                         formData.append('init_data', tg.initData);
-                    } else {
-                        formData.append('tg_id', userId);
                     }
 
                     const response = await fetch('/shop/buy-slot-api/', {
@@ -1314,8 +1302,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (tg?.initData) {
                         formData.append('init_data', tg.initData);
-                    } else {
-                        formData.append('tg_id', userId);
                     }
 
                     const response = await fetch('/shop/delete-hwid-device-api/', {
@@ -1820,8 +1806,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (tg?.initData) {
                 formData.append('init_data', tg.initData);
-            } else {
-                formData.append('tg_id', userId);
             }
 
             const response = await fetch('/shop/update-preferences-api/', {
@@ -1859,8 +1843,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (tg?.initData) {
                 params.append('init_data', tg.initData);
-            } else {
-                params.append('tg_id', userId);
             }
             params.append('_t', Date.now());
 
@@ -1877,7 +1859,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        // Poll every 5 seconds
+        // Poll every 10 seconds
         setInterval(window.syncNow, 10000);
 
         // Initial sync attempt

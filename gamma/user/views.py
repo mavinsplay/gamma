@@ -145,12 +145,12 @@ def telegram_login_callback(request):
 
         return redirect("home")
 
-    except Exception as e:
+    except Exception:
         return render(
             request,
             "user/login.html",
             {
-                "error": f"Внутренняя ошибка: {e}",
+                "error": "Внутренняя ошибка авторизации",
                 "bot_username": settings.TELEGRAM_BOT_USERNAME,
             },
         )
@@ -158,7 +158,9 @@ def telegram_login_callback(request):
 
 def get_user_status(request):
     user_data = request.session.get("tg_user")
-    return JsonResponse({"authenticated": bool(user_data), "user": user_data})
+    if user_data:
+        return JsonResponse({"authenticated": True, "user": user_data})
+    return JsonResponse({"authenticated": False})
 
 
 def logout_view(request):
