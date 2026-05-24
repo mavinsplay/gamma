@@ -60,18 +60,10 @@ def set_node_status_api(request):
 
 
 def open_sub_redirect(request):
-    """Open happ:// deep link via system browser (works in Telegram Mini App)."""  # noqa: E501
+    """Open happ:// deep link via system browser (works in Telegram Mini App).
+    No auth required — only constructs a happ:// deep link, no user data exposed.
+    """  # noqa: E501
     sub_link = request.GET.get("link", "")
-
-    init_data = request.GET.get("init_data")
-    is_valid, tg_user = verify_telegram_init_data(init_data)
-    authorized = is_valid or "tg_user" in request.session
-    if not authorized and settings.DEBUG:
-        authorized = bool(settings.MOCK_TELEGRAM_USER_DATA)
-
-    if not authorized:
-        return JsonResponse({"error": "Unauthorized"}, status=403)
-
     happ_link = "happ://" + sub_link if sub_link else ""
     return render(
         request,

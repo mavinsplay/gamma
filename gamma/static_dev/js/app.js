@@ -1006,14 +1006,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // Inside Telegram Mini App: happ:// can't be opened directly from WebView.
             // Open our server-side redirect page in the system browser via Telegram API —
             // the system browser handles the happ:// deep link correctly.
-            const tg = window.Telegram.WebApp;
-            const params = new URLSearchParams({ link: currentSubLink });
-            if (tg.initData) {
-                params.append('init_data', tg.initData);
-            }
             const redirectUrl = window.location.origin
-                + '/connect/open-sub/?' + params.toString();
-            tg.openLink(redirectUrl, { try_instant_view: false });
+                + '/connect/open-sub/?link='
+                + encodeURIComponent(currentSubLink);
+            window.Telegram.WebApp.openLink(redirectUrl, { try_instant_view: false });
         } else {
             // Regular browser: direct deep link works fine
             window.location.href = 'happ://' + currentSubLink;
