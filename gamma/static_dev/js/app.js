@@ -520,7 +520,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function startPaymentTimer(orderId, amount, paymentUrl) {
         const expiresAt = Date.now() + 10 * 60 * 1000;
         try {
-            sessionStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify({
+            localStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify({
                 orderId: orderId,
                 amount: amount,
                 paymentUrl: paymentUrl,
@@ -528,7 +528,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }));
         } catch (e) {}
         paymentTimerSeconds = 600;
-        showPaymentBanner(amount);
+        showPaymentBanner(amount, 600);
         showRetryButton(paymentUrl);
         pollPaymentStatus(orderId);
         clearInterval(paymentTimerInterval);
@@ -600,13 +600,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 5000);
     }
 
-    function showPaymentBanner(amount) {
+    function showPaymentBanner(amount, seconds) {
         const banner = document.getElementById('pending-payment-banner');
         if (!banner) return;
         const title = banner.querySelector('.pending-payment-title');
         const subtitle = banner.querySelector('.pending-payment-subtitle');
         if (title) title.textContent = `Платёж ${amount} ₽ обрабатывается`;
-        if (subtitle) subtitle.innerHTML = 'Осталось: <span id="payment-timer" class="payment-timer">10:00</span>';
+        const m = String(Math.floor((seconds || 600) / 60)).padStart(2, '0');
+        const s = String((seconds || 600) % 60).padStart(2, '0');
+        if (subtitle) subtitle.innerHTML = `Осталось: <span id="payment-timer" class="payment-timer">${m}:${s}</span>`;
         banner.style.display = 'block';
     }
 
@@ -634,7 +636,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function clearPaymentState() {
         try {
-            sessionStorage.removeItem(PENDING_PAYMENT_KEY);
+            localStorage.removeItem(PENDING_PAYMENT_KEY);
         } catch (e) {}
         clearInterval(paymentTimerInterval);
         paymentTimerInterval = null;
@@ -653,30 +655,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function checkPendingPaymentOnLoad() {
         try {
-            const stored = sessionStorage.getItem(PENDING_PAYMENT_KEY);
+            const stored = localStorage.getItem(PENDING_PAYMENT_KEY);
             if (!stored) return;
             const data = JSON.parse(stored);
             const remaining = data.expiresAt - Date.now();
             if (remaining <= 0) {
-                sessionStorage.removeItem(PENDING_PAYMENT_KEY);
+                localStorage.removeItem(PENDING_PAYMENT_KEY);
                 return;
             }
             paymentTimerSeconds = Math.ceil(remaining / 1000);
-            showPaymentBanner(data.amount);
+            showPaymentBanner(data.amount, paymentTimerSeconds);
             if (data.paymentUrl) {
                 showRetryButton(data.paymentUrl);
-            }
-            const timerEl = document.getElementById('payment-timer');
-            if (timerEl) {
-                const m = String(Math.floor(paymentTimerSeconds / 60)).padStart(2, '0');
-                const s = String(paymentTimerSeconds % 60).padStart(2, '0');
-                timerEl.textContent = `${m}:${s}`;
             }
             pollPaymentStatus(data.orderId);
             clearInterval(paymentTimerInterval);
             paymentTimerInterval = setInterval(tickPaymentTimer, 1000);
         } catch (e) {
-            try { sessionStorage.removeItem(PENDING_PAYMENT_KEY); } catch (e) {}
+            try { localStorage.removeItem(PENDING_PAYMENT_KEY); } catch (e) {}
         }
     }
 
@@ -2385,7 +2381,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (paymentTimerInterval && !data.has_pending_payment) {
             const stored = (function() {
                 try {
-                    const s = sessionStorage.getItem(PENDING_PAYMENT_KEY);
+                    const s = localStorage.getItem(PENDING_PAYMENT_KEY);
                     return s ? JSON.parse(s) : null;
                 } catch (e) { return null; }
             })();
