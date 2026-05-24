@@ -1568,6 +1568,13 @@ body {
     animation: slideDown 0.4s var(--slide-timing);
 }
 
+@media (min-width: 768px) {
+    .pending-payment-banner {
+        max-width: 600px;
+        margin: 8px auto 0;
+    }
+}
+
 .pending-payment-content {
     display: flex;
     align-items: center;
