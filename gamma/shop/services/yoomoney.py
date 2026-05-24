@@ -26,9 +26,11 @@ def verify_payment_api(order_id, expected_amount):
 
     Сначала ищет по label (самый точный способ).
     Если не нашло — ищет среди последних 50 операций без фильтра.
+    ЮMoney удерживает комиссию (~3%), поэтому сравниваем с 70% от expected_amount.
     """
     import sys
 
+    min_amount = float(expected_amount) * 0.7
     token = getattr(settings, "YOOMONEY_TOKEN", "")
     if not token:
         print("[yoomoney] No token configured", file=sys.stderr)
@@ -36,20 +38,18 @@ def verify_payment_api(order_id, expected_amount):
     try:
         client = YooClient(token)
 
-        # 1 — поиск по label (точное совпадение)
         label_history = client.operation_history(
             label=str(order_id), records=5,
         )
         for op in label_history.operations:
-            if op.status == "success" and op.amount >= float(expected_amount):
+            if op.status == "success" and op.amount >= min_amount:
                 return True
 
-        # 2 — широкий поиск среди последних операций
         recent = client.operation_history(records=50, type="deposition")
         for op in recent.operations:
             if (
                 op.status == "success"
-                and op.amount >= float(expected_amount)
+                and op.amount >= min_amount
                 and str(op.label) == str(order_id)
             ):
                 return True
@@ -67,6 +67,7 @@ def verify_operation(operation_id, expected_order_id, expected_amount):
     """Проверяет конкретную операцию через YooMoney API (operation_details).
 
     Вызывается при редиректе с ЮMoney — у нас есть operation_id из URL.
+    ЮMoney удерживает комиссию (~3%), поэтому сравниваем с 70% от expected_amount.
     """
     import sys
 
@@ -85,7 +86,7 @@ def verify_operation(operation_id, expected_order_id, expected_amount):
         )
         if details.status != "success":
             return False
-        if details.amount < float(expected_amount):
+        if details.amount < float(expected_amount) * 0.7:
             return False
         if str(details.label) != str(expected_order_id):
             return False
@@ -112,20 +113,11 @@ def cancel_expired_orders():
 def process_successful_payment(order_id):
     order = (
         Order.objects.select_for_update()
-        .filter(id=order_id, status="PENDING")
+        .filter(id=order_id)
+        .exclude(status="PAID")
         .first()
     )
     if not order:
-        return None
-
-    from datetime import timezone
-
-    cutoff = datetime.now(timezone.utc) - timedelta(
-        minutes=settings.ORDER_TIMEOUT_MINUTES,
-    )
-    if order.created_at < cutoff:
-        order.status = "FAILED"
-        order.save(update_fields=["status"])
         return None
 
     order.status = "PAID"

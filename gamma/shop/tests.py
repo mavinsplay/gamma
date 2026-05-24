@@ -117,7 +117,7 @@ class PaymentTests(TestCase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.balance, Decimal("600.00"))
 
-    def test_process_successful_payment_expired(self):
+    def test_process_successful_payment_expired_still_credits(self):
         old_date = datetime.now(timezone.utc) - timedelta(minutes=15)
         order = Order.objects.create(
             telegram_id=12345,
@@ -129,13 +129,13 @@ class PaymentTests(TestCase):
         settings.ORDER_TIMEOUT_MINUTES = 10
 
         result = process_successful_payment(order.id)
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
 
         order.refresh_from_db()
-        self.assertEqual(order.status, "FAILED")
+        self.assertEqual(order.status, "PAID")
 
         self.profile.refresh_from_db()
-        self.assertEqual(self.profile.balance, Decimal("100.00"))
+        self.assertEqual(self.profile.balance, Decimal("600.00"))
 
     def test_cancel_expired_orders(self):
         old_date = datetime.now(timezone.utc) - timedelta(minutes=15)
