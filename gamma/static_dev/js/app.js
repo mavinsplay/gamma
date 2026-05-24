@@ -2459,8 +2459,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { return null; }
     }
 
-    // Server restores pending state on sync — no need for localStorage-only restore
-    // checkPendingPaymentOnLoad();
+    // Restore timer immediately from localStorage, sync will verify/correct via server
+    checkPendingPaymentOnLoad();
 
     initTelegram();
     startDataSync();
