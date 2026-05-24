@@ -432,10 +432,14 @@ def topup_api(request):
             receiver=receiver,
             success_url=success_url,
         )
+        expires_at = order.created_at + timedelta(
+            minutes=settings.ORDER_TIMEOUT_MINUTES,
+        )
         return JsonResponse({
             "success": True,
             "payment_url": payment_url,
             "order_id": order.id,
+            "expires_at": expires_at.isoformat(),
         })
     except Exception:
         order.status = "FAILED"
@@ -1188,11 +1192,34 @@ def sync_data_api(request):
 
         from connect.models import NodeStatus
 
-        has_pending_payment = Order.objects.filter(
+        pending_order = Order.objects.filter(
             telegram_id=telegram_id,
             status="PENDING",
             order_type="TOPUP",
-        ).exists() if profile else False
+        ).first() if profile else None
+        has_pending_payment = pending_order is not None
+        pending_payment = None
+        if pending_order:
+            receiver = getattr(settings, "YOOMONEY_RECEIVER", "")
+            success_url = "{scheme}://{host}/shop/success/{oid}/".format(
+                scheme=request.scheme,
+                host=request.get_host(),
+                oid=pending_order.id,
+            )
+            pending_payment = {
+                "order_id": pending_order.id,
+                "amount": float(pending_order.amount),
+                "payment_url": create_payment_url(
+                    pending_order.id,
+                    pending_order.amount,
+                    receiver,
+                    success_url,
+                ),
+                "expires_at": (
+                    pending_order.created_at
+                    + timedelta(minutes=settings.ORDER_TIMEOUT_MINUTES)
+                ).isoformat(),
+            }
 
         statuses = {s.node_id: s for s in NodeStatus.objects.all()}
 
@@ -1257,6 +1284,7 @@ def sync_data_api(request):
                 "payments": payments,
                 "proxies": proxies_data,
                 "has_pending_payment": has_pending_payment,
+                "pending_payment": pending_payment,
             },
         )
     except Exception:

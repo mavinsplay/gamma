@@ -517,8 +517,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let paymentTimerInterval = null;
     let paymentTimerSeconds = 0;
 
-    function startPaymentTimer(orderId, amount, paymentUrl) {
-        const expiresAt = Date.now() + 10 * 60 * 1000;
+    function startPaymentTimer(orderId, amount, paymentUrl, expiresAt) {
+        if (!expiresAt) {
+            expiresAt = Date.now() + 10 * 60 * 1000;
+        }
         try {
             localStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify({
                 orderId: orderId,
@@ -527,8 +529,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 expiresAt: expiresAt
             }));
         } catch (e) {}
-        paymentTimerSeconds = 600;
-        showPaymentBanner(amount, 600);
+        paymentTimerSeconds = Math.ceil((expiresAt - Date.now()) / 1000);
+        if (paymentTimerSeconds < 0) paymentTimerSeconds = 0;
+        showPaymentBanner(amount, paymentTimerSeconds);
         showRetryButton(paymentUrl);
         pollPaymentStatus(orderId);
         clearInterval(paymentTimerInterval);
@@ -616,21 +619,14 @@ document.addEventListener('DOMContentLoaded', () => {
         paymentTimerSeconds--;
         const timerEl = document.getElementById('payment-timer');
         if (timerEl) {
-            const m = String(Math.floor(paymentTimerSeconds / 60)).padStart(2, '0');
-            const s = String(paymentTimerSeconds % 60).padStart(2, '0');
+            const m = String(Math.floor(Math.max(paymentTimerSeconds, 0) / 60)).padStart(2, '0');
+            const s = String(Math.max(paymentTimerSeconds, 0) % 60).padStart(2, '0');
             timerEl.textContent = `${m}:${s}`;
         }
         if (paymentTimerSeconds <= 0) {
             clearInterval(paymentTimerInterval);
             paymentTimerInterval = null;
-            clearPaymentState();
-            showModal({
-                title: 'Время истекло',
-                message: 'Платёж не был завершён за 10 минут. Попробуйте ещё раз.',
-                icon: 'timer_off',
-                actionText: 'Ок',
-                onAction: hideModal
-            });
+            // Don't show modal — wait for sync to detect expiry/success
         }
     }
 
@@ -709,7 +705,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (response.ok) {
                 if (data.payment_url) {
-                    startPaymentTimer(data.order_id, amount, data.payment_url);
+                    var expiresAt = data.expires_at
+                        ? new Date(data.expires_at).getTime()
+                        : (Date.now() + 10 * 60 * 1000);
+                    startPaymentTimer(data.order_id, amount, data.payment_url, expiresAt);
                     if (typeof IS_DEBUG !== 'undefined' && IS_DEBUG) {
                         // Don't redirect in debug — stay and watch the timer
                         showModal({
@@ -749,7 +748,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 if (window.syncNow) window.syncNow();
             } else if (response.status === 409) {
-                checkPendingPaymentOnLoad();
+                // Timer will be restored on next sync from server data
+                if (window.syncNow) window.syncNow();
                 showModal({
                     title: 'Платёж уже выполняется',
                     message: data.error || 'У вас уже есть ожидающий платёж. Дождитесь его завершения.',
@@ -2371,38 +2371,96 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Extend sync data handler to include pending payment
+    var lastPendingOrderId = null;
+
     const originalUpdateUI = updateUIWithSyncData;
     updateUIWithSyncData = function(data) {
         originalUpdateUI(data);
+
+        var pp = data.pending_payment;
+
+        // Payment gone → check what happened with the last known order
+        if (paymentTimerInterval && !pp) {
+            clearPaymentState();
+            var checkId = lastPendingOrderId || getStoredOrderId();
+            try { localStorage.removeItem(PENDING_PAYMENT_KEY); } catch(e) {}
+            if (checkId) {
+                fetch('/shop/check-payment-api/' + checkId + '/')
+                    .then(function(r) { return r.json(); })
+                    .then(function(result) {
+                        if (result.status === 'paid') {
+                            showModal({
+                                title: 'Готово!',
+                                message: 'Баланс пополнен.',
+                                icon: 'check_circle',
+                                actionText: 'Отлично',
+                                onAction: function() {
+                                    hideModal();
+                                    if (window.syncNow) window.syncNow();
+                                }
+                            });
+                            if (window.syncNow) window.syncNow();
+                        } else {
+                            showModal({
+                                title: 'Платёж не прошёл',
+                                message: 'Время оплаты истекло или платёж отклонён.',
+                                icon: 'error',
+                                actionText: 'Ок',
+                                onAction: hideModal
+                            });
+                        }
+                    })
+                    .catch(function() {
+                        // fallback
+                    });
+            }
+            lastPendingOrderId = null;
+            return;
+        }
+
+        // No timer but server says payment exists → restore from server (cross-device / reload)
+        if (!paymentTimerInterval && pp) {
+            lastPendingOrderId = pp.order_id;
+            var remaining = new Date(pp.expires_at).getTime() - Date.now();
+            if (remaining <= 0) {
+                // Expired — next sync will clear it
+                return;
+            }
+            paymentTimerSeconds = Math.ceil(remaining / 1000);
+            showPaymentBanner(pp.amount, paymentTimerSeconds);
+            showRetryButton(pp.payment_url);
+            pollPaymentStatus(pp.order_id);
+            paymentTimerInterval = setInterval(tickPaymentTimer, 1000);
+            try {
+                localStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify({
+                    orderId: pp.order_id,
+                    amount: pp.amount,
+                    paymentUrl: pp.payment_url,
+                    expiresAt: new Date(pp.expires_at).getTime()
+                }));
+            } catch (e) {}
+            return;
+        }
+
+        // Timer is running — track order id for expiry detection
+        if (pp) {
+            lastPendingOrderId = pp.order_id;
+        }
         if (data.has_pending_payment !== undefined) {
             updatePendingBanner(data.has_pending_payment);
         }
-        // Detect payment completion
-        if (paymentTimerInterval && !data.has_pending_payment) {
-            const stored = (function() {
-                try {
-                    const s = localStorage.getItem(PENDING_PAYMENT_KEY);
-                    return s ? JSON.parse(s) : null;
-                } catch (e) { return null; }
-            })();
-            if (stored) {
-                clearPaymentState();
-                showModal({
-                    title: 'Готово!',
-                    message: `Баланс пополнен на ${stored.amount} ₽.`,
-                    icon: 'check_circle',
-                    actionText: 'Отлично',
-                    onAction: () => {
-                        hideModal();
-                        if (window.syncNow) window.syncNow();
-                    }
-                });
-                if (window.syncNow) window.syncNow();
-            }
-        }
     };
 
-    checkPendingPaymentOnLoad();
+    function getStoredOrderId() {
+        try {
+            var s = localStorage.getItem(PENDING_PAYMENT_KEY);
+            if (!s) return null;
+            return JSON.parse(s).orderId;
+        } catch (e) { return null; }
+    }
+
+    // Server restores pending state on sync — no need for localStorage-only restore
+    // checkPendingPaymentOnLoad();
 
     initTelegram();
     startDataSync();
