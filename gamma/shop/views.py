@@ -17,6 +17,7 @@ from shop.services.yoomoney import (
     cancel_expired_orders,
     create_payment_url,
     process_successful_payment,
+    verify_operation,
     verify_payment_api,
 )
 from shop.utils import verify_telegram_init_data
@@ -480,8 +481,15 @@ def check_payment_api(request, order_id):
                         "new_balance": float(profile.balance),
                     })
         else:
-            paid = verify_payment_api(order.id, order.amount)
-            if paid:
+            op_id = request.GET.get("operation_id")
+            confirmed = False
+            if op_id:
+                confirmed = verify_operation(
+                    op_id, order.id, order.amount,
+                )
+            if not confirmed:
+                confirmed = verify_payment_api(order.id, order.amount)
+            if confirmed:
                 result = process_successful_payment(order.id)
                 if result:
                     profile = Profile.objects.get(telegram_id=order.telegram_id)
@@ -1002,9 +1010,20 @@ def _get_authorized_telegram_id(request):
 
 def success_view(request, sub_id):
     order = get_object_or_404(Order, id=sub_id)
+
     uid = _get_authorized_telegram_id(request)
     if uid is not None and int(order.telegram_id) != int(uid):
         return JsonResponse({"error": "Forbidden"}, status=403)
+
+    operation_id = request.GET.get("operation_id")
+    if operation_id and order.status == "PENDING":
+        confirmed = verify_operation(
+            operation_id, order.id, order.amount,
+        )
+        if confirmed:
+            process_successful_payment(order.id)
+            order.refresh_from_db()
+
     return render(request, "shop/success.html", {"order": order})
 
 

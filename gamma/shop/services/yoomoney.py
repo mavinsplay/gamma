@@ -39,6 +39,28 @@ def verify_payment_api(order_id, expected_amount):
         return False
 
 
+def verify_operation(operation_id, expected_order_id, expected_amount):
+    """Проверяет конкретную операцию через YooMoney API (operation_details).
+
+    Вызывается при редиректе с ЮMoney — у нас есть operation_id из URL.
+    """
+    token = getattr(settings, "YOOMONEY_TOKEN", "")
+    if not token:
+        return False
+    try:
+        client = YooClient(token)
+        details = client.operation_details(operation_id)
+        if details.status != "success":
+            return False
+        if details.amount < float(expected_amount):
+            return False
+        if str(details.label) != str(expected_order_id):
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def cancel_expired_orders():
     cutoff = datetime.now(timezone.utc) - timedelta(
         minutes=settings.ORDER_TIMEOUT_MINUTES,

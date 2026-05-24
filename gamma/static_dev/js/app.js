@@ -517,20 +517,37 @@ document.addEventListener('DOMContentLoaded', () => {
     let paymentTimerInterval = null;
     let paymentTimerSeconds = 0;
 
-    function startPaymentTimer(orderId, amount) {
+    function startPaymentTimer(orderId, amount, paymentUrl) {
         const expiresAt = Date.now() + 10 * 60 * 1000;
         try {
             sessionStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify({
                 orderId: orderId,
                 amount: amount,
+                paymentUrl: paymentUrl,
                 expiresAt: expiresAt
             }));
         } catch (e) {}
         paymentTimerSeconds = 600;
         showPaymentBanner(amount);
+        showRetryButton(paymentUrl);
         pollPaymentStatus(orderId);
         clearInterval(paymentTimerInterval);
         paymentTimerInterval = setInterval(tickPaymentTimer, 1000);
+    }
+
+    function showRetryButton(paymentUrl) {
+        const btn = document.getElementById('payment-retry-btn');
+        if (!btn) return;
+        btn.style.display = 'flex';
+        btn.onclick = function(e) {
+            e.stopPropagation();
+            const tg = window.Telegram?.WebApp;
+            if (tg?.openLink) {
+                tg.openLink(paymentUrl);
+            } else {
+                window.open(paymentUrl, '_blank');
+            }
+        };
     }
 
     let paymentPollInterval = null;
@@ -630,6 +647,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const subtitle = banner.querySelector('.pending-payment-subtitle');
         if (title) title.textContent = 'Платёж обрабатывается';
         if (subtitle) subtitle.innerHTML = 'Не закрывайте приложение';
+        const retryBtn = document.getElementById('payment-retry-btn');
+        if (retryBtn) retryBtn.style.display = 'none';
     }
 
     function checkPendingPaymentOnLoad() {
@@ -644,12 +663,16 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             paymentTimerSeconds = Math.ceil(remaining / 1000);
             showPaymentBanner(data.amount);
+            if (data.paymentUrl) {
+                showRetryButton(data.paymentUrl);
+            }
             const timerEl = document.getElementById('payment-timer');
             if (timerEl) {
                 const m = String(Math.floor(paymentTimerSeconds / 60)).padStart(2, '0');
                 const s = String(paymentTimerSeconds % 60).padStart(2, '0');
                 timerEl.textContent = `${m}:${s}`;
             }
+            pollPaymentStatus(data.orderId);
             clearInterval(paymentTimerInterval);
             paymentTimerInterval = setInterval(tickPaymentTimer, 1000);
         } catch (e) {
@@ -690,7 +713,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (response.ok) {
                 if (data.payment_url) {
-                    startPaymentTimer(data.order_id, amount);
+                    startPaymentTimer(data.order_id, amount, data.payment_url);
                     if (typeof IS_DEBUG !== 'undefined' && IS_DEBUG) {
                         // Don't redirect in debug — stay and watch the timer
                         showModal({

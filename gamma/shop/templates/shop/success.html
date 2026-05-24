@@ -5,106 +5,256 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Оплата</title>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
     <style>
-        body { background: var(--md-sys-color-surface); }
-        .app-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-        .spinner { width: 40px; height: 40px; border: 3px solid rgba(208,188,255,0.15); border-top-color: var(--md-sys-color-primary); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 24px; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #141218;
+            color: #E6E1E5;
+            font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .card {
+            width: 100%;
+            max-width: 380px;
+            margin: 24px;
+            padding: 40px 32px 32px;
+            background: #211F26;
+            border-radius: 28px;
+            border: 1px solid rgba(255,255,255,0.06);
+            text-align: center;
+        }
+        .icon-wrap {
+            width: 88px;
+            height: 88px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            transition: background 0.3s;
+        }
+        .icon-wrap svg {
+            width: 48px;
+            height: 48px;
+        }
+        .icon-wrap.success {
+            background: rgba(129, 199, 132, 0.18);
+        }
+        .icon-wrap.success svg {
+            stroke: #81C784;
+        }
+        .icon-wrap.pending {
+            background: rgba(208, 188, 255, 0.12);
+        }
+        .icon-wrap.pending svg {
+            stroke: #D0BCFF;
+        }
+        .icon-wrap.error {
+            background: rgba(239, 154, 154, 0.18);
+        }
+        .icon-wrap.error svg {
+            stroke: #EF9A9A;
+        }
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .sub {
+            font-size: 15px;
+            color: #CAC4D0;
+            line-height: 1.5;
+            margin-bottom: 28px;
+        }
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid rgba(208, 188, 255, 0.12);
+            border-top-color: #D0BCFF;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            margin: 0 auto 20px;
+        }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .details {
+            background: rgba(255,255,255,0.03);
+            border-radius: 16px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            text-align: left;
+        }
+        .details-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            font-size: 14px;
+        }
+        .details-row .label {
+            color: #938F99;
+        }
+        .details-row .value {
+            font-weight: 500;
+        }
+        .details-row .value.success {
+            color: #81C784;
+        }
+        .details-row .value.error {
+            color: #EF9A9A;
+        }
+        .details-row .value.pending {
+            color: #D0BCFF;
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 14px;
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: opacity 0.2s;
+            color: #381E72;
+            background: #D0BCFF;
+        }
+        .btn:hover { opacity: 0.9; }
+        .btn:active { opacity: 0.8; }
     </style>
 </head>
 <body>
-    <div class="app-container" style="padding: 24px; overflow-y: auto;">
-        <div style="max-width: 600px; margin: 0 auto; width: 100%; text-align: center; padding-top: 40px;">
-            <div id="payment-status-icon" style="width: 80px; height: 80px; background-color: rgba(129, 199, 132, 0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 24px;">
-                <span class="material-symbols-rounded" style="font-size: 48px; color: #81C784;">task_alt</span>
-            </div>
-
-            <h1 style="font-size: 28px; margin-bottom: 16px;">Спасибо за покупку!</h1>
-            <p style="color: var(--md-sys-color-on-surface-variant); margin-bottom: 32px;" id="status-text">
-                Платёж обрабатывается, это может занять до 30 секунд...
-            </p>
-
-            <div class="spinner" id="main-spinner"></div>
-
-            <div style="text-align: left; margin-bottom: 24px; display: none;" id="details-card" class="settings-card">
-                <h2 style="font-size: 16px; margin-bottom: 12px; color: var(--md-sys-color-primary);">Детали транзакции</h2>
-                <div style="display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: var(--panel-icon);">
-                    <div style="display: flex; justify-content: space-between;">
-                        <span style="opacity: 0.7;">Сумма</span>
-                        <span style="font-weight: 500;">{{ order.amount|floatformat:0 }} ₽</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between;">
-                        <span style="opacity: 0.7;">Дата</span>
-                        <span style="font-weight: 500;">{{ order.created_at|date:"d.m.Y H:i" }}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between;">
-                        <span style="opacity: 0.7;">Статус</span>
-                        <span style="font-weight: 500; color: #81C784;" id="status-badge">Ожидание</span>
-                    </div>
-                </div>
-            </div>
-
-            <a href="/" class="action-btn bounce" style="text-decoration: none; background-color: var(--panel-bg); display: none;" id="back-btn">
-                <span class="material-symbols-rounded">home</span>
-                Вернуться в приложение
-            </a>
+    <div class="card">
+        <div id="icon-wrap" class="icon-wrap {% if order.status == 'PAID' %}success{% else %}pending{% endif %}">
+            {% if order.status == "PAID" %}
+            <svg viewBox="0 0 24 24" fill="none" stroke="#81C784" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 13l4 4L19 7"/>
+            </svg>
+            {% else %}
+            <svg viewBox="0 0 24 24" fill="none" stroke="#D0BCFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" stroke-opacity="0.4" fill="none"/>
+                <path d="M12 8v4M12 16h0" stroke-width="3"/>
+            </svg>
+            {% endif %}
         </div>
+
+        <h1 id="title">
+            {% if order.status == "PAID" %}
+                Готово!
+            {% else %}
+                Спасибо за покупку!
+            {% endif %}
+        </h1>
+
+        <p class="sub" id="status-text">
+            {% if order.status == "PAID" %}
+                Баланс пополнен на {{ order.amount|floatformat:0 }} ₽.
+            {% else %}
+                Проверяем платёж, это займёт несколько секунд...
+            {% endif %}
+        </p>
+
+        <div id="spinner-container" style="{% if order.status == 'PAID' %}display:none{% endif %}">
+            <div class="spinner"></div>
+        </div>
+
+        <div class="details">
+            <div class="details-row">
+                <span class="label">Сумма</span>
+                <span class="value">{{ order.amount|floatformat:0 }} ₽</span>
+            </div>
+            <div class="details-row">
+                <span class="label">Дата</span>
+                <span class="value">{{ order.created_at|date:"d.m.Y H:i" }}</span>
+            </div>
+            <div class="details-row">
+                <span class="label">Статус</span>
+                <span id="status-badge" class="value {% if order.status == 'PAID' %}success{% else %}pending{% endif %}">
+                    {% if order.status == "PAID" %}Успешно{% else %}Ожидание{% endif %}
+                </span>
+            </div>
+        </div>
+
+        <a id="back-btn" href="/" class="btn">
+            Вернуться в приложение
+        </a>
     </div>
 
     <script>
-        const orderId = {{ order.id }};
-        const tg = window.Telegram?.WebApp;
-        let attempts = 0;
-        const maxAttempts = 30;
+        var orderId = {{ order.id }};
+        var orderStatus = '{{ order.status }}';
+        var tg = window.Telegram?.WebApp;
 
-        function checkPayment() {
-            fetch('/shop/check-payment-api/' + orderId + '/')
-                .then(r => r.json())
-                .then(data => {
-                    if (data.status === 'paid') {
-                        document.getElementById('main-spinner').style.display = 'none';
-                        document.getElementById('status-text').textContent = 'Баланс успешно пополнен!';
-                        document.getElementById('status-badge').textContent = 'Успешно';
-                        document.getElementById('status-badge').style.color = '#81C784';
-                        document.getElementById('details-card').style.display = 'block';
-                        document.getElementById('back-btn').style.display = 'inline-flex';
-                        if (tg && tg.close) {
-                            setTimeout(function() {
-                                try { tg.close(); } catch(e) {}
-                            }, 2000);
-                        }
-                    } else if (data.status === 'failed') {
-                        document.getElementById('main-spinner').style.display = 'none';
-                        document.getElementById('payment-status-icon').innerHTML = '<span class="material-symbols-rounded" style="font-size: 48px; color: #EF9A9A;">cancel</span>';
-                        document.getElementById('payment-status-icon').style.background = 'rgba(239,154,154,0.2)';
-                        document.getElementById('status-text').textContent = 'Платёж не прошёл. Попробуйте ещё раз в приложении.';
-                        document.getElementById('status-badge').textContent = 'Ошибка';
-                        document.getElementById('status-badge').style.color = '#EF9A9A';
-                        document.getElementById('details-card').style.display = 'block';
-                        document.getElementById('back-btn').style.display = 'inline-flex';
-                    } else if (data.status === 'pending') {
-                        attempts++;
-                        if (attempts < maxAttempts) {
-                            setTimeout(checkPayment, 2000);
-                        } else {
-                            document.getElementById('main-spinner').style.display = 'none';
-                            document.getElementById('status-text').textContent = 'Платёж обрабатывается дольше обычного. Вернитесь в приложение.';
-                            document.getElementById('back-btn').style.display = 'inline-flex';
-                        }
-                    }
-                })
-                .catch(function() {
-                    attempts++;
-                    if (attempts < maxAttempts) {
-                        setTimeout(checkPayment, 2000);
-                    }
-                });
+        function setIcon(icon) {
+            var wrap = document.getElementById('icon-wrap');
+            wrap.innerHTML = icon;
         }
 
-        checkPayment();
+        function check() {
+            if (orderStatus === 'PAID') return;
+            var attempts = 0;
+
+            function poll() {
+                fetch('/shop/check-payment-api/' + orderId + '/')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.status === 'paid') {
+                            document.getElementById('icon-wrap').className = 'icon-wrap success';
+                            setIcon(
+                                '<svg viewBox="0 0 24 24" fill="none" stroke="#81C784" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+                                + '<path d="M5 13l4 4L19 7"/>'
+                                + '</svg>'
+                            );
+                            document.getElementById('title').textContent = 'Готово!';
+                            document.getElementById('status-text').textContent = data.new_balance
+                                ? 'Баланс пополнен на ' + data.new_balance.toFixed(0) + ' ₽.'
+                                : 'Баланс пополнен.';
+                            document.getElementById('status-badge').textContent = 'Успешно';
+                            document.getElementById('status-badge').className = 'value success';
+                            document.getElementById('spinner-container').style.display = 'none';
+                            if (tg && tg.close) {
+                                setTimeout(function() { try { tg.close(); } catch(e) {} }, 3000);
+                            }
+                        } else if (data.status === 'failed') {
+                            document.getElementById('icon-wrap').className = 'icon-wrap error';
+                            setIcon(
+                                '<svg viewBox="0 0 24 24" fill="none" stroke="#EF9A9A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+                                + '<path d="M7 7l10 10M17 7l-10 10"/>'
+                                + '</svg>'
+                            );
+                            document.getElementById('title').textContent = 'Платёж не прошёл';
+                            document.getElementById('status-text').textContent = 'Попробуйте ещё раз в приложении.';
+                            document.getElementById('status-badge').textContent = 'Ошибка';
+                            document.getElementById('status-badge').className = 'value error';
+                            document.getElementById('spinner-container').style.display = 'none';
+                        } else {
+                            attempts++;
+                            if (attempts < 30) {
+                                setTimeout(poll, 2000);
+                            }
+                        }
+                    })
+                    .catch(function() {
+                        attempts++;
+                        if (attempts < 30) {
+                            setTimeout(poll, 2000);
+                        }
+                    });
+            }
+
+            poll();
+        }
+
+        check();
     </script>
 </body>
 </html>
