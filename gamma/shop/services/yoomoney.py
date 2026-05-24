@@ -22,20 +22,44 @@ def create_payment_url(order_id, amount, receiver, success_url):
 
 
 def verify_payment_api(order_id, expected_amount):
-    """Проверяет платеж через YooMoney API (operation_history)."""
+    """Проверяет платеж через YooMoney API.
+
+    Сначала ищет по label (самый точный способ).
+    Если не нашло — ищет среди последних 50 операций без фильтра.
+    """
+    import sys
+
     token = getattr(settings, "YOOMONEY_TOKEN", "")
     if not token:
+        print("[yoomoney] No token configured", file=sys.stderr)
         return False
     try:
         client = YooClient(token)
-        history = client.operation_history(
-            label=str(order_id), type="deposition",
+
+        # 1 — поиск по label (точное совпадение)
+        label_history = client.operation_history(
+            label=str(order_id), records=5,
         )
-        for op in history.operations:
+        for op in label_history.operations:
             if op.status == "success" and op.amount >= float(expected_amount):
                 return True
+
+        # 2 — широкий поиск среди последних операций
+        recent = client.operation_history(records=50, type="deposition")
+        for op in recent.operations:
+            if (
+                op.status == "success"
+                and op.amount >= float(expected_amount)
+                and str(op.label) == str(order_id)
+            ):
+                return True
+
         return False
-    except Exception:
+    except Exception as e:
+        print(
+            f"[yoomoney] verify_payment_api error: {e}",
+            file=sys.stderr,
+        )
         return False
 
 
@@ -44,12 +68,21 @@ def verify_operation(operation_id, expected_order_id, expected_amount):
 
     Вызывается при редиректе с ЮMoney — у нас есть operation_id из URL.
     """
+    import sys
+
     token = getattr(settings, "YOOMONEY_TOKEN", "")
     if not token:
+        print("[yoomoney] No token configured", file=sys.stderr)
         return False
     try:
         client = YooClient(token)
         details = client.operation_details(operation_id)
+        print(
+            f"[yoomoney] verify_operation: id={operation_id} "
+            f"status={details.status} amount={details.amount} "
+            f"label={details.label}",
+            file=sys.stderr,
+        )
         if details.status != "success":
             return False
         if details.amount < float(expected_amount):
@@ -57,7 +90,11 @@ def verify_operation(operation_id, expected_order_id, expected_amount):
         if str(details.label) != str(expected_order_id):
             return False
         return True
-    except Exception:
+    except Exception as e:
+        print(
+            f"[yoomoney] verify_operation error: {e}",
+            file=sys.stderr,
+        )
         return False
 
 
