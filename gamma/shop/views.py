@@ -1,12 +1,10 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-import hashlib
 import json
 import re
-import uuid
 
-import requests
-from asgiref.sync import async_to_sync  # noqa: I100
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.db import transaction
 from django.http import JsonResponse
@@ -15,6 +13,12 @@ from django.views.decorators.csrf import csrf_exempt
 
 from connect.services.remnawave import RemnawaveClient
 from shop.models import Order, PromoCode, PromoCodeUsage, Tariff
+from shop.services.yoomoney import (
+    cancel_expired_orders,
+    create_payment_url,
+    process_successful_payment,
+    verify_payment_api,
+)
 from shop.utils import verify_telegram_init_data
 from user.models import Profile
 
@@ -25,12 +29,10 @@ __all__ = [
     "buy_slot_api",
     "get_subscription_link_api",
     "delete_hwid_device_api",
-    "pally_webhook_api",
+    "check_payment_api",
     "success_view",
     "fail_view",
     "sync_data_api",
-    "refund_webhook_api",
-    "chargeback_webhook_api",
 ]
 
 
@@ -388,29 +390,8 @@ def topup_api(request):
         profile.telegram_username = telegram_username
         profile.save(update_fields=['telegram_username'])
 
-    # DEBUG mode: instantly credit balance for easy local testing
-    if settings.DEBUG:
-        with transaction.atomic():
-            profile = Profile.objects.select_for_update().get(
-                telegram_id=telegram_id
-            )
-            profile.balance += amount_dec
-            profile.save(update_fields=['balance'])
+    cancel_expired_orders()
 
-            Order.objects.create(
-                telegram_id=telegram_id,
-                amount=amount_dec,
-                order_type="TOPUP",
-                status="PAID",
-            )
-
-        return JsonResponse({
-            "success": True,
-            "new_balance": float(profile.balance),
-        })
-
-    # Production: create PENDING order and redirect to Pally
-    # Check for existing PENDING topup — prevent concurrent transactions
     existing_pending = Order.objects.filter(
         telegram_id=telegram_id,
         status="PENDING",
@@ -432,36 +413,29 @@ def topup_api(request):
         status="PENDING",
     )
 
-    pally_api_url = getattr(settings, "PALLY_API_URL", "https://pal24.pro/api/v1/bill/create")
-    pally_api_key = getattr(settings, "PALLY_API_KEY", "")
-    pally_shop_id = getattr(settings, "PALLY_SHOP_ID", "")
+    receiver = getattr(settings, "YOOMONEY_RECEIVER", "")
+    if not receiver:
+        return JsonResponse(
+            {"error": "Payment gateway not configured"},
+            status=500,
+        )
 
-    payload = {
-        "amount": float(amount_dec),
-        "order_id": str(order.id),
-        "description": f"Пополнение баланса Gamma VPN (ID: {telegram_id})",
-        "type": "normal",
-        "shop_id": pally_shop_id,
-        "currency_in": "RUB",
-        "payer_pays_commission": 1,
-        "name": "Платёж",
-    }
+    host = request.get_host()
+    scheme = "https" if request.is_secure() else request.scheme
+    success_url = f"{scheme}://{host}/shop/success/{order.id}/"
 
     try:
-        if not pally_api_key:
-            payment_url = f"https://pally.info/pay/mock_{order.id}"
-        else:
-            response = requests.post(
-                pally_api_url,
-                data=payload,
-                headers={"Authorization": f"Bearer {pally_api_key}"},
-                timeout=10
-            )
-            response.raise_for_status()
-            data = response.json()
-            payment_url = data.get("link_page_url") or data.get("link_url")
-
-        return JsonResponse({"success": True, "payment_url": payment_url})
+        payment_url = create_payment_url(
+            order_id=order.id,
+            amount=amount_dec,
+            receiver=receiver,
+            success_url=success_url,
+        )
+        return JsonResponse({
+            "success": True,
+            "payment_url": payment_url,
+            "order_id": order.id,
+        })
     except Exception:
         order.status = "FAILED"
         order.save(update_fields=['status'])
@@ -469,67 +443,64 @@ def topup_api(request):
 
 
 @csrf_exempt
-def pally_webhook_api(request):
-    if request.method != "POST":
-        return JsonResponse({"error": "Only POST allowed"}, status=405)
-        
+def check_payment_api(request, order_id):
+    if request.method != "GET":
+        return JsonResponse({"error": "Only GET allowed"}, status=405)
+
     try:
-        if request.content_type == "application/json":
-            data = json.loads(request.body)
-        else:
-            data = request.POST.dict()
-        
-        status = data.get("Status")
-        inv_id = data.get("InvId")
-        out_sum = data.get("OutSum")
-        signature = data.get("SignatureValue", "")
-        
-        pally_api_key = getattr(settings, "PALLY_API_KEY", "")
-
-        if not pally_api_key:
-            return JsonResponse(
-                {"error": "Payment gateway not configured"},
-                status=500,
-            )
-        if not signature:
-            return JsonResponse(
-                {"error": "Missing signature"},
-                status=403,
-            )
-        sign_string = f"{out_sum}:{inv_id}:{pally_api_key}"
-        expected_sign = hashlib.md5(
-            sign_string.encode("utf-8"),
-        ).hexdigest().upper()
-
-        if expected_sign != signature.upper():
-            return JsonResponse(
-                {"error": "Invalid signature"},
-                status=403,
-            )
-
-        if status == "SUCCESS":
-            with transaction.atomic():
-                order = Order.objects.select_for_update().get(id=inv_id)
-                if order.status == "PENDING":
-                    order.status = "PAID"
-                    order.save(update_fields=['status'])
-                    
-                    profile = Profile.objects.select_for_update().get(telegram_id=order.telegram_id)
-                    profile.balance += order.amount
-                    profile.save(update_fields=['balance'])
-                    
-        elif status == "FAIL":
-            with transaction.atomic():
-                order = Order.objects.select_for_update().get(id=inv_id)
-                if order.status == "PENDING":
-                    order.status = "FAILED"
-                    order.save(update_fields=['status'])
-                    
-        return JsonResponse({"success": True})
+        order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
         return JsonResponse({"error": "Order not found"}, status=404)
-    except Exception:
-        return JsonResponse({"error": "Ошибка обработки платежа"}, status=500)
+
+    uid = _get_authorized_telegram_id(request)
+    if uid is not None and int(order.telegram_id) != int(uid):
+        return JsonResponse({"error": "Forbidden"}, status=403)
+
+    if order.status == "PAID":
+        profile = Profile.objects.filter(
+            telegram_id=order.telegram_id,
+        ).first()
+        return JsonResponse({
+            "status": "paid",
+            "new_balance": float(profile.balance) if profile else 0,
+        })
+
+    if order.status == "FAILED":
+        return JsonResponse({"status": "failed"})
+
+    if order.status == "PENDING":
+        if settings.DEBUG:
+            age = (datetime.now(timezone.utc) - order.created_at).total_seconds()
+            if age >= 15:
+                result = process_successful_payment(order.id)
+                if result:
+                    profile = Profile.objects.get(telegram_id=order.telegram_id)
+                    return JsonResponse({
+                        "status": "paid",
+                        "new_balance": float(profile.balance),
+                    })
+        else:
+            paid = verify_payment_api(order.id, order.amount)
+            if paid:
+                result = process_successful_payment(order.id)
+                if result:
+                    profile = Profile.objects.get(telegram_id=order.telegram_id)
+                    return JsonResponse({
+                        "status": "paid",
+                        "new_balance": float(profile.balance),
+                    })
+
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            minutes=settings.ORDER_TIMEOUT_MINUTES,
+        )
+        if order.created_at < cutoff:
+            order.status = "FAILED"
+            order.save(update_fields=["status"])
+            return JsonResponse({"status": "failed"})
+
+        return JsonResponse({"status": "pending"})
+
+    return JsonResponse({"status": order.status})
 
 
 def buy_slot_api(request):
@@ -1056,130 +1027,6 @@ def fail_view(request, sub_id):
     )
 
 
-@csrf_exempt
-def refund_webhook_api(request):
-    if request.method != "POST":
-        return JsonResponse({"error": "Only POST allowed"}, status=405)
-
-    try:
-        if request.content_type == "application/json":
-            data = json.loads(request.body)
-        else:
-            data = request.POST.dict()
-
-        inv_id = data.get("InvId") or data.get("order_id")
-        out_sum = data.get("OutSum")
-        signature = data.get("SignatureValue", "")
-
-        pally_api_key = getattr(settings, "PALLY_API_KEY", "")
-
-        if not pally_api_key:
-            return JsonResponse(
-                {"error": "Payment gateway not configured"},
-                status=500,
-            )
-        if not signature:
-            return JsonResponse(
-                {"error": "Missing signature"},
-                status=403,
-            )
-        sign_string = f"{out_sum}:{inv_id}:{pally_api_key}"
-        expected_sign = hashlib.md5(
-            sign_string.encode("utf-8"),
-        ).hexdigest().upper()
-        if expected_sign != signature.upper():
-            return JsonResponse(
-                {"error": "Invalid signature"},
-                status=403,
-            )
-
-        if not inv_id:
-            return JsonResponse({"error": "Missing order id"}, status=400)
-
-        with transaction.atomic():
-            order = Order.objects.select_for_update().get(id=inv_id)
-            if order.status in ("PAID", "REFUNDED"):
-                order.status = "REFUNDED"
-                order.save(update_fields=["status"])
-
-                profile = Profile.objects.select_for_update().get(
-                    telegram_id=order.telegram_id,
-                )
-                profile.balance -= order.amount
-                profile.save(update_fields=["balance"])
-
-        return JsonResponse({"success": True})
-    except Order.DoesNotExist:
-        return JsonResponse({"error": "Order not found"}, status=404)
-    except Exception:
-        return JsonResponse(
-            {"error": "Internal server error"},
-            status=500,
-        )
-
-
-@csrf_exempt
-def chargeback_webhook_api(request):
-    if request.method != "POST":
-        return JsonResponse({"error": "Only POST allowed"}, status=405)
-
-    try:
-        if request.content_type == "application/json":
-            data = json.loads(request.body)
-        else:
-            data = request.POST.dict()
-
-        inv_id = data.get("InvId") or data.get("order_id")
-        out_sum = data.get("OutSum")
-        signature = data.get("SignatureValue", "")
-
-        pally_api_key = getattr(settings, "PALLY_API_KEY", "")
-
-        if not pally_api_key:
-            return JsonResponse(
-                {"error": "Payment gateway not configured"},
-                status=500,
-            )
-        if not signature:
-            return JsonResponse(
-                {"error": "Missing signature"},
-                status=403,
-            )
-        sign_string = f"{out_sum}:{inv_id}:{pally_api_key}"
-        expected_sign = hashlib.md5(
-            sign_string.encode("utf-8"),
-        ).hexdigest().upper()
-        if expected_sign != signature.upper():
-            return JsonResponse(
-                {"error": "Invalid signature"},
-                status=403,
-            )
-
-        if not inv_id:
-            return JsonResponse({"error": "Missing order id"}, status=400)
-
-        with transaction.atomic():
-            order = Order.objects.select_for_update().get(id=inv_id)
-            if order.status in ("PAID", "REFUNDED"):
-                order.status = "CHARGEBACK"
-                order.save(update_fields=["status"])
-
-                profile = Profile.objects.select_for_update().get(
-                    telegram_id=order.telegram_id,
-                )
-                profile.balance -= order.amount
-                profile.save(update_fields=["balance"])
-
-        return JsonResponse({"success": True})
-    except Order.DoesNotExist:
-        return JsonResponse({"error": "Order not found"}, status=404)
-    except Exception:
-        return JsonResponse(
-            {"error": "Internal server error"},
-            status=500,
-        )
-
-
 def sync_data_api(request):
     init_data = request.GET.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
@@ -1221,6 +1068,8 @@ def sync_data_api(request):
         return JsonResponse(
             {"success": True, "profile": None, "rw_user": None},
         )
+
+    cancel_expired_orders()
 
     async def fetch_sync_data():
         client = RemnawaveClient()

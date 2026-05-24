@@ -17,15 +17,13 @@ urlpatterns = [
         views.delete_hwid_device_api,
         name="delete_hwid_device_api",
     ),
-    path("payment-webhook/", views.pally_webhook_api, name="pally_webhook_api"),
+    path(
+        "check-payment-api/<int:order_id>/",
+        views.check_payment_api,
+        name="check_payment_api",
+    ),
     path("success/<int:sub_id>/", views.success_view, name="payment_success"),
     path("fail/<int:sub_id>/", views.fail_view, name="payment_fail"),
-    path("refund-webhook/", views.refund_webhook_api, name="refund_webhook"),
-    path(
-        "chargeback-webhook/",
-        views.chargeback_webhook_api,
-        name="chargeback_webhook",
-    ),
     path("sync-data-api/", views.sync_data_api, name="sync_data_api"),
     path(
         "update-preferences-api/",

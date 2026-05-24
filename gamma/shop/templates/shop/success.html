@@ -4,35 +4,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Оплата успешна</title>
+    <title>Оплата</title>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <style>
+        body { background: var(--md-sys-color-surface); }
+        .app-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .spinner { width: 40px; height: 40px; border: 3px solid rgba(208,188,255,0.15); border-top-color: var(--md-sys-color-primary); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 24px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
 </head>
 <body>
     <div class="app-container" style="padding: 24px; overflow-y: auto;">
         <div style="max-width: 600px; margin: 0 auto; width: 100%; text-align: center; padding-top: 40px;">
-            <div style="width: 80px; height: 80px; background-color: rgba(129, 199, 132, 0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 24px;">
+            <div id="payment-status-icon" style="width: 80px; height: 80px; background-color: rgba(129, 199, 132, 0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 24px;">
                 <span class="material-symbols-rounded" style="font-size: 48px; color: #81C784;">task_alt</span>
             </div>
 
             <h1 style="font-size: 28px; margin-bottom: 16px;">Спасибо за покупку!</h1>
-            <p style="color: var(--md-sys-color-on-surface-variant); margin-bottom: 32px;">
-                {% if order.order_type == "TOPUP" %}
-                    Ваш баланс успешно пополнен на {{ order.amount|floatformat:0 }} ₽.
-                {% else %}
-                    Ваш ускоритель успешно создан и готов к использованию.
-                {% endif %}
+            <p style="color: var(--md-sys-color-on-surface-variant); margin-bottom: 32px;" id="status-text">
+                Платёж обрабатывается, это может занять до 30 секунд...
             </p>
 
-            <div class="settings-card" style="text-align: left; margin-bottom: 24px;">
-                <h2 style="font-size: 16px; margin-bottom: 12px; color: var(--md-sys-color-primary);">
-                    {% if order.order_type == "TOPUP" %}
-                        Детали транзакции
-                    {% else %}
-                        Ваша ссылка (Ключ подписки)
-                    {% endif %}
-                </h2>
+            <div class="spinner" id="main-spinner"></div>
+
+            <div style="text-align: left; margin-bottom: 24px; display: none;" id="details-card" class="settings-card">
+                <h2 style="font-size: 16px; margin-bottom: 12px; color: var(--md-sys-color-primary);">Детали транзакции</h2>
                 <div style="display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: var(--panel-icon);">
                     <div style="display: flex; justify-content: space-between;">
                         <span style="opacity: 0.7;">Сумма</span>
@@ -44,16 +42,69 @@
                     </div>
                     <div style="display: flex; justify-content: space-between;">
                         <span style="opacity: 0.7;">Статус</span>
-                        <span style="font-weight: 500; color: #81C784;">Успешно</span>
+                        <span style="font-weight: 500; color: #81C784;" id="status-badge">Ожидание</span>
                     </div>
                 </div>
             </div>
 
-            <a href="/" class="action-btn bounce" style="text-decoration: none; background-color: var(--panel-bg);">
+            <a href="/" class="action-btn bounce" style="text-decoration: none; background-color: var(--panel-bg); display: none;" id="back-btn">
                 <span class="material-symbols-rounded">home</span>
                 Вернуться в приложение
             </a>
         </div>
     </div>
+
+    <script>
+        const orderId = {{ order.id }};
+        const tg = window.Telegram?.WebApp;
+        let attempts = 0;
+        const maxAttempts = 30;
+
+        function checkPayment() {
+            fetch('/shop/check-payment-api/' + orderId + '/')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'paid') {
+                        document.getElementById('main-spinner').style.display = 'none';
+                        document.getElementById('status-text').textContent = 'Баланс успешно пополнен!';
+                        document.getElementById('status-badge').textContent = 'Успешно';
+                        document.getElementById('status-badge').style.color = '#81C784';
+                        document.getElementById('details-card').style.display = 'block';
+                        document.getElementById('back-btn').style.display = 'inline-flex';
+                        if (tg && tg.close) {
+                            setTimeout(function() {
+                                try { tg.close(); } catch(e) {}
+                            }, 2000);
+                        }
+                    } else if (data.status === 'failed') {
+                        document.getElementById('main-spinner').style.display = 'none';
+                        document.getElementById('payment-status-icon').innerHTML = '<span class="material-symbols-rounded" style="font-size: 48px; color: #EF9A9A;">cancel</span>';
+                        document.getElementById('payment-status-icon').style.background = 'rgba(239,154,154,0.2)';
+                        document.getElementById('status-text').textContent = 'Платёж не прошёл. Попробуйте ещё раз в приложении.';
+                        document.getElementById('status-badge').textContent = 'Ошибка';
+                        document.getElementById('status-badge').style.color = '#EF9A9A';
+                        document.getElementById('details-card').style.display = 'block';
+                        document.getElementById('back-btn').style.display = 'inline-flex';
+                    } else if (data.status === 'pending') {
+                        attempts++;
+                        if (attempts < maxAttempts) {
+                            setTimeout(checkPayment, 2000);
+                        } else {
+                            document.getElementById('main-spinner').style.display = 'none';
+                            document.getElementById('status-text').textContent = 'Платёж обрабатывается дольше обычного. Вернитесь в приложение.';
+                            document.getElementById('back-btn').style.display = 'inline-flex';
+                        }
+                    }
+                })
+                .catch(function() {
+                    attempts++;
+                    if (attempts < maxAttempts) {
+                        setTimeout(checkPayment, 2000);
+                    }
+                });
+        }
+
+        checkPayment();
+    </script>
 </body>
 </html>

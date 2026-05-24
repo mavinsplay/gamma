@@ -513,6 +513,150 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
+    const PENDING_PAYMENT_KEY = 'gamma_pending_payment';
+    let paymentTimerInterval = null;
+    let paymentTimerSeconds = 0;
+
+    function startPaymentTimer(orderId, amount) {
+        const expiresAt = Date.now() + 10 * 60 * 1000;
+        try {
+            sessionStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify({
+                orderId: orderId,
+                amount: amount,
+                expiresAt: expiresAt
+            }));
+        } catch (e) {}
+        paymentTimerSeconds = 600;
+        showPaymentBanner(amount);
+        pollPaymentStatus(orderId);
+        clearInterval(paymentTimerInterval);
+        paymentTimerInterval = setInterval(tickPaymentTimer, 1000);
+    }
+
+    let paymentPollInterval = null;
+
+    async function pollPaymentStatus(orderId) {
+        clearInterval(paymentPollInterval);
+        paymentPollInterval = setInterval(async () => {
+            try {
+                const tg = window.Telegram?.WebApp;
+                let url = `/shop/check-payment-api/${orderId}/`;
+                if (tg?.initData) {
+                    url += `?init_data=${encodeURIComponent(tg.initData)}`;
+                }
+                const resp = await fetch(url);
+                const data = await resp.json();
+                if (data.status === 'paid') {
+                    clearInterval(paymentPollInterval);
+                    paymentPollInterval = null;
+                    clearPaymentState();
+                    const balanceAmount = document.getElementById('profile-balance');
+                    if (balanceAmount && data.new_balance !== undefined) {
+                        balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
+                    }
+                    showModal({
+                        title: 'Готово!',
+                        message: `Баланс пополнен.`,
+                        icon: 'check_circle',
+                        actionText: 'Отлично',
+                        onAction: () => {
+                            hideModal();
+                            if (window.syncNow) window.syncNow();
+                        }
+                    });
+                    if (window.syncNow) window.syncNow();
+                } else if (data.status === 'failed') {
+                    clearInterval(paymentPollInterval);
+                    paymentPollInterval = null;
+                    clearPaymentState();
+                    showModal({
+                        title: 'Платёж не прошёл',
+                        message: 'Платёж был отклонён или время истекло.',
+                        icon: 'error',
+                        actionText: 'Ок',
+                        onAction: hideModal
+                    });
+                }
+            } catch (e) {
+                // silent — retry on next interval
+            }
+        }, 5000);
+    }
+
+    function showPaymentBanner(amount) {
+        const banner = document.getElementById('pending-payment-banner');
+        if (!banner) return;
+        const title = banner.querySelector('.pending-payment-title');
+        const subtitle = banner.querySelector('.pending-payment-subtitle');
+        if (title) title.textContent = `Платёж ${amount} ₽ обрабатывается`;
+        if (subtitle) subtitle.innerHTML = 'Осталось: <span id="payment-timer" class="payment-timer">10:00</span>';
+        banner.style.display = 'block';
+    }
+
+    function tickPaymentTimer() {
+        paymentTimerSeconds--;
+        const timerEl = document.getElementById('payment-timer');
+        if (timerEl) {
+            const m = String(Math.floor(paymentTimerSeconds / 60)).padStart(2, '0');
+            const s = String(paymentTimerSeconds % 60).padStart(2, '0');
+            timerEl.textContent = `${m}:${s}`;
+        }
+        if (paymentTimerSeconds <= 0) {
+            clearInterval(paymentTimerInterval);
+            paymentTimerInterval = null;
+            clearPaymentState();
+            showModal({
+                title: 'Время истекло',
+                message: 'Платёж не был завершён за 10 минут. Попробуйте ещё раз.',
+                icon: 'timer_off',
+                actionText: 'Ок',
+                onAction: hideModal
+            });
+        }
+    }
+
+    function clearPaymentState() {
+        try {
+            sessionStorage.removeItem(PENDING_PAYMENT_KEY);
+        } catch (e) {}
+        clearInterval(paymentTimerInterval);
+        paymentTimerInterval = null;
+        clearInterval(paymentPollInterval);
+        paymentPollInterval = null;
+        const banner = document.getElementById('pending-payment-banner');
+        if (!banner) return;
+        banner.style.display = 'none';
+        const title = banner.querySelector('.pending-payment-title');
+        const subtitle = banner.querySelector('.pending-payment-subtitle');
+        if (title) title.textContent = 'Платёж обрабатывается';
+        if (subtitle) subtitle.innerHTML = 'Не закрывайте приложение';
+    }
+
+    function checkPendingPaymentOnLoad() {
+        try {
+            const stored = sessionStorage.getItem(PENDING_PAYMENT_KEY);
+            if (!stored) return;
+            const data = JSON.parse(stored);
+            const remaining = data.expiresAt - Date.now();
+            if (remaining <= 0) {
+                sessionStorage.removeItem(PENDING_PAYMENT_KEY);
+                return;
+            }
+            paymentTimerSeconds = Math.ceil(remaining / 1000);
+            showPaymentBanner(data.amount);
+            const timerEl = document.getElementById('payment-timer');
+            if (timerEl) {
+                const m = String(Math.floor(paymentTimerSeconds / 60)).padStart(2, '0');
+                const s = String(paymentTimerSeconds % 60).padStart(2, '0');
+                timerEl.textContent = `${m}:${s}`;
+            }
+            clearInterval(paymentTimerInterval);
+            paymentTimerInterval = setInterval(tickPaymentTimer, 1000);
+        } catch (e) {
+            try { sessionStorage.removeItem(PENDING_PAYMENT_KEY); } catch (e) {}
+        }
+    }
+
     async function performTopup(amount) {
         const tg = window.Telegram?.WebApp;
         const userId = window.authenticatedUserId;
@@ -545,25 +689,33 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (response.ok) {
-                // If payment_url is returned — redirect to payment gateway
                 if (data.payment_url) {
-                    if (tg?.openLink) {
-                        tg.openLink(data.payment_url);
+                    startPaymentTimer(data.order_id, amount);
+                    if (typeof IS_DEBUG !== 'undefined' && IS_DEBUG) {
+                        // Don't redirect in debug — stay and watch the timer
+                        showModal({
+                            title: 'Режим отладки',
+                            message: `Платёж на ${amount} ₽ будет эмулирован через 15 секунд.`,
+                            icon: 'science',
+                            actionText: 'Ок',
+                            onAction: hideModal,
+                        });
                     } else {
-                        window.location.href = data.payment_url;
+                        if (tg?.openLink) {
+                            tg.openLink(data.payment_url);
+                        } else {
+                            window.location.href = data.payment_url;
+                        }
                     }
-                    updatePendingBanner(true);
                     if (window.syncNow) window.syncNow();
                     return;
                 }
 
-                // Debug mode: instant credit
                 const balanceAmount = document.getElementById('profile-balance');
                 if (balanceAmount) {
                     balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
                 }
 
-                // Remove extra buttons
                 document.querySelectorAll('.test-topup-extra').forEach(el => el.remove());
 
                 showModal({
@@ -576,10 +728,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (window.syncNow) window.syncNow();
                     }
                 });
-                // Also trigger sync immediately in background
                 if (window.syncNow) window.syncNow();
             } else if (response.status === 409) {
-                updatePendingBanner(true);
+                checkPendingPaymentOnLoad();
                 showModal({
                     title: 'Платёж уже выполняется',
                     message: data.error || 'У вас уже есть ожидающий платёж. Дождитесь его завершения.',
@@ -2207,7 +2358,32 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.has_pending_payment !== undefined) {
             updatePendingBanner(data.has_pending_payment);
         }
+        // Detect payment completion
+        if (paymentTimerInterval && !data.has_pending_payment) {
+            const stored = (function() {
+                try {
+                    const s = sessionStorage.getItem(PENDING_PAYMENT_KEY);
+                    return s ? JSON.parse(s) : null;
+                } catch (e) { return null; }
+            })();
+            if (stored) {
+                clearPaymentState();
+                showModal({
+                    title: 'Готово!',
+                    message: `Баланс пополнен на ${stored.amount} ₽.`,
+                    icon: 'check_circle',
+                    actionText: 'Отлично',
+                    onAction: () => {
+                        hideModal();
+                        if (window.syncNow) window.syncNow();
+                    }
+                });
+                if (window.syncNow) window.syncNow();
+            }
+        }
     };
+
+    checkPendingPaymentOnLoad();
 
     initTelegram();
     startDataSync();

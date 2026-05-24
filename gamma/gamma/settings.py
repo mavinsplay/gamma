@@ -174,10 +174,8 @@ STATICFILES_DIRS = [
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Pally payment gateway
-PALLY_API_URL = os.getenv(
-    "PALLY_API_URL",
-    "https://pal24.pro/api/v1/bill/create",
-)
-PALLY_API_KEY = os.getenv("PALLY_API_KEY", "")
-PALLY_SHOP_ID = os.getenv("PALLY_SHOP_ID", "")
+# YooMoney payment gateway
+YOOMONEY_RECEIVER = os.getenv("YOOMONEY_RECEIVER", "")
+YOOMONEY_TOKEN = os.getenv("YOOMONEY_TOKEN", "")
+
+ORDER_TIMEOUT_MINUTES = 10
