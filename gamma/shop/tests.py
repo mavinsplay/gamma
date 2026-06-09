@@ -19,7 +19,8 @@ class PaymentTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.profile = Profile.objects.create(
-            telegram_id=12345, balance=Decimal("100.00"),
+            telegram_id=12345,
+            balance=Decimal("100.00"),
         )
         self.tariff = Tariff.objects.create(
             name="Test Tariff",
@@ -32,7 +33,10 @@ class PaymentTests(TestCase):
 
     @patch("shop.views.verify_telegram_init_data")
     def test_topup_api_creates_pending_order(self, mock_verify):
-        mock_verify.return_value = (True, {"id": 12345, "username": "testuser"})
+        mock_verify.return_value = (
+            True,
+            {"id": 12345, "username": "testuser"},
+        )
         settings.YOOMONEY_RECEIVER = "410019014512803"
 
         response = self.client.post(
@@ -56,7 +60,10 @@ class PaymentTests(TestCase):
 
     @patch("shop.views.verify_telegram_init_data")
     def test_topup_api_debug_returns_payment_url(self, mock_verify):
-        mock_verify.return_value = (True, {"id": 12345, "username": "testuser"})
+        mock_verify.return_value = (
+            True,
+            {"id": 12345, "username": "testuser"},
+        )
         settings.DEBUG = True
         settings.YOOMONEY_RECEIVER = "410019014512803"
 
@@ -81,7 +88,10 @@ class PaymentTests(TestCase):
 
     @patch("shop.views.verify_telegram_init_data")
     def test_buy_tariff_insufficient_funds(self, mock_verify):
-        mock_verify.return_value = (True, {"id": 12345, "username": "testuser"})
+        mock_verify.return_value = (
+            True,
+            {"id": 12345, "username": "testuser"},
+        )
 
         response = self.client.post(
             reverse("buy_tariff_api"),

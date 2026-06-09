@@ -253,7 +253,8 @@ async def main() -> None:
             logging.warning(
                 "Не удалось подключиться к Telegram API: %s. "
                 "Повтор через %d сек.",
-                e, retry_delay,
+                e,
+                retry_delay,
             )
             await asyncio.sleep(retry_delay)
             retry_delay = min(retry_delay * 2, 120)

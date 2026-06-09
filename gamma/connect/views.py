@@ -25,7 +25,9 @@ def set_node_status_api(request):
     elif settings.DEBUG:
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if not mock:
-            return JsonResponse({"error": "No mock data configured"}, status=400)
+            return JsonResponse(
+                {"error": "No mock data configured"}, status=400
+            )
         telegram_id = mock.get("id")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)

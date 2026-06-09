@@ -100,9 +100,7 @@ class RemnawaveClient:
         squad_uuids = (
             activeinternalsquads
             if activeinternalsquads is not None
-            else [
-                s.get("uuid") if isinstance(s, dict) else s for s in squads
-            ]
+            else [s.get("uuid") if isinstance(s, dict) else s for s in squads]
         )
 
         payload = {

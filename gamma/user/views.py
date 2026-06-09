@@ -50,7 +50,12 @@ def login_view(request):
         "code_challenge_method": "S256",
     }
 
-    auth_url = f"https://oauth.telegram.org/auth?{urlencode(params)}"
+    oauth_host = (
+        "oauth.telegram.org"
+        if settings.DEBUG
+        else "oauth-tg.gamma.careerpiter.ru"
+    )
+    auth_url = f"https://{oauth_host}/auth?{urlencode(params)}"
     return render(
         request,
         "user/login.html",

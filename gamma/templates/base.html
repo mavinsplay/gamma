@@ -6,7 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Gamma</title>
     <!-- Telegram Web App API -->
+    {% if debug %}
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    {% else %}
+    <script src="https://gamma.careerpiter.ru/tg-js/telegram-web-app.js"></script>
+    {% endif %}
     <!-- Material Symbols -->
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" rel="stylesheet" />
     <!-- Roboto Font -->

@@ -39,7 +39,8 @@ def verify_payment_api(order_id, expected_amount):
         client = YooClient(token)
 
         label_history = client.operation_history(
-            label=str(order_id), records=5,
+            label=str(order_id),
+            records=5,
         )
         for op in label_history.operations:
             if op.status == "success" and op.amount >= min_amount:
