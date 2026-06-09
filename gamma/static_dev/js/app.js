@@ -341,6 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const tg = window.Telegram?.WebApp;
         const isTelegramHash = window.location.hash.includes('tgWebAppData');
+        window._isMiniApp = (tg && tg.initData) || isTelegramHash;
 
         // 1. Check if inside Telegram Mini App (via API or URL hash)
         if ((tg && tg.initData) || isTelegramHash) {
@@ -424,7 +425,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const initial = (user.first_name || user.username || 'U').charAt(0).toUpperCase();
                 if (user.id) {
                     profileAvatar.dataset.initial = initial;
-                    var avatarUrl = IS_DEBUG && user.photo_url ? user.photo_url : '/user/avatar/';
+                    var avatarUrl;
+                    if (window._isMiniApp && user.photo_url) {
+                        avatarUrl = user.photo_url;
+                    } else if (IS_DEBUG && user.photo_url) {
+                        avatarUrl = user.photo_url;
+                    } else {
+                        avatarUrl = '/user/avatar/';
+                    }
                     profileAvatar.innerHTML = '<img src="' + avatarUrl + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;border:2px solid var(--md-sys-color-primary-container);" onerror="showAvatarFallback(this)">';
                 } else {
                     profileAvatar.innerHTML = '<span style="font-size:28px;font-weight:500;">' + initial + '</span>';
