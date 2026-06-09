@@ -142,15 +142,24 @@ def telegram_login_callback(request):
 
         picture = user_info.get("picture")
         if picture and not settings.DEBUG:
-            proxy = "https://oauth-tg.gamma.careerpiter.ru"
-            mapping = {
-                "cdn.telegram.org": f"{proxy}/cdn",
-                "t.me": f"{proxy}/tme",
-            }
+            proxy_host = "oauth-tg.gamma.careerpiter.ru"
             parsed = urlparse(picture)
-            if parsed.netloc in mapping:
+            if parsed.netloc == "t.me":
                 picture = (
-                    mapping[parsed.netloc]
+                    f"https://{proxy_host}/tme"
+                    + parsed.path
+                    + ("?" + parsed.query if parsed.query else "")
+                )
+            elif parsed.netloc == "telegram.org":
+                picture = (
+                    f"https://{proxy_host}/tg"
+                    + parsed.path
+                    + ("?" + parsed.query if parsed.query else "")
+                )
+            elif parsed.netloc.endswith(".telegram.org"):
+                sub = parsed.netloc[: -len(".telegram.org")]
+                picture = (
+                    f"https://{proxy_host}/{sub}"
                     + parsed.path
                     + ("?" + parsed.query if parsed.query else "")
                 )

@@ -95,7 +95,7 @@
                 <div class="server-info">
                     <div class="server-icon-wrapper">
                         {% if node.countryCode %}
-                            <img src="https://flagcdn.com/w80/{{ node.countryCode|lower }}.png" 
+                            <img src="{% if debug %}https://flagcdn.com/w80/{% else %}https://gamma.careerpiter.ru/tg-flags/w80/{% endif %}{{ node.countryCode|lower }}.png" 
                                  class="flag-img" 
                                  alt="{{ node.countryCode }}">
                         {% else %}
