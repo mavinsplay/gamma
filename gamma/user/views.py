@@ -2,11 +2,12 @@ import base64
 import hashlib
 import json
 import secrets
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import logout
-from django.http import JsonResponse
+from django.core.cache import cache
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 import requests
@@ -140,36 +141,12 @@ def telegram_login_callback(request):
             defaults={"telegram_username": username},
         )
 
-        picture = user_info.get("picture")
-        if picture and not settings.DEBUG:
-            proxy_host = "oauth-tg.gamma.careerpiter.ru"
-            parsed = urlparse(picture)
-            if parsed.netloc == "t.me":
-                picture = (
-                    f"https://{proxy_host}/tme"
-                    + parsed.path
-                    + ("?" + parsed.query if parsed.query else "")
-                )
-            elif parsed.netloc == "telegram.org":
-                picture = (
-                    f"https://{proxy_host}/tg"
-                    + parsed.path
-                    + ("?" + parsed.query if parsed.query else "")
-                )
-            elif parsed.netloc.endswith(".telegram.org"):
-                sub = parsed.netloc[: -len(".telegram.org")]
-                picture = (
-                    f"https://{proxy_host}/{sub}"
-                    + parsed.path
-                    + ("?" + parsed.query if parsed.query else "")
-                )
-
         request.session["tg_user"] = {
             "id": telegram_id,
             "username": username,
             "first_name": user_info.get("given_name"),
             "last_name": user_info.get("family_name"),
-            "photo_url": picture,
+            "photo_url": user_info.get("picture"),
         }
 
         return redirect("home")
@@ -183,6 +160,27 @@ def telegram_login_callback(request):
                 "bot_username": settings.TELEGRAM_BOT_USERNAME,
             },
         )
+
+
+def avatar_proxy(request):
+    tg_user = request.session.get("tg_user")
+    if not tg_user or not tg_user.get("photo_url"):
+        return HttpResponse(status=204)
+
+    photo_url = tg_user["photo_url"]
+    cache_key = f"avatar_{tg_user['id']}"
+    cached = cache.get(cache_key)
+    if cached:
+        return HttpResponse(cached[0], content_type=cached[1])
+
+    try:
+        resp = requests.get(photo_url, timeout=15)
+        resp.raise_for_status()
+        content_type = resp.headers.get("Content-Type", "image/jpeg")
+        cache.set(cache_key, (resp.content, content_type), 3600)
+        return HttpResponse(resp.content, content_type=content_type)
+    except Exception:
+        return HttpResponse(status=204)
 
 
 def get_user_status(request):

@@ -11,4 +11,5 @@ urlpatterns = [
     ),
     path("status/", views.get_user_status, name="user_status"),
     path("logout/", views.logout_view, name="logout"),
+    path("avatar/", views.avatar_proxy, name="avatar_proxy"),
 ]

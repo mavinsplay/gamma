@@ -115,7 +115,9 @@
                         </span>
                     </div>
                 </div>
+                {% if is_admin %}
                 <span class="material-symbols-rounded" style="opacity: 0.3; font-size: 20px;">chevron_right</span>
+                {% endif %}
             </div>
             {% empty %}
             <div class="server-selector" style="margin-top: 16px; opacity: 0.7;">

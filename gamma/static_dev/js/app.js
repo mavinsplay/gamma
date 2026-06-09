@@ -11,6 +11,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return window.innerWidth >= 768;
     }
 
+    function showAvatarFallback(img) {
+        var el = img.parentElement;
+        var initial = el.dataset.initial || 'U';
+        el.innerHTML = '<span style="font-size:28px;font-weight:500;">' + initial + '</span>';
+    }
+
     // Telegram WebApp Object
     const tg = window.Telegram?.WebApp;
     if (tg) {
@@ -118,8 +124,26 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 100);
     });
 
+    // Ensure initial tab is positioned without animation
+    setTimeout(() => {
+        const initialActive = document.querySelector('.nav-item.active');
+        if (initialActive && !sessionStorage.getItem('activeTab')) {
+            // Set wrapper to correct position without transition
+            const targetId = initialActive.getAttribute('data-target');
+            const viewArray = Array.from(views);
+            const index = viewArray.findIndex(v => v.id === targetId);
+            const wrapper = document.getElementById('view-wrapper');
+            if (index !== -1 && wrapper && !isDesktop()) {
+                wrapper.style.transition = 'none';
+                wrapper.style.transform = `translateX(-${index * (100 / views.length)}%)`;
+                wrapper.offsetHeight;
+                wrapper.style.transition = '';
+            }
+        }
+    }, 50);
+
     // Navigation Click Handler
-    function activateTab(item) {
+    function activateTab(item, noAnimation) {
         const targetId = item.getAttribute('data-target');
         const targetTitle = item.getAttribute('data-title');
 
@@ -148,8 +172,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const wrapper = document.getElementById('view-wrapper');
 
         if (index !== -1 && wrapper && !isDesktop()) {
+            if (noAnimation) {
+                wrapper.style.transition = 'none';
+            }
             const offset = index * (100 / views.length);
             wrapper.style.transform = `translateX(-${offset}%)`;
+            if (noAnimation) {
+                // Force reflow then restore transition
+                wrapper.offsetHeight;
+                wrapper.style.transition = '';
+            }
         } else if (wrapper) {
             wrapper.style.transform = ''; // Clear transform on desktop
         }
@@ -229,7 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
         );
         if (item) {
             sessionStorage.setItem('activeTab', viewId);
-            activateTab(item);
+            activateTab(item, true);
             // Force sync immediately to populate data
             setTimeout(() => {
                 if (window.syncNow) window.syncNow();
@@ -244,7 +276,7 @@ document.addEventListener('DOMContentLoaded', () => {
             item => item.getAttribute('data-target') === savedTab
         );
         if (savedItem) {
-            activateTab(savedItem);
+            activateTab(savedItem, true);
         }
     }
 
@@ -389,11 +421,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (profileAvatar) {
-                if (user.photo_url) {
-                    profileAvatar.innerHTML = `<img src="${user.photo_url}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 2px solid var(--md-sys-color-primary-container);">`;
+                const initial = (user.first_name || user.username || 'U').charAt(0).toUpperCase();
+                if (user.id) {
+                    profileAvatar.dataset.initial = initial;
+                    var avatarUrl = IS_DEBUG && user.photo_url ? user.photo_url : '/user/avatar/';
+                    profileAvatar.innerHTML = '<img src="' + avatarUrl + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;border:2px solid var(--md-sys-color-primary-container);" onerror="showAvatarFallback(this)">';
                 } else {
-                    const initial = (user.first_name || user.username || 'U').charAt(0).toUpperCase();
-                    profileAvatar.innerHTML = `<span style="font-size: 28px; font-weight: 500;">${initial}</span>`;
+                    profileAvatar.innerHTML = '<span style="font-size:28px;font-weight:500;">' + initial + '</span>';
                 }
             }
 
@@ -1808,7 +1842,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="server-info">
                                 <div class="server-icon-wrapper">
                                     ${node.countryCode ? `
-                                        <img src="https://flagcdn.com/w80/${node.countryCode.toLowerCase()}.png" 
+                                        <img src="${IS_DEBUG ? 'https://flagcdn.com/w80/' : 'https://gamma.careerpiter.ru/tg-flags/w80/'}${node.countryCode.toLowerCase()}.png" 
                                              class="flag-img" 
                                              alt="${node.countryCode}">
                                     ` : `
