@@ -2,7 +2,7 @@ import base64
 import hashlib
 import json
 import secrets
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.contrib.auth import logout
@@ -140,12 +140,27 @@ def telegram_login_callback(request):
             defaults={"telegram_username": username},
         )
 
+        picture = user_info.get("picture")
+        if picture and not settings.DEBUG:
+            proxy = "https://oauth-tg.gamma.careerpiter.ru"
+            mapping = {
+                "cdn.telegram.org": f"{proxy}/cdn",
+                "t.me": f"{proxy}/tme",
+            }
+            parsed = urlparse(picture)
+            if parsed.netloc in mapping:
+                picture = (
+                    mapping[parsed.netloc]
+                    + parsed.path
+                    + ("?" + parsed.query if parsed.query else "")
+                )
+
         request.session["tg_user"] = {
             "id": telegram_id,
             "username": username,
             "first_name": user_info.get("given_name"),
             "last_name": user_info.get("family_name"),
-            "photo_url": user_info.get("picture"),
+            "photo_url": picture,
         }
 
         return redirect("home")
