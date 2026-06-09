@@ -54,8 +54,12 @@ document.addEventListener('DOMContentLoaded', () => {
     */
 
     // Initialize indicator position
-    function updateIndicator(activeItem) {
+    function updateIndicator(activeItem, noAnimation) {
         if (!activeItem || !navIndicator) return;
+
+        if (noAnimation) {
+            navIndicator.style.transition = 'none';
+        }
 
         const pill = activeItem.closest('.nav-pill');
         
@@ -99,6 +103,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             navIndicator.style.opacity = '0.5';
         }
+
+        if (noAnimation) {
+            navIndicator.offsetHeight;
+            navIndicator.style.transition = '';
+        }
     }
 
     // Update on resize
@@ -115,16 +124,16 @@ document.addEventListener('DOMContentLoaded', () => {
     document.fonts.ready.then(() => {
         document.body.classList.add('fonts-loaded');
         const initialActive = document.querySelector('.nav-item.active');
-        updateIndicator(initialActive);
+        updateIndicator(initialActive, true);
         
         // Secondary check after layout settle
         setTimeout(() => {
             const currentActive = document.querySelector('.nav-item.active');
-            updateIndicator(currentActive);
+            updateIndicator(currentActive, true);
         }, 100);
     });
 
-    // Ensure initial tab is positioned without animation
+    // Ensure initial tab wrapper is positioned without animation
     setTimeout(() => {
         const initialActive = document.querySelector('.nav-item.active');
         if (initialActive && !sessionStorage.getItem('activeTab')) {
@@ -426,9 +435,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (user.id) {
                     profileAvatar.dataset.initial = initial;
                     var avatarUrl;
-                    if (window._isMiniApp && user.photo_url) {
-                        avatarUrl = user.photo_url;
-                    } else if (IS_DEBUG && user.photo_url) {
+                    if (IS_DEBUG && user.photo_url) {
                         avatarUrl = user.photo_url;
                     } else {
                         avatarUrl = '/user/avatar/';

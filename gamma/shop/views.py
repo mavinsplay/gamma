@@ -1138,7 +1138,14 @@ def sync_data_api(request):
         telegram_id = tg_user.get("id")
         telegram_username = tg_user.get("username")
 
-        # Securely create or update profile
+        request.session["tg_user"] = {
+            "id": telegram_id,
+            "username": telegram_username,
+            "first_name": tg_user.get("first_name"),
+            "last_name": tg_user.get("last_name"),
+            "photo_url": tg_user.get("photo_url"),
+        }
+
         profile, created = Profile.objects.get_or_create(
             telegram_id=telegram_id,
             defaults={
