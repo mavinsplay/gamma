@@ -26,8 +26,8 @@
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; opacity: 0.5;">
                         <span>{{ payment.created_at|date:"d.m.Y H:i" }}</span>
-                        <span style="color: {% if payment.status == 'PAID' %}#4CAF50{% else %}#EF5350{% endif %}; opacity: 0.8;">
-                            {% if payment.status == 'PAID' %}Успешно{% else %}Ошибка{% endif %}
+                        <span style="color: {% if payment.status == 'PAID' %}#4CAF50{% elif payment.status == 'PENDING' %}#FF9F0A{% else %}#EF5350{% endif %}; opacity: 0.8;">
+                            {% if payment.status == 'PAID' %}Успешно{% elif payment.status == 'PENDING' %}В обработке{% else %}Ошибка{% endif %}
                         </span>
                     </div>
                 </div>

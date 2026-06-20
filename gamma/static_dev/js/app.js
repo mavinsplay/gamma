@@ -84,7 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Profile tab: just dim it, don't move or resize
             // Special case: if this is the first run (e.g. refresh on profile), 
             // position it over the first nav item so it's aligned.
-            if (!navIndicator.style.transform || navIndicator.style.transform === 'none') {
+            if (noAnimation || !navIndicator.style.transform || navIndicator.style.transform === 'none') {
                 const firstItem = document.querySelector('.nav-pill .nav-item');
                 if (firstItem) {
                     const offsetL = firstItem.offsetLeft;
@@ -110,6 +110,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function updateViewWrapper(activeItem, noAnimation) {
+        if (!activeItem) return;
+        const targetId = activeItem.getAttribute('data-target');
+        const viewArray = Array.from(views);
+        const index = viewArray.findIndex(v => v.id === targetId);
+        const wrapper = document.getElementById('view-wrapper');
+
+        if (index !== -1 && wrapper && !isDesktop()) {
+            if (noAnimation) {
+                wrapper.style.transition = 'none';
+            }
+            const offset = index * (100 / views.length);
+            wrapper.style.transform = `translateX(-${offset}%)`;
+            if (noAnimation) {
+                wrapper.offsetHeight;
+                wrapper.style.transition = '';
+            }
+        } else if (wrapper) {
+            wrapper.style.transform = ''; // Clear transform on desktop
+        }
+    }
+
     // Update on resize
     window.addEventListener('resize', () => {
         const activeItem = document.querySelector('.nav-item.active');
@@ -125,11 +147,13 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.add('fonts-loaded');
         const initialActive = document.querySelector('.nav-item.active');
         updateIndicator(initialActive, true);
+        updateViewWrapper(initialActive, true);
         
         // Secondary check after layout settle
         setTimeout(() => {
             const currentActive = document.querySelector('.nav-item.active');
             updateIndicator(currentActive, true);
+            updateViewWrapper(currentActive, true);
         }, 100);
     });
 
@@ -137,17 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
         const initialActive = document.querySelector('.nav-item.active');
         if (initialActive && !sessionStorage.getItem('activeTab')) {
-            // Set wrapper to correct position without transition
-            const targetId = initialActive.getAttribute('data-target');
-            const viewArray = Array.from(views);
-            const index = viewArray.findIndex(v => v.id === targetId);
-            const wrapper = document.getElementById('view-wrapper');
-            if (index !== -1 && wrapper && !isDesktop()) {
-                wrapper.style.transition = 'none';
-                wrapper.style.transform = `translateX(-${index * (100 / views.length)}%)`;
-                wrapper.offsetHeight;
-                wrapper.style.transition = '';
-            }
+            updateViewWrapper(initialActive, true);
         }
     }, 50);
 
@@ -157,7 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const targetTitle = item.getAttribute('data-title');
 
         // Haptic Feedback for navigation
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+        if (!noAnimation && window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
             window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
         }
 
@@ -175,25 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 150);
         }
 
-        // Slide animation logic (only for mobile)
-        const viewArray = Array.from(views);
-        const index = viewArray.findIndex(v => v.id === targetId);
-        const wrapper = document.getElementById('view-wrapper');
-
-        if (index !== -1 && wrapper && !isDesktop()) {
-            if (noAnimation) {
-                wrapper.style.transition = 'none';
-            }
-            const offset = index * (100 / views.length);
-            wrapper.style.transform = `translateX(-${offset}%)`;
-            if (noAnimation) {
-                // Force reflow then restore transition
-                wrapper.offsetHeight;
-                wrapper.style.transition = '';
-            }
-        } else if (wrapper) {
-            wrapper.style.transform = ''; // Clear transform on desktop
-        }
+        updateViewWrapper(item, noAnimation);
 
         views.forEach(view => {
             if (view.id === targetId) {
@@ -655,6 +651,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function showPaymentBanner(amount, seconds) {
         const banner = document.getElementById('pending-payment-banner');
         if (!banner) return;
+        const currentOrderId = lastPendingOrderId || getStoredOrderId();
+        const isDismissed = currentOrderId && sessionStorage.getItem('dismissed_payment_banner_' + currentOrderId) === 'true';
+        if (isDismissed) {
+            banner.style.display = 'none';
+            return;
+        }
         const title = banner.querySelector('.pending-payment-title');
         const subtitle = banner.querySelector('.pending-payment-subtitle');
         if (title) title.textContent = `Платёж ${amount} ₽ обрабатывается`;
@@ -1271,12 +1273,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     currentSubLink = data.link;
                     const btnGet = document.getElementById('btn-get-link');
                     const resultDiv = document.getElementById('connection-result');
-                    const qrImg = document.getElementById('qr-code-img');
+                    const qrCanvas = document.getElementById('qr-code-canvas');
 
                     if (btnGet) btnGet.style.display = 'none';
                     if (resultDiv) {
                         resultDiv.style.display = 'flex';
-                        qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(data.link)}`;
+                        if (qrCanvas && window.QRious) {
+                            new QRious({
+                                element: qrCanvas,
+                                value: data.link,
+                                size: 160,
+                                level: 'M',
+                                background: 'white',
+                                foreground: 'black'
+                            });
+                        }
                     }
                 });
             } else {
@@ -1766,7 +1777,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </button>
                         <div id="connection-result" style="display: none; margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
                             <span style="font-size: 14px; color: var(--panel-icon); text-align: center;">Отсканируйте QR-код или скопируйте ссылку для настройки вашего VPN-клиента</span>
-                            <img id="qr-code-img" src="" alt="QR Code" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px;">
+                            <canvas id="qr-code-canvas" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px; display: block;"></canvas>
                             <div style="display: flex; gap: 8px; width: 100%;">
                                 <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: rgba(255,255,255,0.1);" onclick="copySubLink()">
                                     <span class="material-symbols-rounded" style="font-size: 20px;">content_copy</span>
@@ -1786,6 +1797,24 @@ document.addEventListener('DOMContentLoaded', () => {
                         </button>`;
                 }
                 connectionSubInfo.innerHTML = connHtml;
+                // Re-render QR code if a link was already fetched this session
+                if (currentSubLink) {
+                    const resultDiv = document.getElementById('connection-result');
+                    const qrCanvas = document.getElementById('qr-code-canvas');
+                    const btnGet = document.getElementById('btn-get-link');
+                    if (resultDiv) resultDiv.style.display = 'flex';
+                    if (btnGet) btnGet.style.display = 'none';
+                    if (qrCanvas && window.QRious) {
+                        new QRious({
+                            element: qrCanvas,
+                            value: currentSubLink,
+                            size: 160,
+                            level: 'M',
+                            background: 'white',
+                            foreground: 'black'
+                        });
+                    }
+                }
             } else if (isActive) {
                 // If already active, just update the values without touching the rest of DOM
                 if (daysEl) daysEl.textContent = `${data.rw_user.remaining_days} дней`;
@@ -1973,7 +2002,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 let historyHtml = '';
                 data.payments.forEach(payment => {
                     const isTopup = payment.order_type === 'TOPUP';
-                    const isPaid = payment.status === 'PAID';
+                    let statusColor = '#EF5350';
+                    let statusText = 'Ошибка';
+                    if (payment.status === 'PAID') {
+                        statusColor = '#4CAF50';
+                        statusText = 'Успешно';
+                    } else if (payment.status === 'PENDING') {
+                        statusColor = '#FF9F0A';
+                        statusText = 'В обработке';
+                    }
                     historyHtml += `
                         <div class="history-item" style="background: var(--panel-bg); border-radius: 20px; padding: 16px; display: flex; align-items: center; gap: 16px;">
                             <div style="width: 44px; height: 44px; border-radius: 14px; background: ${isTopup ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 255, 255, 0.05)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
@@ -1992,8 +2029,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </div>
                                 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; opacity: 0.5;">
                                     <span>${payment.created_at}</span>
-                                    <span style="color: ${isPaid ? '#4CAF50' : '#EF5350'}; opacity: 0.8;">
-                                        ${isPaid ? 'Успешно' : 'Ошибка'}
+                                    <span style="color: ${statusColor}; opacity: 0.8;">
+                                        ${statusText}
                                     </span>
                                 </div>
                             </div>
@@ -2403,11 +2440,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pendingBanner) {
             pendingBanner.style.display = 'none';
         }
+        const currentOrderId = lastPendingOrderId || getStoredOrderId();
+        if (currentOrderId) {
+            sessionStorage.setItem('dismissed_payment_banner_' + currentOrderId, 'true');
+        }
     };
 
     function updatePendingBanner(hasPending) {
         if (!pendingBanner) return;
-        if (!IS_DEBUG && hasPending) {
+        const currentOrderId = lastPendingOrderId || getStoredOrderId();
+        const isDismissed = currentOrderId && sessionStorage.getItem('dismissed_payment_banner_' + currentOrderId) === 'true';
+
+        if (!IS_DEBUG && hasPending && !isDismissed) {
             pendingBanner.style.display = 'block';
         } else {
             pendingBanner.style.display = 'none';
