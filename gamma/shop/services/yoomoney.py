@@ -30,7 +30,7 @@ def verify_payment_api(order_id, expected_amount):
     """
     import sys
 
-    min_amount = float(expected_amount) * 0.7
+    min_amount = float(expected_amount) * 0.95
     token = getattr(settings, "YOOMONEY_TOKEN", "")
     if not token:
         print("[yoomoney] No token configured", file=sys.stderr)
@@ -87,7 +87,7 @@ def verify_operation(operation_id, expected_order_id, expected_amount):
         )
         if details.status != "success":
             return False
-        if details.amount < float(expected_amount) * 0.7:
+        if details.amount < float(expected_amount) * 0.95:
             return False
         if str(details.label) != str(expected_order_id):
             return False
@@ -121,14 +121,21 @@ def process_successful_payment(order_id):
     if not order:
         return None
 
+    from user.models import Profile
+
+    profile = (
+        Profile.objects.select_for_update()
+        .filter(
+            telegram_id=order.telegram_id,
+        )
+        .first()
+    )
+    if not profile:
+        return None
+
     order.status = "PAID"
     order.save(update_fields=["status"])
 
-    from user.models import Profile
-
-    profile = Profile.objects.select_for_update().get(
-        telegram_id=order.telegram_id,
-    )
     profile.balance += order.amount
     profile.save(update_fields=["balance"])
 

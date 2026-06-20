@@ -264,6 +264,8 @@ def buy_tariff_api(request):
 
     tariff = get_object_or_404(Tariff, id=tariff_id)
 
+    replace = request.POST.get("replace") == "true"
+
     with transaction.atomic():
         profile, created = Profile.objects.select_for_update().get_or_create(
             telegram_id=telegram_id
@@ -286,66 +288,21 @@ def buy_tariff_api(request):
                 status=400,
             )
 
-        replace = request.POST.get("replace") == "true"
+        profile.balance -= tariff.price
+        profile.tarif = tariff
+        profile.save(update_fields=["balance", "tarif"])
 
-        if replace:
+        Order.objects.create(
+            tariff=tariff,
+            telegram_id=telegram_id,
+            amount=tariff.price,
+            order_type="PURCHASE",
+            status="PAID",
+        )
 
-            async def replace_sub():
-                from datetime import datetime, timedelta, timezone
+    try:
 
-                client = RemnawaveClient()
-                try:
-                    rw_user = await client.get_user_by_tgid(telegram_id)
-                    if isinstance(rw_user, list):
-                        rw_user = rw_user[0] if len(rw_user) > 0 else None
-                    if not rw_user or not rw_user.get("uuid"):
-                        raise ValueError("User not found in Remnawave")
-                    new_expire = (
-                        (
-                            datetime.now(timezone.utc)
-                            + timedelta(days=tariff.duration_days)
-                        )
-                        .isoformat()
-                        .replace("+00:00", "Z")
-                    )
-                    return await client.update_user(
-                        uuid=rw_user["uuid"],
-                        expire_at=new_expire,
-                        trafficlimitbytes=tariff.traffic_limit_bytes,
-                        hwiddevicelimit=tariff.device_limit,
-                        activeinternalsquads=[tariff.squad_uuid],
-                    )
-                finally:
-                    await client.close()
-
-            try:
-                profile.balance -= tariff.price
-                profile.tarif = tariff
-                profile.save(update_fields=["balance", "tarif"])
-
-                Order.objects.create(
-                    tariff=tariff,
-                    telegram_id=telegram_id,
-                    amount=tariff.price,
-                    order_type="PURCHASE",
-                    status="PAID",
-                )
-
-                rw_data = async_to_sync(replace_sub)()
-
-                return JsonResponse(
-                    {
-                        "success": True,
-                        "new_balance": float(profile.balance),
-                        "sub": rw_data,
-                    }
-                )
-            except Exception:
-                return JsonResponse(
-                    {"error": "Ошибка при замене подписки"}, status=500
-                )
-
-        async def provision():
+        async def provision_new():
             client = RemnawaveClient()
             username = f"{telegram_username}_{telegram_id}"
             try:
@@ -360,32 +317,59 @@ def buy_tariff_api(request):
             finally:
                 await client.close()
 
-        try:
-            profile.balance -= tariff.price
-            profile.tarif = tariff
-            profile.save(update_fields=["balance", "tarif"])
+        async def replace_sub():
+            client = RemnawaveClient()
+            try:
+                rw_user = await client.get_user_by_tgid(telegram_id)
+                if isinstance(rw_user, list):
+                    rw_user = rw_user[0] if len(rw_user) > 0 else None
+                if not rw_user or not rw_user.get("uuid"):
+                    raise ValueError("User not found in Remnawave")
+                new_expire = (
+                    (
+                        datetime.now(timezone.utc)
+                        + timedelta(days=tariff.duration_days)
+                    )
+                    .isoformat()
+                    .replace("+00:00", "Z")
+                )
+                return await client.update_user(
+                    uuid=rw_user["uuid"],
+                    expire_at=new_expire,
+                    trafficlimitbytes=tariff.traffic_limit_bytes,
+                    hwiddevicelimit=tariff.device_limit,
+                    activeinternalsquads=[tariff.squad_uuid],
+                )
+            finally:
+                await client.close()
 
-            Order.objects.create(
-                tariff=tariff,
+        if replace:
+            rw_data = async_to_sync(replace_sub)()
+        else:
+            rw_data = async_to_sync(provision_new)()
+
+        return JsonResponse(
+            {
+                "success": True,
+                "new_balance": float(profile.balance),
+                "sub": rw_data,
+            }
+        )
+    except Exception:
+        with transaction.atomic():
+            profile = Profile.objects.select_for_update().get(
                 telegram_id=telegram_id,
-                amount=tariff.price,
+            )
+            profile.balance += tariff.price
+            profile.tarif = None
+            profile.save(update_fields=["balance", "tarif"])
+            Order.objects.filter(
+                telegram_id=telegram_id,
+                tariff=tariff,
                 order_type="PURCHASE",
                 status="PAID",
-            )
-
-            rw_data = async_to_sync(provision)()
-
-            return JsonResponse(
-                {
-                    "success": True,
-                    "new_balance": float(profile.balance),
-                    "sub": rw_data,
-                }
-            )
-        except Exception:
-            return JsonResponse(
-                {"error": "Ошибка при покупке тарифа"}, status=500
-            )
+            ).update(status="FAILED")
+        return JsonResponse({"error": "Ошибка при покупке тарифа"}, status=500)
 
 
 def topup_api(request):
@@ -424,33 +408,43 @@ def topup_api(request):
     except Exception:
         return JsonResponse({"error": "Некорректные параметры"}, status=400)
 
-    profile, created = Profile.objects.get_or_create(telegram_id=telegram_id)
-    if telegram_username and profile.telegram_username != telegram_username:
-        profile.telegram_username = telegram_username
-        profile.save(update_fields=["telegram_username"])
-
     cancel_expired_orders()
 
-    existing_pending = Order.objects.filter(
-        telegram_id=telegram_id,
-        status="PENDING",
-        order_type="TOPUP",
-    ).first()
-    if existing_pending:
-        return JsonResponse(
-            {
-                "error": "У вас уже есть ожидающий платёж. Дождитесь его завершения.",
-                "existing_order_id": existing_pending.id,
-            },
-            status=409,
+    with transaction.atomic():
+        profile, created = Profile.objects.select_for_update().get_or_create(
+            telegram_id=telegram_id,
         )
+        if (
+            telegram_username
+            and profile.telegram_username != telegram_username
+        ):
+            profile.telegram_username = telegram_username
+            profile.save(update_fields=["telegram_username"])
 
-    order = Order.objects.create(
-        telegram_id=telegram_id,
-        amount=amount_dec,
-        order_type="TOPUP",
-        status="PENDING",
-    )
+        existing_pending = (
+            Order.objects.select_for_update()
+            .filter(
+                telegram_id=telegram_id,
+                status="PENDING",
+                order_type="TOPUP",
+            )
+            .first()
+        )
+        if existing_pending:
+            return JsonResponse(
+                {
+                    "error": "У вас уже есть ожидающий платёж. Дождитесь его завершения.",
+                    "existing_order_id": existing_pending.id,
+                },
+                status=409,
+            )
+
+        order = Order.objects.create(
+            telegram_id=telegram_id,
+            amount=amount_dec,
+            order_type="TOPUP",
+            status="PENDING",
+        )
 
     receiver = getattr(settings, "YOOMONEY_RECEIVER", "")
     if not receiver:
@@ -498,7 +492,7 @@ def check_payment_api(request, order_id):
         return JsonResponse({"error": "Order not found"}, status=404)
 
     uid = _get_authorized_telegram_id(request)
-    if uid is not None and int(order.telegram_id) != int(uid):
+    if uid is None or int(order.telegram_id) != int(uid):
         return JsonResponse({"error": "Forbidden"}, status=403)
 
     if order.status == "PAID":
@@ -625,6 +619,11 @@ def buy_slot_api(request):
                 status=400,
             )
 
+        profile.balance -= slot_price
+        profile.save(update_fields=["balance"])
+
+    try:
+
         async def add_slot():
             client = RemnawaveClient()
             try:
@@ -645,24 +644,23 @@ def buy_slot_api(request):
             finally:
                 await client.close()
 
-        try:
-            profile.balance -= slot_price
+        rw_data = async_to_sync(add_slot)()
+
+        return JsonResponse(
+            {
+                "success": True,
+                "new_balance": float(profile.balance),
+                "new_limit": rw_data.get("hwidDeviceLimit"),
+            },
+        )
+    except Exception:
+        with transaction.atomic():
+            profile = Profile.objects.select_for_update().get(
+                telegram_id=telegram_id,
+            )
+            profile.balance += slot_price
             profile.save(update_fields=["balance"])
-
-            # Record in Order model too, but skipping for now.
-            rw_data = async_to_sync(add_slot)()
-
-            return JsonResponse(
-                {
-                    "success": True,
-                    "new_balance": float(profile.balance),
-                    "new_limit": rw_data.get("hwidDeviceLimit"),
-                },
-            )
-        except Exception:
-            return JsonResponse(
-                {"error": "Ошибка при покупке слота"}, status=500
-            )
+        return JsonResponse({"error": "Ошибка при покупке слота"}, status=500)
 
 
 def get_subscription_link_api(request):
@@ -1011,6 +1009,20 @@ def extend_sub_api(request):
                 status=400,
             )
 
+        tariff_ref = profile.tarif
+        profile.balance -= total_price
+        profile.save(update_fields=["balance"])
+
+        Order.objects.create(
+            tariff=tariff_ref,
+            telegram_id=telegram_id,
+            amount=total_price,
+            order_type="PURCHASE",
+            status="PAID",
+        )
+
+    try:
+
         async def extend_remnawave():
             client = RemnawaveClient()
             try:
@@ -1022,8 +1034,6 @@ def extend_sub_api(request):
                     raise ValueError("User not found in Remnawave")
 
                 current_expire_str = rw_user.get("expireAt")
-                from datetime import datetime, timedelta, timezone
-
                 now = datetime.now(timezone.utc)
                 if current_expire_str:
                     expire_str = current_expire_str.replace("Z", "+00:00")
@@ -1048,30 +1058,28 @@ def extend_sub_api(request):
             finally:
                 await client.close()
 
-        try:
-            profile.balance -= total_price
-            profile.save(update_fields=["balance"])
+        async_to_sync(extend_remnawave)()
 
-            Order.objects.create(
-                tariff=profile.tarif,
+        return JsonResponse(
+            {
+                "success": True,
+                "new_balance": float(profile.balance),
+            },
+        )
+    except Exception:
+        with transaction.atomic():
+            profile = Profile.objects.select_for_update().get(
                 telegram_id=telegram_id,
-                amount=total_price,
+            )
+            profile.balance += total_price
+            profile.save(update_fields=["balance"])
+            Order.objects.filter(
+                telegram_id=telegram_id,
+                tariff=tariff_ref,
                 order_type="PURCHASE",
                 status="PAID",
-            )
-
-            async_to_sync(extend_remnawave)()
-
-            return JsonResponse(
-                {
-                    "success": True,
-                    "new_balance": float(profile.balance),
-                },
-            )
-        except Exception:
-            return JsonResponse(
-                {"error": "Ошибка продления подписки"}, status=500
-            )
+            ).update(status="FAILED")
+        return JsonResponse({"error": "Ошибка продления подписки"}, status=500)
 
 
 def _get_authorized_telegram_id(request):
@@ -1092,8 +1100,8 @@ def success_view(request, sub_id):
     order = get_object_or_404(Order, id=sub_id)
 
     uid = _get_authorized_telegram_id(request)
-    if uid is not None and int(order.telegram_id) != int(uid):
-        return JsonResponse({"error": "Forbidden"}, status=403)
+    if uid is None or int(order.telegram_id) != int(uid):
+        return render(request, "shop/success.html", {"order": order})
 
     operation_id = request.GET.get("operation_id")
     if operation_id and order.status == "PENDING":
@@ -1112,8 +1120,12 @@ def success_view(request, sub_id):
 def fail_view(request, sub_id):
     order = get_object_or_404(Order, id=sub_id)
     uid = _get_authorized_telegram_id(request)
-    if uid is not None and int(order.telegram_id) != int(uid):
-        return JsonResponse({"error": "Forbidden"}, status=403)
+    if uid is None or int(order.telegram_id) != int(uid):
+        return render(
+            request,
+            "shop/fail.html",
+            {"order": order, "error_message": "Платёж не завершён."},
+        )
     error_message = None
     if order.status == "FAILED":
         error_message = "Платёж был отклонён платёжной системой."
