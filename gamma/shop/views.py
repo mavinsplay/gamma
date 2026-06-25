@@ -8,7 +8,7 @@ from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.db import transaction
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import get_object_or_404, render
 from django.views.decorators.csrf import csrf_exempt
 
 from connect.services.remnawave import RemnawaveClient
@@ -252,8 +252,10 @@ def buy_tariff_api(request):
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if not mock:
             return JsonResponse(
-                {"error": "No mock data configured"}, status=400
+                {"error": "No mock data configured"},
+                status=400,
             )
+
         telegram_id = mock.get("id")
         telegram_username = mock.get("username")
     else:
@@ -268,7 +270,7 @@ def buy_tariff_api(request):
 
     with transaction.atomic():
         profile, created = Profile.objects.select_for_update().get_or_create(
-            telegram_id=telegram_id
+            telegram_id=telegram_id,
         )
         if (
             telegram_username
@@ -323,8 +325,10 @@ def buy_tariff_api(request):
                 rw_user = await client.get_user_by_tgid(telegram_id)
                 if isinstance(rw_user, list):
                     rw_user = rw_user[0] if len(rw_user) > 0 else None
+
                 if not rw_user or not rw_user.get("uuid"):
                     raise ValueError("User not found in Remnawave")
+
                 new_expire = (
                     (
                         datetime.now(timezone.utc)
@@ -353,7 +357,7 @@ def buy_tariff_api(request):
                 "success": True,
                 "new_balance": float(profile.balance),
                 "sub": rw_data,
-            }
+            },
         )
     except Exception:
         with transaction.atomic():
@@ -369,6 +373,7 @@ def buy_tariff_api(request):
                 order_type="PURCHASE",
                 status="PAID",
             ).update(status="FAILED")
+
         return JsonResponse({"error": "Ошибка при покупке тарифа"}, status=500)
 
 
@@ -390,8 +395,10 @@ def topup_api(request):
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if not mock:
             return JsonResponse(
-                {"error": "No mock data configured"}, status=400
+                {"error": "No mock data configured"},
+                status=400,
             )
+
         telegram_id = mock.get("id")
         telegram_username = mock.get("username")
     else:
@@ -404,9 +411,15 @@ def topup_api(request):
         telegram_id = int(telegram_id)
         amount_dec = Decimal(str(amount))
         if amount_dec <= 0 or amount_dec > 100000:
-            return JsonResponse({"error": "Некорректная сумма"}, status=400)
+            return JsonResponse(
+                {"error": "Некорректная сумма"},
+                status=400,
+            )
     except Exception:
-        return JsonResponse({"error": "Некорректные параметры"}, status=400)
+        return JsonResponse(
+            {"error": "Некорректные параметры"},
+            status=400,
+        )
 
     cancel_expired_orders()
 
@@ -433,7 +446,10 @@ def topup_api(request):
         if existing_pending:
             return JsonResponse(
                 {
-                    "error": "У вас уже есть ожидающий платёж. Дождитесь его завершения.",
+                    "error": (
+                        "У вас уже есть ожидающий платёж. "
+                        "Дождитесь его завершения."
+                    ),
                     "existing_order_id": existing_pending.id,
                 },
                 status=409,
@@ -473,7 +489,7 @@ def topup_api(request):
                 "payment_url": payment_url,
                 "order_id": order.id,
                 "expires_at": expires_at.isoformat(),
-            }
+            },
         )
     except Exception:
         order.status = "FAILED"
@@ -503,7 +519,7 @@ def check_payment_api(request, order_id):
             {
                 "status": "paid",
                 "new_balance": float(profile.balance) if profile else 0,
-            }
+            },
         )
 
     if order.status == "FAILED":
@@ -518,13 +534,13 @@ def check_payment_api(request, order_id):
                 result = process_successful_payment(order.id)
                 if result:
                     profile = Profile.objects.get(
-                        telegram_id=order.telegram_id
+                        telegram_id=order.telegram_id,
                     )
                     return JsonResponse(
                         {
                             "status": "paid",
                             "new_balance": float(profile.balance),
-                        }
+                        },
                     )
         else:
             op_id = request.GET.get("operation_id")
@@ -535,19 +551,21 @@ def check_payment_api(request, order_id):
                     order.id,
                     order.amount,
                 )
+
             if not confirmed:
                 confirmed = verify_payment_api(order.id, order.amount)
+
             if confirmed:
                 result = process_successful_payment(order.id)
                 if result:
                     profile = Profile.objects.get(
-                        telegram_id=order.telegram_id
+                        telegram_id=order.telegram_id,
                     )
                     return JsonResponse(
                         {
                             "status": "paid",
                             "new_balance": float(profile.balance),
-                        }
+                        },
                     )
 
         cutoff = datetime.now(timezone.utc) - timedelta(
@@ -580,8 +598,10 @@ def buy_slot_api(request):
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if not mock:
             return JsonResponse(
-                {"error": "No mock data configured"}, status=400
+                {"error": "No mock data configured"},
+                status=400,
             )
+
         telegram_id = mock.get("id")
         telegram_username = mock.get("username")
     else:
@@ -599,7 +619,7 @@ def buy_slot_api(request):
 
     with transaction.atomic():
         profile, created = Profile.objects.select_for_update().get_or_create(
-            telegram_id=telegram_id
+            telegram_id=telegram_id,
         )
         if (
             telegram_username
@@ -660,6 +680,7 @@ def buy_slot_api(request):
             )
             profile.balance += slot_price
             profile.save(update_fields=["balance"])
+
         return JsonResponse({"error": "Ошибка при покупке слота"}, status=500)
 
 
@@ -677,8 +698,10 @@ def get_subscription_link_api(request):
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if not mock:
             return JsonResponse(
-                {"error": "No mock data configured"}, status=400
+                {"error": "No mock data configured"},
+                status=400,
             )
+
         telegram_id = mock.get("id")
         telegram_username = mock.get("username")
     else:
@@ -766,8 +789,10 @@ def delete_hwid_device_api(request):
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if not mock:
             return JsonResponse(
-                {"error": "No mock data configured"}, status=400
+                {"error": "No mock data configured"},
+                status=400,
             )
+
         telegram_id = mock.get("id")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
@@ -799,7 +824,8 @@ def delete_hwid_device_api(request):
         return JsonResponse({"success": True})
     except Exception:
         return JsonResponse(
-            {"error": "Ошибка удаления устройства"}, status=500
+            {"error": "Ошибка удаления устройства"},
+            status=500,
         )
 
 
@@ -820,8 +846,10 @@ def promo_api(request):
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if not mock:
             return JsonResponse(
-                {"error": "No mock data configured"}, status=400
+                {"error": "No mock data configured"},
+                status=400,
             )
+
         telegram_id = mock.get("id")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
@@ -960,8 +988,10 @@ def extend_sub_api(request):
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if not mock:
             return JsonResponse(
-                {"error": "No mock data configured"}, status=400
+                {"error": "No mock data configured"},
+                status=400,
             )
+
         telegram_id = mock.get("id")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)
@@ -983,7 +1013,8 @@ def extend_sub_api(request):
 
     with transaction.atomic():
         profile = get_object_or_404(
-            Profile.objects.select_for_update(), telegram_id=telegram_id
+            Profile.objects.select_for_update(),
+            telegram_id=telegram_id,
         )
         if not profile.tarif:
             return JsonResponse(
@@ -1048,7 +1079,8 @@ def extend_sub_api(request):
 
                 new_expire_dt = expire_dt + timedelta(days=months * 30)
                 new_expire_str = new_expire_dt.isoformat().replace(
-                    "+00:00", "Z"
+                    "+00:00",
+                    "Z",
                 )
 
                 return await client.update_user(
@@ -1079,6 +1111,7 @@ def extend_sub_api(request):
                 order_type="PURCHASE",
                 status="PAID",
             ).update(status="FAILED")
+
         return JsonResponse({"error": "Ошибка продления подписки"}, status=500)
 
 
@@ -1087,12 +1120,15 @@ def _get_authorized_telegram_id(request):
     is_valid, tg_user = verify_telegram_init_data(init_data)
     if is_valid:
         return tg_user.get("id")
+
     if "tg_user" in request.session:
         return request.session["tg_user"]["id"]
+
     if settings.DEBUG:
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if mock:
             return mock.get("id")
+
     return None
 
 
@@ -1126,6 +1162,7 @@ def fail_view(request, sub_id):
             "shop/fail.html",
             {"order": order, "error_message": "Платёж не завершён."},
         )
+
     error_message = None
     if order.status == "FAILED":
         error_message = "Платёж был отклонён платёжной системой."
@@ -1135,6 +1172,7 @@ def fail_view(request, sub_id):
         )
     else:
         error_message = "Платёж был отменён."
+
     return render(
         request,
         "shop/fail.html",
@@ -1180,8 +1218,10 @@ def sync_data_api(request):
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if not mock:
             return JsonResponse(
-                {"error": "No mock data configured"}, status=400
+                {"error": "No mock data configured"},
+                status=400,
             )
+
         telegram_id = mock.get("id")
         profile = Profile.objects.filter(telegram_id=telegram_id).first()
     else:
@@ -1394,7 +1434,8 @@ def sync_data_api(request):
         )
     except Exception:
         return JsonResponse(
-            {"error": "Ошибка синхронизации данных"}, status=500
+            {"error": "Ошибка синхронизации данных"},
+            status=500,
         )
 
 
@@ -1413,8 +1454,10 @@ def update_preferences_api(request):
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if not mock:
             return JsonResponse(
-                {"error": "No mock data configured"}, status=400
+                {"error": "No mock data configured"},
+                status=400,
             )
+
         telegram_id = mock.get("id")
     else:
         return JsonResponse({"error": "Invalid auth"}, status=403)

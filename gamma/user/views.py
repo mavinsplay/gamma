@@ -186,7 +186,10 @@ def avatar_proxy(request):
 def get_user_status(request):
     user_data = request.session.get("tg_user")
     if user_data:
-        return JsonResponse({"authenticated": True, "user": user_data})
+        return JsonResponse(
+            {"authenticated": True, "user": user_data},
+        )
+
     return JsonResponse({"authenticated": False})
 
 

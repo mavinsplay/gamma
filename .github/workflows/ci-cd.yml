@@ -1,0 +1,149 @@
+name: CI/CD Pipeline
+
+on: [push, pull_request]
+
+jobs:
+  flake8-check:
+    name: Flake8 Lint Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.12'
+
+      - name: Install Flake8
+        run: pip install flake8
+
+      - name: Run Flake8
+        run: flake8 gamma/ bot.py
+
+  black-check:
+    name: Black Code Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.12'
+
+      - name: Install Black
+        run: pip install black
+
+      - name: Run Black
+        run: black --check --verbose gamma/ bot.py
+
+  django-tests:
+    name: Run Django Tests
+    needs: [flake8-check, black-check]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements/test.txt
+
+      - name: Run Django migrations and tests
+        run: |
+          python gamma/manage.py migrate
+          python gamma/manage.py test
+        env:
+          DJANGO_DATABASE_SELECT: sqlite3
+          DJANGO_ALLOW_CAPTCHA: 0
+          DJANGO_SECRET_KEY: test-secret-key-for-ci
+          DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+          BOT_TOKEN: test-token
+          TELEGRAM_CLIENT_ID: test-id
+          TELEGRAM_CLIENT_SECRET: test-secret
+          REMNAWAVE_URL: http://localhost
+          REMNAWAVE_TOKEN: test-token
+
+  docker-build-test:
+    name: Test Docker Build
+    needs: [django-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          DJANGO_DEBUG=True
+          DJANGO_SECRET_KEY=$(openssl rand -base64 32)
+          DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost
+          DJANGO_CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8000
+          WEBAPP_URL=http://127.0.0.1:8000/
+          ADMIN_URL=admin/
+          ADMIN_TELEGRAM_ID=12345678
+          SUPPORT_USERNAME=@support
+          SUPERUSER_EMAIL=admin@test.com
+          SUPERUSER_PASSWORD=admin
+
+          BOT_TOKEN=test-bot-token
+          TELEGRAM_CLIENT_ID=123456
+          TELEGRAM_CLIENT_SECRET=test-secret
+
+          REMNAWAVE_URL=http://localhost
+          REMNAWAVE_TOKEN=test-token
+          REMNAWAVE_SECRET_NAME=test-secret-name
+          REMNAWAVE_SECRET_VALUE=test-secret-value
+
+          DJANGO_DATABASE_SELECT=postgresql
+          DJANGO_POSTGRESQL_NAME=gamma
+          DJANGO_POSTGRESQL_USER=gamma_user
+          DJANGO_POSTGRESQL_PASSWORD=strong_postgres_pass
+          DJANGO_POSTGRESQL_HOST=postgres
+          DJANGO_POSTGRESQL_PORT=5432
+
+          POSTGRES_DB=gamma
+          POSTGRES_USER=gamma_user
+          POSTGRES_PASSWORD=strong_postgres_pass
+
+          DJANGO_ALLOW_CAPTCHA=0
+          DJANGO_CAPTCHA_SITE_KEY=
+          DJANGO_CAPTCHA_SECRET_KEY=
+
+          YOOMONEY_RECEIVER=410018798547201
+          YOOMONEY_TOKEN=test-token
+
+          CERTBOT_STAGING=1
+          CERTBOT_EMAIL=test@test.com
+          EOF
+
+      - name: Test Docker Compose Build
+        run: docker compose --profile prod build
+
+  prod-deploy:
+    name: Deploy project to server
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [flake8-check, black-check, django-tests, docker-build-test]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to server
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_IP }}
+        username: ${{ secrets.SSH_USER }}
+        password: ${{ secrets.SSH_PASSWORD }}
+        script: |
+          cd gamma/
+          docker compose --profile prod down
+          git reset --hard origin/main
+          git pull origin main
+          docker compose --profile prod up --build -d

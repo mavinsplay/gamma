@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import logging
 
 from django.conf import settings
 from django.db import transaction
@@ -7,12 +8,22 @@ from yoomoney import Quickpay
 
 from shop.models import Order
 
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "create_payment_url",
+    "verify_payment_api",
+    "verify_operation",
+    "cancel_expired_orders",
+    "process_successful_payment",
+]
+
 
 def create_payment_url(order_id, amount, receiver, success_url):
     quickpay = Quickpay(
         receiver=receiver,
         quickpay_form="shop",
-        targets="Пополнение баланса Gamma VPN",
+        targets="Пополнение баланса Gamma",
         paymentType="AC",
         sum=float(amount),
         label=str(order_id),
@@ -22,19 +33,12 @@ def create_payment_url(order_id, amount, receiver, success_url):
 
 
 def verify_payment_api(order_id, expected_amount):
-    """Проверяет платеж через YooMoney API.
-
-    Сначала ищет по label (самый точный способ).
-    Если не нашло — ищет среди последних 50 операций без фильтра.
-    ЮMoney удерживает комиссию (~3%), поэтому сравниваем с 70% от expected_amount.
-    """
-    import sys
-
     min_amount = float(expected_amount) * 0.95
     token = getattr(settings, "YOOMONEY_TOKEN", "")
     if not token:
-        print("[yoomoney] No token configured", file=sys.stderr)
+        logger.error("[yoomoney] No token configured")
         return False
+
     try:
         client = YooClient(token)
 
@@ -46,7 +50,10 @@ def verify_payment_api(order_id, expected_amount):
             if op.status == "success" and op.amount >= min_amount:
                 return True
 
-        recent = client.operation_history(records=50, type="deposition")
+        recent = client.operation_history(
+            records=50,
+            type="deposition",
+        )
         for op in recent.operations:
             if (
                 op.status == "success"
@@ -57,46 +64,40 @@ def verify_payment_api(order_id, expected_amount):
 
         return False
     except Exception as e:
-        print(
-            f"[yoomoney] verify_payment_api error: {e}",
-            file=sys.stderr,
-        )
+        logger.error(f"[yoomoney] verify_payment_api error: {e}")
         return False
 
 
-def verify_operation(operation_id, expected_order_id, expected_amount):
-    """Проверяет конкретную операцию через YooMoney API (operation_details).
-
-    Вызывается при редиректе с ЮMoney — у нас есть operation_id из URL.
-    ЮMoney удерживает комиссию (~3%), поэтому сравниваем с 70% от expected_amount.
-    """
-    import sys
-
+def verify_operation(
+    operation_id,
+    expected_order_id,
+    expected_amount,
+):
     token = getattr(settings, "YOOMONEY_TOKEN", "")
     if not token:
-        print("[yoomoney] No token configured", file=sys.stderr)
+        logger.error("[yoomoney] No token configured")
         return False
+
     try:
         client = YooClient(token)
         details = client.operation_details(operation_id)
-        print(
+        logger.info(
             f"[yoomoney] verify_operation: id={operation_id} "
             f"status={details.status} amount={details.amount} "
             f"label={details.label}",
-            file=sys.stderr,
         )
         if details.status != "success":
             return False
+
         if details.amount < float(expected_amount) * 0.95:
             return False
+
         if str(details.label) != str(expected_order_id):
             return False
+
         return True
     except Exception as e:
-        print(
-            f"[yoomoney] verify_operation error: {e}",
-            file=sys.stderr,
-        )
+        logger.error(f"[yoomoney] verify_operation error: {e}")
         return False
 
 

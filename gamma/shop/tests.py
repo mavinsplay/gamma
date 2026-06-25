@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone  # noqa: F401
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -13,6 +13,8 @@ from shop.services.yoomoney import (
     verify_payment_api,
 )
 from user.models import Profile
+
+__all__ = ("PaymentTests",)
 
 
 class PaymentTests(TestCase):
