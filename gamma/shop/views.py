@@ -1137,7 +1137,9 @@ def success_view(request, sub_id):
 
     uid = _get_authorized_telegram_id(request)
     if uid is None or int(order.telegram_id) != int(uid):
-        return render(request, "shop/success.html", {"order": order})
+        return render(
+            request, "shop/fail.html", {"error_message": "Доступ запрещён."},
+        )
 
     operation_id = request.GET.get("operation_id")
     if operation_id and order.status == "PENDING":
@@ -1160,7 +1162,7 @@ def fail_view(request, sub_id):
         return render(
             request,
             "shop/fail.html",
-            {"order": order, "error_message": "Платёж не завершён."},
+            {"error_message": "Доступ запрещён."},
         )
 
     error_message = None
