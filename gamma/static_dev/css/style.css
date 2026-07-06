@@ -1278,8 +1278,11 @@ body {
 
 .sub-footer {
     display: flex;
-    justify-content: space-between;
+    flex-direction: column;
+    justify-content: center;
     align-items: center;
+    flex: 1;
+    gap: 10px;
     border-top: 1px solid rgba(255, 255, 255, 0.05);
     padding-top: 16px;
 }
@@ -2054,4 +2057,278 @@ body {
 
 .carousel-btn.next-btn:active {
     opacity: 0.8;
+}
+
+/* Subscription Slider */
+@keyframes md3-entrance {
+    from {
+        opacity: 0;
+        transform: translateY(24px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.subscription-slider-container {
+    overflow: hidden;
+    position: relative;
+    width: 100%;
+    animation: md3-entrance 0.7s cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.subscription-slider {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    gap: 16px;
+    padding-bottom: 12px;
+    scrollbar-width: none;
+    cursor: grab;
+    user-select: none;
+}
+.subscription-slider.dragging {
+    scroll-behavior: auto;
+    scroll-snap-type: none;
+    cursor: grabbing;
+}
+.subscription-slider::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+}
+
+.sub-slide {
+    flex: 0 0 100%;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 28px;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-sizing: border-box;
+    transition: transform 0.3s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.sub-slide:active {
+    transform: scale(0.98);
+}
+
+.wl-slide {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.wl-icon {
+    background: var(--md-sys-color-primary) !important;
+}
+.wl-icon span {
+    color: var(--md-sys-color-on-primary) !important;
+}
+
+.sub-slider-dots {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 4px;
+    margin-bottom: 12px;
+}
+
+.sub-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    transition: background 0.3s, width 0.3s;
+    cursor: pointer;
+}
+
+.sub-dot.active {
+    background: var(--md-sys-color-primary);
+    width: 24px;
+    border-radius: 4px;
+}
+
+/* Minimal Status Badges */
+.sub-status-minimal {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 12px;
+    border-radius: 100px;
+    background: rgba(255, 255, 255, 0.05);
+    width: fit-content;
+}
+
+.status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.status-active .status-dot {
+    background: #4CAF50;
+    box-shadow: 0 0 6px rgba(76, 175, 80, 0.5);
+}
+.status-active {
+    color: #E6E1E5;
+}
+
+.status-expiring .status-dot {
+    background: #FF9800;
+    box-shadow: 0 0 6px rgba(255, 152, 0, 0.5);
+}
+.status-expiring {
+    color: #E6E1E5;
+}
+
+.status-expired .status-dot {
+    background: #F44336;
+}
+.status-expired {
+    color: #F44336;
+}
+
+/* Whitelist Traffic Bar */
+.wl-traffic-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.wl-traffic-info {
+    display: flex;
+    justify-content: space-between;
+    color: #E6E1E5;
+}
+.wl-progress-bg {
+    width: 100%;
+    height: 8px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.wl-progress-fill {
+    height: 100%;
+    background: #4CAF50;
+    width: 0%;
+    border-radius: 4px;
+    transition: width 0.4s ease;
+}
+
+/* Sub Type Switcher */
+.sub-type-switcher {
+    display: flex;
+    position: relative;
+    background: rgba(255,255,255,0.05);
+    border-radius: 14px;
+    padding: 4px;
+    margin-top: 16px;
+    gap: 4px;
+}
+.sub-type-switcher .sub-type-btn {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: transparent;
+    color: var(--md-sys-color-on-surface-variant);
+    z-index: 1;
+    position: relative;
+}
+.sub-type-switcher .sub-type-btn.active {
+    color: var(--md-sys-color-on-primary);
+}
+.sub-type-indicator {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    height: calc(100% - 8px);
+    width: calc(50% - 6px);
+    background: var(--md-sys-color-primary);
+    border-radius: 12px;
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 0;
+}
+.sub-type-indicator.whitelist {
+    transform: translateX(calc(100% + 8px));
+}
+
+/* Extend Button */
+.sub-footer .extend-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 24px;
+    font-size: 14px;
+    font-weight: 500;
+    background: rgba(208, 188, 255, 0.15);
+    color: var(--md-sys-color-primary);
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sub-footer .extend-btn:hover {
+    background: rgba(208, 188, 255, 0.25);
+    transform: translateY(-1px);
+}
+.sub-footer .extend-btn:active {
+    transform: scale(0.97);
+}
+.sub-footer .extend-btn .material-symbols-rounded {
+    font-size: 18px;
+}
+
+/* Device Info */
+.sub-device-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface-variant);
+    opacity: 0.7;
+    align-self: flex-start;
+}
+
+/* Connection Result Animation */
+.connection-result {
+    display: none;
+}
+.connection-result.animate-in {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    animation: resultSlideIn 0.4s cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+.connection-result.hiding {
+    display: flex !important;
+    animation: resultSlideOut 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@keyframes resultSlideIn {
+    from { opacity: 0; transform: translateY(16px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes resultSlideOut {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 0; transform: translateY(16px) scale(0.97); }
+}
+
+/* Button transition */
+#btn-get-link {
+    transition: opacity 0.2s ease;
+}
+#btn-get-link.hiding {
+    display: none !important;
 }

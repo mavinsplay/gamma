@@ -23,9 +23,19 @@ class Tariff(models.Model):
         null=True,
         blank=True,
     )
-    has_proxy_bypass = models.BooleanField(
+    has_whitelist = models.BooleanField(
         default=False,
-        verbose_name="Proxy",
+        verbose_name="VPN с обходом белых списков",
+    )
+    whitelist_squad_uuid = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        verbose_name="Whitelist Squad UUID",
+        help_text=(
+            "Squad UUID для whitelist-подписки (обход белых списков). "
+            "Заполнять только если has_whitelist=True."
+        ),
     )
     proxies = models.ManyToManyField(
         "connect.Proxy",
@@ -49,6 +59,7 @@ class Order(models.Model):
     TYPE_CHOICES = (
         ("PURCHASE", "Purchase"),
         ("TOPUP", "Top-up"),
+        ("WHITELIST_TOPUP", "Whitelist Traffic Top-up"),
     )
     tariff = models.ForeignKey(
         Tariff,
@@ -59,7 +70,7 @@ class Order(models.Model):
     telegram_id = models.BigIntegerField()
     amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     order_type = models.CharField(
-        max_length=10,
+        max_length=20,
         choices=TYPE_CHOICES,
         default="PURCHASE",
     )

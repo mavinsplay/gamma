@@ -31,4 +31,9 @@ urlpatterns = [
         name="update_preferences_api",
     ),
     path("promo-api/", views.promo_api, name="promo_api"),
+    path(
+        "topup-whitelist-traffic-api/",
+        views.topup_whitelist_traffic_api,
+        name="topup_whitelist_traffic_api",
+    ),
 ]

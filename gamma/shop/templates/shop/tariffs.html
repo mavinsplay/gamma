@@ -1,37 +1,100 @@
 <div id="view-tariffs" class="view active">
     <div class="view-content-wrapper">
-        <div id="current-subscription-container">
+        <div id="current-subscription-container" class="subscription-slider-container">
         {% if rw_user %}
-        <div class=" bounce">
-            <div class="sub-header">
-                <div class="sub-icon">
-                    <span class="material-symbols-rounded">verified_user</span>
+            <div class="subscription-slider" id="sub-slider">
+                <!-- Main Sub -->
+                <div class="sub-slide bounce">
+                    <div class="sub-header">
+                        <div class="sub-icon">
+                            <span class="material-symbols-rounded">verified_user</span>
+                        </div>
+                        <div class="sub-info">
+                            <span class="sub-label">Основная подписка (VPN)</span>
+                            <h3 class="sub-title" id="sub-title-display">{{ profile.tarif.name|default:"Premium VPN" }}</h3>
+                        </div>
+                    </div>
+                    
+                    <div class="sub-status-minimal {% if rw_user.remaining_days > 3 %}status-active{% elif rw_user.remaining_days > 0 %}status-expiring{% else %}status-expired{% endif %}">
+                        <div class="status-dot"></div>
+                        <span id="sub-status-text">
+                            {% if rw_user.remaining_days > 0 %}
+                                До <span class="format-date" data-date="{{ rw_user.expire_at|default:'' }}"></span> &bull; {{ rw_user.remaining_days }} дн.
+                            {% else %}
+                                Истекла
+                            {% endif %}
+                        </span>
+                    </div>
+
+                    <div class="sub-footer">
+                        <button class="action-btn bounce extend-btn" onclick="toggleExtendMenu('main')">
+                            <span class="material-symbols-rounded">update</span>Продлить подписку
+                        </button>
+                        <div class="sub-device-info">
+                            <span class="material-symbols-rounded" style="font-size: 16px;">devices</span>
+                            <span id="sub-device-text">{{ hwid_devices|length }} / {{ rw_user.hwidDeviceLimit|default:profile.tarif.device_limit }} устройств</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="sub-info">
-                    <span class="sub-label">Текущая подписка</span>
-                    <h3 class="sub-title" id="sub-title-display">{{ profile.tarif.name|default:"Premium VPN" }}</h3>
+
+                <!-- Whitelist Sub (if exists) -->
+                {% if whitelist_user %}
+                <div class="sub-slide bounce wl-slide">
+                    <div class="sub-header">
+                        <div class="sub-icon wl-icon">
+                            <span class="material-symbols-rounded">shield_locked</span>
+                        </div>
+                        <div class="sub-info">
+                            <span class="sub-label">Обход белых списков</span>
+                            <h3 class="sub-title">Whitelist доступ</h3>
+                        </div>
+                    </div>
+                    
+                    <div class="sub-status-minimal {% if whitelist_user.remaining_days > 3 %}status-active{% elif whitelist_user.remaining_days > 0 %}status-expiring{% else %}status-expired{% endif %}">
+                        <div class="status-dot"></div>
+                        <span id="wl-status-text">
+                            {% if whitelist_user.remaining_days > 0 %}
+                                До <span class="format-date" data-date="{{ whitelist_user.expire_at|default:'' }}"></span> &bull; {{ whitelist_user.remaining_days }} дн.
+                            {% else %}
+                                Истекла
+                            {% endif %}
+                        </span>
+                    </div>
+
+                    <div class="wl-traffic-bar">
+                        <div class="wl-traffic-info">
+                            <span style="opacity:0.8; font-size:12px;">Трафик:</span>
+                            <span id="wl-traffic-text" style="font-size:12px; font-weight:500;">Загрузка...</span>
+                        </div>
+                        <div class="wl-progress-bg">
+                            <div class="wl-progress-fill" id="wl-traffic-progress"></div>
+                        </div>
+                    </div>
+
+                    <div class="sub-footer">
+                        <button class="action-btn bounce extend-btn" style="background: rgba(76, 175, 80, 0.15); color: #4CAF50;" onclick="handleTopupWhitelistTraffic()">
+                            <span class="material-symbols-rounded">add_circle</span>+5 ГБ за 150 ₽
+                        </button>
+                    </div>
                 </div>
+                {% endif %}
             </div>
-            <div class="sub-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                <div class="sub-stat">
-                    <span class="material-symbols-rounded">timer</span>
-                    <span id="sub-remaining-days-display">Осталось дней: {{ rw_user.remaining_days }}</span>
-                </div>
-                <button class="action-btn bounce" style="padding: 6px 12px; font-size: 13px; background: rgba(208, 188, 255, 0.15); color: var(--md-sys-color-primary); white-space: nowrap; flex: 0 0 auto;" onclick="toggleExtendMenu()">
-                    <span class="material-symbols-rounded" style="font-size: 16px; margin-right: 4px;">update</span>Продлить
-                </button>
+            
+            <div class="sub-slider-dots" id="sub-slider-dots" style="{% if not whitelist_user %}display: none;{% endif %}">
+                <div class="sub-dot active" onclick="scrollToSubSlide(0)"></div>
+                <div class="sub-dot" onclick="scrollToSubSlide(1)"></div>
             </div>
             
             <script>
                 // Pass base price and duration to JS for calculation
                 window.CURRENT_TARIFF_PRICE = parseFloat("{{ profile.tarif.price|default:0 }}".replace(',', '.'));
                 window.CURRENT_TARIFF_DAYS = parseInt("{{ profile.tarif.duration_days|default:30 }}");
-                window.HAS_ACTIVE_SUB = true;
+                window.HAS_ACTIVE_SUB = {{ profile.tarif.id|default:0 }} > 0;
                 window.REMAINING_DAYS = {{ rw_user.remaining_days|default:0 }};
                 window.CURRENT_TARIFF_NAME = "{{ profile.tarif.name|default:'' }}";
                 window.CURRENT_TARIFF_ID = {{ profile.tarif.id|default:0 }};
+                window.HAS_WHITELIST_SUB = {% if whitelist_user %}true{% else %}false{% endif %};
             </script>
-        </div>
         {% endif %}
         </div>
 
@@ -69,16 +132,16 @@
                             <span class="material-symbols-rounded">devices</span>
                             <span>{{ tariff.device_limit }} устройств</span>
                         </div>
-                        {% if tariff.has_proxy_bypass %}
-                        <div class="v2-feature">
-                            <span class="material-symbols-rounded">shield_with_heart</span>
-                            <span>Прокси с обходом</span>
-                        </div>
-                        {% endif %}
-                        {% if 'белы' in tariff.description|lower or 'whitelist' in tariff.description|lower %}
+                        {% if tariff.has_whitelist %}
                         <div class="v2-feature">
                             <span class="material-symbols-rounded">verified_user</span>
                             <span>Обход белых спсиков</span>
+                        </div>
+                        {% endif %}
+                        {% if 'прокси' in tariff.description|lower %}
+                        <div class="v2-feature">
+                            <span class="material-symbols-rounded">shield_with_heart</span>
+                            <span>Прокси с обходом</span>
                         </div>
                         {% endif %}
                     </div>

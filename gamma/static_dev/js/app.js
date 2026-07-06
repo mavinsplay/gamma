@@ -977,9 +977,137 @@ document.addEventListener('DOMContentLoaded', () => {
                     balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
                 }
                 window.OPTIMISTIC_HAS_SUB = true;
+                window.HAS_ACTIVE_SUB = true;
+
+                // Instant tariff info update
+                window.REMAINING_DAYS = data.remaining_days || 0;
+                window.CURRENT_TARIFF_NAME = data.tariff_name || '';
+                window.CURRENT_TARIFF_PRICE = data.tariff_price || 0;
+                window.CURRENT_TARIFF_DAYS = data.tariff_days || 0;
+                window.CURRENT_TARIFF_ID = data.sub?.uuid ? 0 : window.CURRENT_TARIFF_ID;
+
+                // Update subscription card instantly
+                const statusText = document.getElementById('sub-status-text');
+                if (statusText) {
+                    if (data.remaining_days > 0) {
+                        const dateStr = data.expire_at ? new Date(data.expire_at).toLocaleDateString('ru-RU', {day:'numeric', month:'short'}) : '';
+                        statusText.innerHTML = `До <span>${dateStr}</span> &bull; ${data.remaining_days} дн.`;
+                    } else {
+                        statusText.textContent = 'Активна';
+                    }
+                }
+                const subStatus = document.querySelector('.sub-status-minimal');
+                if (subStatus) {
+                    subStatus.className = 'sub-status-minimal ' +
+                        (data.remaining_days > 3 ? 'status-active' : data.remaining_days > 0 ? 'status-expiring' : 'status-active');
+                }
+                const subTitle = document.getElementById('sub-title-display');
+                if (subTitle) subTitle.textContent = data.tariff_name || 'Premium VPN';
+
+                // Update tariff card buttons instantly
+                document.querySelectorAll('.tariff-card-v2').forEach(card => {
+                    const title = card.querySelector('h3');
+                    const btn = card.querySelector('.v2-buy-btn');
+                    if (btn && title) {
+                        if (title.textContent === data.tariff_name) {
+                            btn.textContent = 'Уже активен';
+                            btn.disabled = true;
+                            btn.style.opacity = '0.5';
+                        } else {
+                            btn.textContent = 'Заменить';
+                            btn.disabled = false;
+                            btn.style.opacity = '1';
+                        }
+                    }
+                });
+
+                // Dynamically add whitelist card if needed
+                if (data.has_whitelist) {
+                    window.HAS_WHITELIST_SUB = true;
+                    const subSlider = document.getElementById('sub-slider');
+                    const existingWl = document.querySelector('.wl-slide');
+                    if (subSlider && !existingWl) {
+                        const wlSlide = document.createElement('div');
+                        wlSlide.className = 'sub-slide bounce wl-slide';
+                        wlSlide.innerHTML = `
+                            <div class="sub-header">
+                                <div class="sub-icon wl-icon">
+                                    <span class="material-symbols-rounded">shield_locked</span>
+                                </div>
+                                <div class="sub-info">
+                                    <span class="sub-label">Обход белых списков</span>
+                                    <h3 class="sub-title">Whitelist доступ</h3>
+                                </div>
+                            </div>
+                            <div class="sub-status-minimal status-active">
+                                <div class="status-dot"></div>
+                                <span id="wl-status-text">Активна</span>
+                            </div>
+                            <div class="wl-traffic-bar">
+                                <div class="wl-traffic-info">
+                                    <span style="opacity:0.8; font-size:12px;">Трафик:</span>
+                                    <span id="wl-traffic-text" style="font-size:12px; font-weight:500;">Загрузка...</span>
+                                </div>
+                                <div class="wl-progress-bg">
+                                    <div class="wl-progress-fill" id="wl-traffic-progress" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="sub-footer">
+                                <button class="action-btn bounce extend-btn" style="background: rgba(76, 175, 80, 0.15); color: #4CAF50;" onclick="handleTopupWhitelistTraffic()">
+                                    <span class="material-symbols-rounded">add_circle</span>+5 ГБ за 150 ₽
+                                </button>
+                            </div>`;
+                        subSlider.appendChild(wlSlide);
+                        // Show slider dots
+                        const dots = document.getElementById('sub-slider-dots');
+                        if (dots) dots.style.display = '';
+                    }
+                } else if (!data.has_whitelist) {
+                    window.HAS_WHITELIST_SUB = false;
+                    const existingWl = document.querySelector('.wl-slide');
+                    if (existingWl) existingWl.remove();
+                    const dots = document.getElementById('sub-slider-dots');
+                    if (dots) dots.style.display = 'none';
+                    const existingSwitcher = document.getElementById('sub-type-switcher');
+                    if (existingSwitcher) existingSwitcher.remove();
+                    const result = document.getElementById('connection-result');
+                    if (result) {
+                        result.classList.remove('animate-in');
+                        result.classList.add('hiding');
+                    }
+                }
+
+                // Update connection view switcher
+                const connInfo = document.querySelector('#view-connection .subscription-info');
+                if (connInfo && data.has_whitelist) {
+                    const existingSwitcher = document.getElementById('sub-type-switcher');
+                    if (!existingSwitcher) {
+                        const btnGet = document.getElementById('btn-get-link');
+                        if (btnGet) {
+                            const switcher = document.createElement('div');
+                            switcher.id = 'sub-type-switcher';
+                            switcher.className = 'sub-type-switcher';
+                            switcher.innerHTML = `
+                                <div class="sub-type-indicator"></div>
+                                <button id="sub-type-main" class="sub-type-btn active" onclick="switchSubType('main')">
+                                    <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">verified_user</span>VPN
+                                </button>
+                                <button id="sub-type-whitelist" class="sub-type-btn" onclick="switchSubType('whitelist')">
+                                    <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">shield_locked</span>Whitelist
+                                </button>`;
+                            btnGet.parentNode.insertBefore(switcher, btnGet);
+                        }
+                    }
+                }
+
+                // Force connection view rebuild after buy by removing the button
+                const oldBtn = document.getElementById('btn-get-link');
+                if (oldBtn) oldBtn.remove();
+                const oldResult = document.getElementById('connection-result');
+                if (oldResult) oldResult.remove();
+
                 if (window.syncNow) window.syncNow();
                 showSuccessAnim(() => {
-                    if (window.syncNow) window.syncNow();
                     showModal({
                         title: 'Успешно!',
                         message: 'Подписка успешно оформлена. Теперь вы можете подключиться к нашим серверам.',
@@ -1075,11 +1203,116 @@ document.addEventListener('DOMContentLoaded', () => {
         performBuy(tariffId, price, userId, username, false);
     };
 
-    window.toggleExtendMenu = () => {
+    window.formatExpireDate = (isoString) => {
+        if (!isoString) return '';
+        const date = new Date(isoString);
+        const months = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+        return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+    };
+
+    window.formatBytes = (bytes) => {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
+    window.scrollToSubSlide = (index) => {
+        const slider = document.getElementById('sub-slider');
+        const dots = document.querySelectorAll('.sub-dot');
+        if (!slider) return;
+        
+        const slideWidth = slider.clientWidth;
+        slider.scrollTo({ left: slideWidth * index, behavior: 'smooth' });
+        
+        dots.forEach((dot, i) => {
+            if (i === index) dot.classList.add('active');
+            else dot.classList.remove('active');
+        });
+    };
+
+    // Attach scroll listener to sync dots automatically
+    const subSliderEl = document.getElementById('sub-slider');
+    if (subSliderEl) {
+        function snapToNearestSlide() {
+            const slideWidth = subSliderEl.clientWidth;
+            const index = Math.round(subSliderEl.scrollLeft / slideWidth);
+            subSliderEl.scrollTo({
+                left: slideWidth * index,
+                behavior: 'smooth'
+            });
+            const dots = document.querySelectorAll('.sub-dot');
+            dots.forEach((dot, i) => {
+                if (i === index) dot.classList.add('active');
+                else dot.classList.remove('active');
+            });
+        }
+
+        subSliderEl.addEventListener('scroll', () => {
+            const index = Math.round(subSliderEl.scrollLeft / subSliderEl.clientWidth);
+            const dots = document.querySelectorAll('.sub-dot');
+            dots.forEach((dot, i) => {
+                if (i === index) dot.classList.add('active');
+                else dot.classList.remove('active');
+            });
+        });
+
+        // Drag-to-scroll for PC
+        let isDragging = false;
+        let didDrag = false;
+        let startX, scrollLeft;
+
+        subSliderEl.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            didDrag = false;
+            startX = e.pageX;
+            scrollLeft = subSliderEl.scrollLeft;
+            subSliderEl.classList.add('dragging');
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const dx = e.pageX - startX;
+            if (Math.abs(dx) > 3) didDrag = true;
+            if (didDrag) {
+                subSliderEl.scrollLeft = scrollLeft - dx;
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!isDragging) return;
+            isDragging = false;
+            subSliderEl.classList.remove('dragging');
+            if (didDrag) {
+                snapToNearestSlide();
+            }
+        });
+
+        // Prevent click on children if we were dragging
+        subSliderEl.addEventListener('click', (e) => {
+            if (didDrag) {
+                e.preventDefault();
+                e.stopPropagation();
+                didDrag = false;
+            }
+        }, true);
+    }
+
+    window.toggleExtendMenu = (subType = 'main') => {
         if (!window.CURRENT_TARIFF_PRICE || !window.CURRENT_TARIFF_DAYS) return;
 
-        const basePrice = window.CURRENT_TARIFF_PRICE;
-        const baseDays = window.CURRENT_TARIFF_DAYS;
+        let basePrice = window.CURRENT_TARIFF_PRICE;
+        let baseDays = window.CURRENT_TARIFF_DAYS;
+        let title = 'Продление основной подписки';
+        
+        if (subType === 'whitelist') {
+            basePrice = 100; // Fixed price for whitelist extension (can be dynamic if needed)
+            baseDays = 30;
+            title = 'Продление Whitelist-доступа';
+        }
+
         const pricePerMonth = (basePrice / baseDays) * 30;
 
         const options = [
@@ -1093,7 +1326,7 @@ document.addEventListener('DOMContentLoaded', () => {
         options.forEach(opt => {
             const optionPrice = Math.round(pricePerMonth * opt.months);
             gridHtml += `
-                <button class="extend-option bounce" onclick="window.handleExtend(${opt.months}, ${optionPrice})" style="width: 100%; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                <button class="extend-option bounce" onclick="window.handleExtend(${opt.months}, ${optionPrice}, '${subType}')" style="width: 100%; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 4px;">
                     <span class="ext-months" style="font-size: 14px; font-weight: 500; color: #E6E1E5;">${opt.label}</span>
                     <span class="ext-price" style="font-size: 13px; color: var(--md-sys-color-primary); font-weight: 600;">${optionPrice} ₽</span>
                 </button>
@@ -1102,19 +1335,19 @@ document.addEventListener('DOMContentLoaded', () => {
         gridHtml += '</div>';
 
         showModal({
-            title: 'Продление подписки',
+            title: title,
             message: 'Выберите срок продления:',
             icon: 'update',
             customHtml: gridHtml,
             actionText: 'Отмена',
-            onAction: null // Only close button needed, or action button as Cancel
+            onAction: null
         });
     };
 
-    window.handleExtend = (months, price) => {
+    window.handleExtend = (months, price, subType = 'main') => {
         showModal({
-            title: 'Продление подписки',
-            message: `Вы уверены, что хотите продлить подписку на ${months} мес. за ${price} ₽? Сумма будет списана с вашего баланса.`,
+            title: 'Подтверждение',
+            message: `Продлить подписку на ${months} мес. за ${price} ₽? Сумма будет списана с вашего баланса.`,
             icon: 'update',
             actionText: 'Продлить',
             onAction: async () => {
@@ -1138,6 +1371,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     const formData = new FormData();
                     formData.append('months', months);
+                    formData.append('sub_type', subType);
                     formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
 
                     if (tg?.initData) {
@@ -1152,21 +1386,51 @@ document.addEventListener('DOMContentLoaded', () => {
                     const data = await response.json();
 
                     if (response.ok && data.success) {
+                        // Use sync to get accurate data
                         if (window.syncNow) window.syncNow();
+
+                        const newExpireAt = data.new_expire_at;
+                        const newRemainingDays = data.remaining_days;
+                        const newExpireDate = newExpireAt ? new Date(newExpireAt) : null;
+                        const months_names = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
+                        const expireStr = newExpireDate
+                            ? `${newExpireDate.getDate()} ${months_names[newExpireDate.getMonth()]} ${newExpireDate.getFullYear()}`
+                            : '';
+
+                        // Update main subscription card
+                        window.REMAINING_DAYS = newRemainingDays;
+                        const statusTextEl = document.getElementById('sub-status-text');
+                        const statusEl = statusTextEl?.closest('.sub-status-minimal');
+                        if (statusTextEl && expireStr) {
+                            statusTextEl.innerHTML = `До ${expireStr} &bull; ${newRemainingDays} дн.`;
+                        }
+                        if (statusEl) {
+                            statusEl.className = 'sub-status-minimal ' + (newRemainingDays > 3 ? 'status-active' : newRemainingDays > 0 ? 'status-expiring' : 'status-expired');
+                        }
+                        // Update whitelist card too (both extended)
+                        const wlStatusTextEl = document.getElementById('wl-status-text');
+                        const wlStatusEl = wlStatusTextEl?.closest('.sub-status-minimal');
+                        if (wlStatusTextEl && expireStr) {
+                            wlStatusTextEl.innerHTML = `До ${expireStr} &bull; ${newRemainingDays} дн.`;
+                        }
+                        if (wlStatusEl) {
+                            wlStatusEl.className = 'sub-status-minimal ' + (newRemainingDays > 3 ? 'status-active' : newRemainingDays > 0 ? 'status-expiring' : 'status-expired');
+                        }
+                        window.CURRENT_TARIFF_DAYS = (window.CURRENT_TARIFF_DAYS || 30) + months * 30;
+
+                        // Update balance
+                        const balanceEl = document.getElementById('profile-balance');
+                        if (balanceEl && data.new_balance !== undefined) {
+                            balanceEl.textContent = `${data.new_balance.toFixed(0)} ₽`;
+                        }
+
                         showSuccessAnim(() => {
-                            const balanceAmount = document.getElementById('profile-balance');
-                            if (balanceAmount) {
-                                balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
-                            }
                             showModal({
                                 title: 'Успешно!',
                                 message: `Подписка продлена на ${months} мес.`,
                                 icon: 'check_circle',
                                 actionText: 'Ок',
-                                onAction: () => {
-                                    hideModal();
-                                    if (window.syncNow) window.syncNow();
-                                }
+                                onAction: hideModal
                             });
                         });
                     } else if (data.error === 'insufficient_funds') {
@@ -1196,7 +1460,106 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
+    window.handleTopupWhitelistTraffic = () => {
+        const gbAmount = 5;
+        const price = 150; // 150 RUB for 5GB
+        
+        showModal({
+            title: 'Докупка трафика',
+            message: `Купить ${gbAmount} ГБ трафика для Whitelist-доступа за ${price} ₽?`,
+            icon: 'add_circle',
+            actionText: 'Купить',
+            onAction: async () => {
+                hideModal();
+                const tg = window.Telegram?.WebApp;
+                
+                showLoading('Покупка трафика...');
+                try {
+                    const formData = new FormData();
+                    formData.append('gb_amount', gbAmount);
+                    formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+                    if (tg?.initData) formData.append('init_data', tg.initData);
+
+                    const response = await fetch('/shop/topup-whitelist-traffic-api/', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    
+                    if (response.ok && data.success) {
+                        if (window.syncNow) window.syncNow();
+                        showSuccessAnim(() => {
+                            showModal({
+                                title: 'Успешно!',
+                                message: `Трафик успешно добавлен.`,
+                                icon: 'check_circle',
+                                actionText: 'Ок',
+                                onAction: hideModal
+                            });
+                        });
+                    } else if (data.error === 'insufficient_funds') {
+                        hideLoading();
+                        handleTopup(Math.ceil(data.missing_amount));
+                    } else {
+                        hideLoading();
+                        showModal({
+                            title: 'Ошибка',
+                            message: data.error || 'Ошибка при покупке трафика.',
+                            icon: 'error',
+                            actionText: 'Ок',
+                            onAction: hideModal
+                        });
+                    }
+                } catch (error) {
+                    hideLoading();
+                    showModal({
+                        title: 'Ошибка сети',
+                        message: 'Не удалось связаться с сервером.',
+                        icon: 'cloud_off',
+                        actionText: 'Ок',
+                        onAction: hideModal
+                    });
+                }
+            }
+        });
+    };
+
     let currentSubLink = '';
+    window.selectedSubType = 'main';
+
+    window.switchSubType = (type) => {
+        window.selectedSubType = type;
+        const mainBtn = document.getElementById('sub-type-main');
+        const wlBtn = document.getElementById('sub-type-whitelist');
+        const indicator = document.querySelector('.sub-type-indicator');
+        if (mainBtn && wlBtn) {
+            if (type === 'main') {
+                mainBtn.classList.add('active');
+                wlBtn.classList.remove('active');
+                if (indicator) indicator.classList.remove('whitelist');
+            } else {
+                wlBtn.classList.add('active');
+                mainBtn.classList.remove('active');
+                if (indicator) indicator.classList.add('whitelist');
+            }
+        }
+        // Reset QR result when switching
+        const btnGet = document.getElementById('btn-get-link');
+        const resultDiv = document.getElementById('connection-result');
+        if (resultDiv && resultDiv.classList.contains('animate-in')) {
+            resultDiv.classList.remove('animate-in');
+            resultDiv.classList.add('hiding');
+            setTimeout(() => {
+                resultDiv.classList.remove('hiding');
+                currentSubLink = '';
+            }, 300);
+        } else {
+            currentSubLink = '';
+        }
+        if (btnGet) {
+            btnGet.classList.remove('hiding');
+        }
+    };
 
     window.copySubLink = () => {
         if (!currentSubLink) return;
@@ -1252,12 +1615,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        const subType = window.selectedSubType || 'main';
         showLoading('Получение ссылки...');
         try {
             const params = new URLSearchParams();
             if (tg?.initData) {
                 params.append('init_data', tg.initData);
             }
+            params.append('sub_type', subType);
 
             const response = await fetch(`/shop/get-sub-link-api/?${params.toString()}`);
 
@@ -1275,9 +1640,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const resultDiv = document.getElementById('connection-result');
                     const qrCanvas = document.getElementById('qr-code-canvas');
 
-                    if (btnGet) btnGet.style.display = 'none';
+                    if (btnGet) btnGet.classList.add('hiding');
                     if (resultDiv) {
-                        resultDiv.style.display = 'flex';
+                        resultDiv.classList.remove('hiding');
+                        resultDiv.classList.add('animate-in');
                         if (qrCanvas && window.QRious) {
                             new QRious({
                                 element: qrCanvas,
@@ -1651,7 +2017,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Update HAS_ACTIVE_SUB flag
             // Use OR with OPTIMISTIC_HAS_SUB to avoid flickering right after purchase
-            window.HAS_ACTIVE_SUB = !!data.rw_user || !!window.OPTIMISTIC_HAS_SUB;
+            // Has active sub only if both RW user exists AND DB has a real tariff (not "—")
+            window.HAS_ACTIVE_SUB = (!!data.rw_user && data.profile.tarif_price > 0) || !!window.OPTIMISTIC_HAS_SUB;
             if (data.rw_user) {
                 window.CURRENT_TARIFF_NAME = data.profile.tarif_name;
                 window.OPTIMISTIC_HAS_SUB = false; // Reset once we have real data from Remnawave
@@ -1672,7 +2039,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const proxyContainer = document.getElementById('proxy-container');
         if (proxyContainer) {
             if (data.proxies && data.proxies.length > 0) {
-                let proxiesHtml = '';
+                let proxiesHtml = `
+                    <h3 style="color: var(--md-sys-color-primary); font-weight: 500; font-size: 14px; opacity: 0.8; letter-spacing: 0.5px; text-transform: uppercase; margin: 0;">Прокси</h3>`;
                 data.proxies.forEach(proxy => {
                     proxiesHtml += `
                     <div class="proxy-section" style="margin-top: 10px; padding: 18px; background: var(--panel-bg); border-radius: 24px; position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);">
@@ -1710,33 +2078,95 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Update Subscription Card in Tariffs View
+        // Update Subscription Cards in Tariffs View (Slider)
         const subContainer = document.getElementById('current-subscription-container');
         if (subContainer) {
             if (data.rw_user && data.profile) {
                 const remDays = data.rw_user.remaining_days || 0;
-                subContainer.innerHTML = `
-                    <div class=" bounce">
-                        <div class="sub-header">
-                            <div class="sub-icon">
-                                <span class="material-symbols-rounded">verified_user</span>
-                            </div>
-                            <div class="sub-info">
-                                <span class="sub-label">Текущая подписка</span>
-                                <h3 class="sub-title" id="sub-title-display">${data.profile.tarif_name}</h3>
-                            </div>
-                        </div>
-                        <div class="sub-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                            <div class="sub-stat">
-                                <span class="material-symbols-rounded">timer</span>
-                                <span id="sub-remaining-days-display">Осталось дней: ${remDays}</span>
-                            </div>
-                            <button class="action-btn bounce" style="padding: 6px 12px; font-size: 13px; background: rgba(208, 188, 255, 0.15); color: var(--md-sys-color-primary); white-space: nowrap; flex: 0 0 auto;" onclick="toggleExtendMenu()">
-                                <span class="material-symbols-rounded" style="font-size: 16px; margin-right: 4px;">update</span>Продлить
-                            </button>
-                        </div>
-                    </div>`;
+                
+                // Format dates in slider
+                document.querySelectorAll('.format-date').forEach(el => {
+                    if (el.dataset.date) {
+                        el.textContent = formatExpireDate(el.dataset.date);
+                    }
+                });
+
+                // Update Whitelist Slide specifically if exists
+                if (data.whitelist_user) {
+                    const wlLimit = data.whitelist_user.trafficLimitBytes || 0;
+                    const wlUsed = data.whitelist_user.userTraffic?.usedTrafficBytes || 0;
+                    
+                    const trafficTextEl = document.getElementById('wl-traffic-text');
+                    const trafficProgressEl = document.getElementById('wl-traffic-progress');
+                    
+                    if (trafficTextEl) {
+                        const remaining = Math.max(0, wlLimit - wlUsed);
+                        trafficTextEl.textContent = `${formatBytes(remaining)} / ${formatBytes(wlLimit)}`;
+                    }
+                    if (trafficProgressEl && wlLimit > 0) {
+                        const percent = Math.min(100, Math.max(0, (wlUsed / wlLimit) * 100));
+                        trafficProgressEl.style.width = `${percent}%`;
+                        if (percent > 90) trafficProgressEl.style.background = '#F44336';
+                        else if (percent > 70) trafficProgressEl.style.background = '#FF9800';
+                        else trafficProgressEl.style.background = '#4CAF50';
+                    }
+                } else {
+                    // Remove whitelist slide if it exists but user no longer has one
+                    const wlSlide = document.querySelector('.wl-slide');
+                    if (wlSlide) {
+                        wlSlide.remove();
+                        // Update slider dots
+                        const dotsContainer = document.getElementById('sub-slider-dots');
+                        if (dotsContainer) {
+                            dotsContainer.style.display = 'none';
+                        }
+                    }
+                    window.HAS_WHITELIST_SUB = false;
+                }
+                
                 window.REMAINING_DAYS = remDays;
+
+                // Update status text in subscription card
+                const subStatusText = document.getElementById('sub-status-text');
+                const subStatusEl = subStatusText?.closest('.sub-status-minimal');
+                if (subStatusText && data.rw_user) {
+                    if (remDays > 0) {
+                        const expireAt = data.rw_user.expireAt || data.rw_user.expire_at;
+                        const expireStr = expireAt ? formatExpireDate(expireAt) : '';
+                        subStatusText.innerHTML = `До <span>${expireStr}</span> &bull; ${remDays} дн.`;
+                    } else {
+                        subStatusText.textContent = 'Истекла';
+                    }
+                }
+                if (subStatusEl) {
+                    subStatusEl.className = 'sub-status-minimal ' + (remDays > 3 ? 'status-active' : remDays > 0 ? 'status-expiring' : 'status-expired');
+                }
+
+                // Update whitelist status text
+                if (data.whitelist_user) {
+                    const wlRemDays = data.whitelist_user.remaining_days || 0;
+                    const wlStatusText = document.getElementById('wl-status-text');
+                    const wlStatusEl = wlStatusText?.closest('.sub-status-minimal');
+                    if (wlStatusText) {
+                        if (wlRemDays > 0) {
+                            const wlExpire = data.whitelist_user.expireAt || data.whitelist_user.expire_at;
+                            const wlExpStr = wlExpire ? formatExpireDate(wlExpire) : '';
+                            wlStatusText.innerHTML = `До <span>${wlExpStr}</span> &bull; ${wlRemDays} дн.`;
+                        } else {
+                            wlStatusText.textContent = 'Истекла';
+                        }
+                    }
+                    if (wlStatusEl) {
+                        wlStatusEl.className = 'sub-status-minimal ' + (wlRemDays > 3 ? 'status-active' : wlRemDays > 0 ? 'status-expiring' : 'status-expired');
+                    }
+                }
+
+                // Update device info
+                const deviceTextEl = document.getElementById('sub-device-text');
+                if (deviceTextEl && data.hwid_devices && data.rw_user) {
+                    const devLimit = data.rw_user.hwidDeviceLimit || 0;
+                    deviceTextEl.textContent = `${data.hwid_devices.length} / ${devLimit} устройств`;
+                }
             } else {
                 subContainer.innerHTML = '';
             }
@@ -1751,9 +2181,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const wasActive = !!getBtn;
             const isActive = !!data.rw_user;
+            const needsRebuild = !getBtn && isActive;
 
-            if (wasActive !== isActive) {
-                // Redraw everything only if status changed
+            if (wasActive !== isActive || needsRebuild) {
+                // Redraw everything only if status changed or button missing
                 const username = document.getElementById('connection-username')?.textContent || `@${tg?.initDataUnsafe?.user?.username || SAFE_MOCK_USER_DATA?.username || 'user'}`;
                 let connHtml = `
                     <div class="info-item">
@@ -1762,6 +2193,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>`;
 
                 if (isActive) {
+                    const hasWl = !!data.whitelist_user;
                     connHtml += `
                         <div class="info-item">
                             <span class="label">Статус</span>
@@ -1770,12 +2202,27 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="info-item">
                             <span class="label">Осталось времени</span>
                             <span class="value" id="connection-remaining-days">${data.rw_user.remaining_days} дней</span>
-                        </div>
+                        </div>`;
+
+                    if (hasWl) {
+                        connHtml += `
+                        <div id="sub-type-switcher" class="sub-type-switcher">
+                            <div class="sub-type-indicator"></div>
+                            <button id="sub-type-main" class="sub-type-btn active" onclick="switchSubType('main')">
+                                <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">verified_user</span>VPN
+                            </button>
+                            <button id="sub-type-whitelist" class="sub-type-btn" onclick="switchSubType('whitelist')">
+                                <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">shield_locked</span>Whitelist
+                            </button>
+                        </div>`;
+                    }
+
+                    connHtml += `
                         <button id="btn-get-link" class="action-btn bounce" style="margin-top: 16px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="handleConnect()">
                             <span class="material-symbols-rounded">link</span>
                             Получить ссылку для подключения
                         </button>
-                        <div id="connection-result" style="display: none; margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
+                        <div id="connection-result" class="connection-result" style="margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
                             <span style="font-size: 14px; color: var(--panel-icon); text-align: center;">Отсканируйте QR-код или скопируйте ссылку для настройки вашего VPN-клиента</span>
                             <canvas id="qr-code-canvas" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px; display: block;"></canvas>
                             <div style="display: flex; gap: 8px; width: 100%;">
@@ -1802,8 +2249,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     const resultDiv = document.getElementById('connection-result');
                     const qrCanvas = document.getElementById('qr-code-canvas');
                     const btnGet = document.getElementById('btn-get-link');
-                    if (resultDiv) resultDiv.style.display = 'flex';
-                    if (btnGet) btnGet.style.display = 'none';
+                    if (resultDiv) {
+                        resultDiv.classList.remove('hiding');
+                        resultDiv.classList.add('animate-in');
+                    }
+                    if (btnGet) btnGet.classList.add('hiding');
                     if (qrCanvas && window.QRious) {
                         new QRious({
                             element: qrCanvas,
@@ -1815,9 +2265,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         });
                     }
                 }
-            } else if (isActive) {
-                // If already active, just update the values without touching the rest of DOM
-                if (daysEl) daysEl.textContent = `${data.rw_user.remaining_days} дней`;
             }
         }
 
@@ -2555,6 +3002,63 @@ document.addEventListener('DOMContentLoaded', () => {
     // Restore timer immediately from localStorage, sync will verify/correct via server
     checkPendingPaymentOnLoad();
 
+    // Initial DOM formatting for statically rendered elements
+    document.querySelectorAll('.format-date').forEach(el => {
+        if (el.dataset.date) {
+            el.textContent = formatExpireDate(el.dataset.date);
+        }
+    });
+
+    const trafficTextEl = document.getElementById('wl-traffic-text');
+    const trafficProgressEl = document.getElementById('wl-traffic-progress');
+    if (trafficTextEl && trafficTextEl.dataset.limit) {
+        const wlLimit = parseInt(trafficTextEl.dataset.limit) || 0;
+        const wlUsed = parseInt(trafficTextEl.dataset.used) || 0;
+        const remaining = Math.max(0, wlLimit - wlUsed);
+        trafficTextEl.textContent = `${formatBytes(remaining)} / ${formatBytes(wlLimit)}`;
+        
+        if (trafficProgressEl && wlLimit > 0) {
+            const percent = Math.min(100, Math.max(0, (wlUsed / wlLimit) * 100));
+            trafficProgressEl.style.width = `${percent}%`;
+            if (percent > 90) trafficProgressEl.style.background = '#F44336';
+            else if (percent > 70) trafficProgressEl.style.background = '#FF9800';
+            else trafficProgressEl.style.background = '#4CAF50';
+        }
+    }
+
     initTelegram();
     startDataSync();
+
+    // Mouse drag-to-scroll for sliders
+    const sliders = document.querySelectorAll('.subscription-slider');
+    sliders.forEach(slider => {
+        let isDown = false;
+        let startX;
+        let scrollLeft;
+
+        slider.addEventListener('mousedown', (e) => {
+            isDown = true;
+            slider.style.scrollSnapType = 'none'; // Disable snapping while dragging
+            slider.style.cursor = 'grabbing';
+            startX = e.pageX - slider.offsetLeft;
+            scrollLeft = slider.scrollLeft;
+        });
+        slider.addEventListener('mouseleave', () => {
+            isDown = false;
+            slider.style.scrollSnapType = 'x mandatory';
+            slider.style.cursor = 'grab';
+        });
+        slider.addEventListener('mouseup', () => {
+            isDown = false;
+            slider.style.scrollSnapType = 'x mandatory';
+            slider.style.cursor = 'grab';
+        });
+        slider.addEventListener('mousemove', (e) => {
+            if (!isDown) return;
+            e.preventDefault();
+            const x = e.pageX - slider.offsetLeft;
+            const walk = (x - startX) * 2; // scroll-fast multiplier
+            slider.scrollLeft = scrollLeft - walk;
+        });
+    });
 });

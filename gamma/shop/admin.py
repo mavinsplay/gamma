@@ -12,13 +12,51 @@ class TariffAdmin(admin.ModelAdmin):
         "price",
         "duration_days",
         "device_limit",
-        "has_proxy_bypass",
+        "has_whitelist",
         "is_active",
     )
-    list_filter = ("is_active", "has_proxy_bypass")
+    list_filter = ("is_active", "has_whitelist")
     search_fields = ("name", "description")
-    list_editable = ("price", "is_active", "has_proxy_bypass")
+    list_editable = ("price", "is_active", "has_whitelist")
     filter_horizontal = ("proxies",)
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "name",
+                    "description",
+                    "price",
+                    "duration_days",
+                    "traffic_limit_bytes",
+                    "device_limit",
+                    "is_active",
+                )
+            },
+        ),
+        (
+            "Remnawave",
+            {
+                "fields": ("squad_uuid",),
+            },
+        ),
+        (
+            "Proxy / Whitelist",
+            {
+                "fields": (
+                    "has_whitelist",
+                    "whitelist_squad_uuid",
+                    "proxies",
+                ),
+                "description": (
+                    "Если has_whitelist=True — заполните "
+                    "whitelist_squad_uuid. "
+                    "Пользователю создаётся отдельная "
+                    "whitelist-подписка (5 ГБ)."
+                ),
+            },
+        ),
+    )
 
 
 @admin.register(Order)

@@ -14,11 +14,24 @@
                 <span class="label">Осталось времени</span>
                 <span class="value" id="connection-remaining-days">{{ rw_user.remaining_days }} дней</span>
             </div>
+
+            {% if whitelist_user %}
+            <div id="sub-type-switcher" class="sub-type-switcher">
+                <div class="sub-type-indicator"></div>
+                <button id="sub-type-main" class="sub-type-btn active" onclick="switchSubType('main')">
+                    <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">verified_user</span>VPN
+                </button>
+                <button id="sub-type-whitelist" class="sub-type-btn" onclick="switchSubType('whitelist')">
+                    <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">shield_locked</span>Whitelist
+                </button>
+            </div>
+            {% endif %}
+
             <button id="btn-get-link" class="action-btn bounce" style="margin-top: 16px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="handleConnect()">
                 <span class="material-symbols-rounded">link</span>
                 Получить ссылку для подключения
             </button>
-            <div id="connection-result" style="display: none; margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
+            <div id="connection-result" class="connection-result" style="margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
                 <span style="font-size: 14px; color: var(--panel-icon); text-align: center;">Отсканируйте QR-код или скопируйте ссылку для настройки вашего VPN-клиента</span>
                 <canvas id="qr-code-canvas" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px; display: block;"></canvas>
                 <div style="display: flex; gap: 8px; width: 100%;">
@@ -39,10 +52,10 @@
             </div>
             {% endif %}
         </div>
+        <div id="proxy-container">
         {% if proxies %}
             <h3 style="color: var(--md-sys-color-primary); font-weight: 500; font-size: 14px; opacity: 0.8; letter-spacing: 0.5px; text-transform: uppercase; margin: 0;">Прокси</h3>
         {% endif %}
-        <div id="proxy-container">
         {% for p in proxies %}
         <div class="proxy-section" style="margin-top: 10px; padding: 18px; background: var(--panel-bg); border-radius: 24px; position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);">
             <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 16px; position: relative; z-index: 1;">

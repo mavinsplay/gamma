@@ -36,6 +36,13 @@ class Profile(models.Model):
         default=False,
         verbose_name="Уведомление об окончании подписки отправлено",
     )
+    # Whitelist bypass subscription (separate Remnawave user)
+    whitelist_uuid = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        verbose_name="Whitelist UUID в Remnawave",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

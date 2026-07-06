@@ -68,7 +68,7 @@ def open_sub_redirect(request):
     No auth required — only constructs a happ:// deep link, no user data exposed.
     """  # noqa: E501
     sub_link = request.GET.get("link", "")
-    happ_link = "happ://" + sub_link if sub_link else ""
+    happ_link = f"happ://add/{sub_link}" if sub_link else ""
     return render(
         request,
         "connect/open_sub.html",
