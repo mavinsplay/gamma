@@ -121,7 +121,7 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                         try:
                             wl_user = await client.create_user(
                                 username=(
-                                    f"{rw_user.get('username', str(telegram_id))}" # noqa
+                                    f"{rw_user.get('username', str(telegram_id))}"  # noqa
                                     "_wl"
                                 ),
                                 days=tariff.duration_days,

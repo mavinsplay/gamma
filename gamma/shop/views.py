@@ -207,7 +207,8 @@ def app_index(request):
             if whitelist_user.get("expireAt"):
                 try:
                     wl_expire_str = whitelist_user["expireAt"].replace(
-                        "Z", "+00:00",
+                        "Z",
+                        "+00:00",
                     )
                     wl_expire_dt = datetime.fromisoformat(wl_expire_str)
                     wl_delta = wl_expire_dt - datetime.now(timezone.utc)
@@ -518,7 +519,7 @@ def buy_tariff_api(request):
                         try:
                             wl_user = await client.create_user(
                                 username=(
-                                    f"{rw_user.get('username', str(telegram_id))}" # noqa
+                                    f"{rw_user.get('username', str(telegram_id))}"  # noqa
                                     f"_wl"
                                 ),
                                 days=tariff.duration_days,
@@ -1347,7 +1348,8 @@ def extend_sub_api(request):
 
                     new_expire_dt = expire_dt + timedelta(days=months * 30)
                     new_expire_at = new_expire_dt.isoformat().replace(
-                        "+00:00", "Z",
+                        "+00:00",
+                        "Z",
                     )
 
                     await client.update_user(
@@ -1374,7 +1376,8 @@ def extend_sub_api(request):
 
                         wl_new_dt = wl_dt + timedelta(days=months * 30)
                         wl_new_expire = wl_new_dt.isoformat().replace(
-                            "+00:00", "Z",
+                            "+00:00",
+                            "Z",
                         )
                         await client.update_user(
                             uuid=cur_whitelist_uuid,
@@ -1874,7 +1877,7 @@ def topup_whitelist_traffic_api(request):
     if gb_amount <= 0:
         return JsonResponse({"error": "Invalid amount"}, status=400)
 
-    PRICE_PER_GB = Decimal("10.00") # noqa
+    PRICE_PER_GB = Decimal("10.00")  # noqa
     total_price = (Decimal(str(gb_amount)) * PRICE_PER_GB).quantize(
         Decimal("0.00"),
     )
@@ -1953,5 +1956,6 @@ def topup_whitelist_traffic_api(request):
             Order.objects.filter(id=order_id).update(status="FAILED")
 
         return JsonResponse(
-            {"error": "Ошибка при покупке трафика"}, status=500,
+            {"error": "Ошибка при покупке трафика"},
+            status=500,
         )
