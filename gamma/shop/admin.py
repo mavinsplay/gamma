@@ -31,7 +31,7 @@ class TariffAdmin(admin.ModelAdmin):
                     "traffic_limit_bytes",
                     "device_limit",
                     "is_active",
-                )
+                ),
             },
         ),
         (

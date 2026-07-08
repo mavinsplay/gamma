@@ -50,8 +50,10 @@ def _get_main_user(rw_users, profile=None):
         if u and u.get("uuid"):
             if wl_uuid and u["uuid"] == wl_uuid:
                 continue
+
             if u.get("username", "").endswith("_wl"):
                 continue
+
             return u
 
     return rw_users[0] if rw_users else None
@@ -130,10 +132,11 @@ def app_index(request):
                 tasks.append(
                     asyncio.create_task(client.get_user_by_tgid(telegram_id)),
                 )
+
             if profile and profile.whitelist_uuid:
                 tasks.append(
                     asyncio.create_task(
-                        client.get_user(profile.whitelist_uuid)
+                        client.get_user(profile.whitelist_uuid),
                     ),
                 )
 
@@ -171,7 +174,7 @@ def app_index(request):
         from datetime import datetime, timezone
 
         raw_nodes, rw_user, hwid_devices, whitelist_user = async_to_sync(
-            fetch_all
+            fetch_all,
         )()
         nodes_data = []
         for node in raw_nodes:
@@ -204,7 +207,7 @@ def app_index(request):
             if whitelist_user.get("expireAt"):
                 try:
                     wl_expire_str = whitelist_user["expireAt"].replace(
-                        "Z", "+00:00"
+                        "Z", "+00:00",
                     )
                     wl_expire_dt = datetime.fromisoformat(wl_expire_str)
                     wl_delta = wl_expire_dt - datetime.now(timezone.utc)
@@ -414,12 +417,13 @@ def buy_tariff_api(request):
                                         hwiddevicelimit=20,
                                         status="ACTIVE",
                                         activeinternalsquads=[
-                                            tariff.whitelist_squad_uuid
+                                            tariff.whitelist_squad_uuid,
                                         ],
                                     )
                                     whitelist_uuid = u["uuid"]
                                 except Exception:
                                     pass
+
                                 break
                     # Create new if no existing found
                     if not whitelist_uuid:
@@ -431,7 +435,7 @@ def buy_tariff_api(request):
                                 hwiddevicelimit=20,
                                 telegramid=int(telegram_id),
                                 activeinternalsquads=[
-                                    tariff.whitelist_squad_uuid
+                                    tariff.whitelist_squad_uuid,
                                 ],
                             )
                             if wl_user and wl_user.get("uuid"):
@@ -439,6 +443,7 @@ def buy_tariff_api(request):
                         except Exception:
                             # Whitelist sub creation is non-fatal
                             pass
+
                 return main_user, whitelist_uuid
             finally:
                 await client.close()
@@ -490,7 +495,7 @@ def buy_tariff_api(request):
                         for u in rw_users:
                             uname = u.get("username", "")
                             if uname.endswith("_wl") and u.get(
-                                "uuid"
+                                "uuid",
                             ) != rw_user.get("uuid"):
                                 try:
                                     await client.update_user(
@@ -500,19 +505,20 @@ def buy_tariff_api(request):
                                         hwiddevicelimit=20,
                                         status="ACTIVE",
                                         activeinternalsquads=[
-                                            tariff.whitelist_squad_uuid
+                                            tariff.whitelist_squad_uuid,
                                         ],
                                     )
                                     whitelist_uuid = u["uuid"]
                                 except Exception:
                                     pass
+
                                 break
                     # Create new whitelist user if nothing found
                     if not whitelist_uuid:
                         try:
                             wl_user = await client.create_user(
                                 username=(
-                                    f"{rw_user.get('username', str(telegram_id))}"
+                                    f"{rw_user.get('username', str(telegram_id))}" # noqa
                                     f"_wl"
                                 ),
                                 days=tariff.duration_days,
@@ -520,7 +526,7 @@ def buy_tariff_api(request):
                                 hwiddevicelimit=20,
                                 telegramid=int(telegram_id),
                                 activeinternalsquads=[
-                                    tariff.whitelist_squad_uuid
+                                    tariff.whitelist_squad_uuid,
                                 ],
                             )
                             if wl_user and wl_user.get("uuid"):
@@ -537,6 +543,7 @@ def buy_tariff_api(request):
                             )
                         except Exception:
                             pass
+
                 return main_user, whitelist_uuid
             finally:
                 await client.close()
@@ -1340,7 +1347,7 @@ def extend_sub_api(request):
 
                     new_expire_dt = expire_dt + timedelta(days=months * 30)
                     new_expire_at = new_expire_dt.isoformat().replace(
-                        "+00:00", "Z"
+                        "+00:00", "Z",
                     )
 
                     await client.update_user(
@@ -1367,7 +1374,7 @@ def extend_sub_api(request):
 
                         wl_new_dt = wl_dt + timedelta(days=months * 30)
                         wl_new_expire = wl_new_dt.isoformat().replace(
-                            "+00:00", "Z"
+                            "+00:00", "Z",
                         )
                         await client.update_user(
                             uuid=cur_whitelist_uuid,
@@ -1386,7 +1393,7 @@ def extend_sub_api(request):
         if new_expire_at:
             try:
                 expire_dt = datetime.fromisoformat(
-                    new_expire_at.replace("Z", "+00:00")
+                    new_expire_at.replace("Z", "+00:00"),
                 )
                 delta = expire_dt - datetime.now(timezone.utc)
                 actual_remaining = max(0, delta.days)
@@ -1550,10 +1557,11 @@ def sync_data_api(request):
                 tasks.append(
                     asyncio.create_task(client.get_user_by_tgid(telegram_id)),
                 )
+
             if profile and profile.whitelist_uuid:
                 tasks.append(
                     asyncio.create_task(
-                        client.get_user(profile.whitelist_uuid)
+                        client.get_user(profile.whitelist_uuid),
                     ),
                 )
 
@@ -1594,6 +1602,7 @@ def sync_data_api(request):
                     wl_delta = wl_dt - datetime.now(timezone.utc)
                     wl_user["remaining_days"] = max(0, wl_delta.days)
                     wl_user["expire_at"] = wl_user["expireAt"]
+
                 whitelist_user_data = wl_user
 
             return (
@@ -1865,9 +1874,9 @@ def topup_whitelist_traffic_api(request):
     if gb_amount <= 0:
         return JsonResponse({"error": "Invalid amount"}, status=400)
 
-    PRICE_PER_GB = Decimal("10.00")
+    PRICE_PER_GB = Decimal("10.00") # noqa
     total_price = (Decimal(str(gb_amount)) * PRICE_PER_GB).quantize(
-        Decimal("0.00")
+        Decimal("0.00"),
     )
 
     with transaction.atomic():
@@ -1931,7 +1940,7 @@ def topup_whitelist_traffic_api(request):
                 "success": True,
                 "new_balance": float(profile.balance),
                 "new_traffic_limit": new_limit,
-            }
+            },
         )
     except Exception:
         with transaction.atomic():
@@ -1944,5 +1953,5 @@ def topup_whitelist_traffic_api(request):
             Order.objects.filter(id=order_id).update(status="FAILED")
 
         return JsonResponse(
-            {"error": "Ошибка при покупке трафика"}, status=500
+            {"error": "Ошибка при покупке трафика"}, status=500,
         )
