@@ -1002,7 +1002,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         (data.remaining_days > 3 ? 'status-active' : data.remaining_days > 0 ? 'status-expiring' : 'status-active');
                 }
                 const subTitle = document.getElementById('sub-title-display');
-                if (subTitle) subTitle.textContent = data.tariff_name || 'Premium VPN';
+                if (subTitle) subTitle.textContent = data.tariff_name || 'Premium';
 
                 // Update tariff card buttons instantly
                 document.querySelectorAll('.tariff-card-v2').forEach(card => {
@@ -1035,8 +1035,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <span class="material-symbols-rounded">shield_locked</span>
                                 </div>
                                 <div class="sub-info">
-                                    <span class="sub-label">Обход белых списков</span>
-                                    <h3 class="sub-title">Whitelist доступ</h3>
+                                    <span class="sub-label">Дополнительная подписка</span>
+                                    <h3 class="sub-title">Расширенный доступ</h3>
                                 </div>
                             </div>
                             <div class="sub-status-minimal status-active">
@@ -1090,10 +1090,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             switcher.innerHTML = `
                                 <div class="sub-type-indicator"></div>
                                 <button id="sub-type-main" class="sub-type-btn active" onclick="switchSubType('main')">
-                                    <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">verified_user</span>VPN
+                                    <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">verified_user</span>Основная
                                 </button>
                                 <button id="sub-type-whitelist" class="sub-type-btn" onclick="switchSubType('whitelist')">
-                                    <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">shield_locked</span>Whitelist
+                                    <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">shield_locked</span>Дополнительная
                                 </button>`;
                             btnGet.parentNode.insertBefore(switcher, btnGet);
                         }
@@ -1310,7 +1310,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (subType === 'whitelist') {
             basePrice = 100; // Fixed price for whitelist extension (can be dynamic if needed)
             baseDays = 30;
-            title = 'Продление Whitelist-доступа';
+            title = 'Продление дополнительной подписки';
         }
 
         const pricePerMonth = (basePrice / baseDays) * 30;
@@ -1466,7 +1466,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         showModal({
             title: 'Докупка трафика',
-            message: `Купить ${gbAmount} ГБ трафика для Whitelist-доступа за ${price} ₽?`,
+            message: `Купить ${gbAmount} ГБ трафика для дополнительной подписки за ${price} ₽?`,
             icon: 'add_circle',
             actionText: 'Купить',
             onAction: async () => {
@@ -1960,7 +1960,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         showModal({
             title: 'Telegram Прокси',
-            message: `Вы собираетесь подключить прокси "${name}". Это позволит Telegram работать стабильнее в условиях ограничений.`,
+            message: `Вы собираетесь подключить прокси "${name}". Это позволит Telegram работать стабильнее.`,
             icon: 'send',
             actionText: 'Подключить',
             onAction: () => {
@@ -2052,7 +2052,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <div style="display: flex; align-items: center; gap: 6px;">
                                     <h4 style="margin: 0; font-size: 15px; font-weight: 500; color: #FFFFFF;">${proxy.name}</h4>
                                 </div>
-                                <span style="font-size: 12px; opacity: 0.5; color: #E6E1E5; display: block; margin-top: 2px;">Обход ограничений (Прокси)</span>
+                                <span style="font-size: 12px; opacity: 0.5; color: #E6E1E5; display: block; margin-top: 2px;">Telegram Прокси</span>
                             </div>
                         </div>
                         
@@ -2209,10 +2209,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div id="sub-type-switcher" class="sub-type-switcher">
                             <div class="sub-type-indicator"></div>
                             <button id="sub-type-main" class="sub-type-btn active" onclick="switchSubType('main')">
-                                <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">verified_user</span>VPN
+                                <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">verified_user</span>Основная
                             </button>
                             <button id="sub-type-whitelist" class="sub-type-btn" onclick="switchSubType('whitelist')">
-                                <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">shield_locked</span>Whitelist
+                                <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">shield_locked</span>Дополнительная
                             </button>
                         </div>`;
                     }
@@ -2223,7 +2223,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             Получить ссылку для подключения
                         </button>
                         <div id="connection-result" class="connection-result" style="margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
-                            <span style="font-size: 14px; color: var(--panel-icon); text-align: center;">Отсканируйте QR-код или скопируйте ссылку для настройки вашего VPN-клиента</span>
+                            <span style="font-size: 14px; color: var(--panel-icon); text-align: center;">Отсканируйте QR-код или скопируйте ссылку для настройки клиента</span>
                             <canvas id="qr-code-canvas" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px; display: block;"></canvas>
                             <div style="display: flex; gap: 8px; width: 100%;">
                                 <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: rgba(255,255,255,0.1);" onclick="copySubLink()">

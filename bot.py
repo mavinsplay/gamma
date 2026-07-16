@@ -109,7 +109,7 @@ async def command_start_handler(message: types.Message) -> None:
     await message.answer(
         f"✨ <b>Добро пожаловать в Gamma</b>\n\n"
         f"Привет, {message.from_user.first_name}! 👋\n"
-        f"Быстрый и надёжный ускоритель для ежедневного использования.\n\n"
+        f"Быстрый и надёжный сервис для ежедневного использования.\n\n"
         f"• 🚀 <b>Скорость</b> без ограничений\n"
         f"• 🌍 <b>Серверы</b> в разных странах\n"
         f"• 🔒 <b>Защита</b> ваших данных\n\n"

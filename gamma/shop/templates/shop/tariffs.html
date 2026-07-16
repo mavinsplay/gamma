@@ -10,8 +10,8 @@
                             <span class="material-symbols-rounded">verified_user</span>
                         </div>
                         <div class="sub-info">
-                            <span class="sub-label">Основная подписка (VPN)</span>
-                            <h3 class="sub-title" id="sub-title-display">{{ profile.tarif.name|default:"Premium VPN" }}</h3>
+                            <span class="sub-label">Основная подписка</span>
+                            <h3 class="sub-title" id="sub-title-display">{{ profile.tarif.name|default:"Premium" }}</h3>
                         </div>
                     </div>
                     
@@ -45,8 +45,8 @@
                             <span class="material-symbols-rounded">shield_locked</span>
                         </div>
                         <div class="sub-info">
-                            <span class="sub-label">Обход белых списков</span>
-                            <h3 class="sub-title">Whitelist доступ</h3>
+                            <span class="sub-label">Дополнительная подписка</span>
+                            <h3 class="sub-title">Расширенный доступ</h3>
                         </div>
                     </div>
                     
@@ -135,13 +135,13 @@
                         {% if tariff.has_whitelist %}
                         <div class="v2-feature">
                             <span class="material-symbols-rounded">verified_user</span>
-                            <span>Обход белых спсиков</span>
+                            <span>Расширенный доступ</span>
                         </div>
                         {% endif %}
                         {% if 'прокси' in tariff.description|lower %}
                         <div class="v2-feature">
                             <span class="material-symbols-rounded">shield_with_heart</span>
-                            <span>Прокси с обходом</span>
+                            <span>Telegram Прокси</span>
                         </div>
                         {% endif %}
                     </div>
