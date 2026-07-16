@@ -1455,6 +1455,7 @@ def _get_authorized_telegram_id(request):
         mock = settings.MOCK_TELEGRAM_USER_DATA
         if mock:
             return mock.get("id")
+
         return 1
 
     init_data = request.GET.get("init_data") or request.POST.get("init_data")
