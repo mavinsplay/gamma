@@ -32,6 +32,9 @@ def _generate_pkce():
 
 
 def login_view(request):
+    if settings.DISABLE_AUTH:
+        return redirect("home")
+
     if "tg_user" in request.session:
         return redirect("home")
 
@@ -184,6 +187,14 @@ def avatar_proxy(request):
 
 
 def get_user_status(request):
+    if settings.DISABLE_AUTH:
+        mock = settings.MOCK_TELEGRAM_USER_DATA or {
+            "id": 1,
+            "username": "guest",
+            "first_name": "Guest",
+        }
+        return JsonResponse({"authenticated": True, "user": mock})
+
     user_data = request.session.get("tg_user")
     if user_data:
         return JsonResponse(

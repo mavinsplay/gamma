@@ -122,6 +122,28 @@ def app_index(request):
                 profile.telegram_username = telegram_username
                 profile.save()
 
+    # 3. DISABLE_AUTH fallback — same as DEBUG but triggered by env flag
+    if not profile and settings.DISABLE_AUTH:
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if mock and mock.get("id"):
+            telegram_id = mock.get("id")
+            telegram_username = mock.get("username")
+            profile, created = Profile.objects.get_or_create(
+                telegram_id=telegram_id,
+                defaults={
+                    "telegram_username": telegram_username,
+                    "balance": 0.00,
+                    "tarif": None,
+                },
+            )
+            if (
+                not created
+                and telegram_username
+                and not profile.telegram_username
+            ):
+                profile.telegram_username = telegram_username
+                profile.save()
+
     # JS calls sync-data-api with initData to fetch/create the profile.
 
     async def fetch_all():
@@ -1429,6 +1451,12 @@ def extend_sub_api(request):
 
 
 def _get_authorized_telegram_id(request):
+    if settings.DISABLE_AUTH:
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if mock:
+            return mock.get("id")
+        return 1
+
     init_data = request.GET.get("init_data") or request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
     if is_valid:

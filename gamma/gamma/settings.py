@@ -33,6 +33,7 @@ MOCK_TELEGRAM_USER_DATA = json.loads(MOCK_DATA_ENV) if MOCK_DATA_ENV else None
 
 ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
 ADMIN_URL = os.getenv("ADMIN_URL", "admin/")
+DISABLE_AUTH = os.getenv("DISABLE_AUTH", "false").lower() == "true"
 
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
 if not DEBUG and "*" in ALLOWED_HOSTS:
