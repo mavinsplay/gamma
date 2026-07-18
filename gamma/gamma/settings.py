@@ -9,22 +9,25 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
-if not SECRET_KEY:
-    if os.getenv("DJANGO_DEBUG", "False").lower() == "true":
-        SECRET_KEY = "4f7Z7JU2q8dXOiAgR2fW1niOZTLGUexLGo3E4LL0oSi8mg1p"
-    else:
-        raise ValueError("DJANGO_SECRET_KEY must be set in production.")
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+def required_env(name):
+    value = os.getenv(name)
+    if not value:
+        raise ValueError(f"{name} must be set.")
+    return value
+
+
+SECRET_KEY = required_env("DJANGO_SECRET_KEY")
+
+BOT_TOKEN = required_env("BOT_TOKEN")
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "gamma_net_bot")
 TELEGRAM_CLIENT_ID = os.getenv("TELEGRAM_CLIENT_ID", BOT_TOKEN.split(":")[0])
 TELEGRAM_CLIENT_SECRET = os.getenv("TELEGRAM_CLIENT_SECRET", "")
 
-REMNAWAVE_URL = os.getenv("REMNAWAVE_URL", "https://my-test-vpn.panel.ru")
-REMNAWAVE_TOKEN = os.getenv("REMNAWAVE_TOKEN", "YOUR_BEARER_TOKEN")
-REMNAWAVE_SECRET_NAME = os.getenv("REMNAWAVE_SECRET_NAME", "wBYQJWtq")
-REMNAWAVE_SECRET_VALUE = os.getenv("REMNAWAVE_SECRET_VALUE", "KuOsIrYu")
+REMNAWAVE_URL = required_env("REMNAWAVE_URL")
+REMNAWAVE_TOKEN = required_env("REMNAWAVE_TOKEN")
+REMNAWAVE_SECRET_NAME = required_env("REMNAWAVE_SECRET_NAME")
+REMNAWAVE_SECRET_VALUE = required_env("REMNAWAVE_SECRET_VALUE")
 
 DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
 

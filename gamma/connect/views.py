@@ -1,4 +1,5 @@
 import json
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -68,12 +69,21 @@ def open_sub_redirect(request):
     No auth required — only constructs a happ:// deep link, no user data exposed.
     """  # noqa: E501
     sub_link = request.GET.get("link", "")
-    happ_link = f"happ://add/{sub_link}" if sub_link else ""
+    parsed_link = urlsplit(sub_link)
+    if (
+        parsed_link.scheme != "https"
+        or not parsed_link.netloc
+        or parsed_link.username
+        or parsed_link.password
+    ):
+        happ_link = ""
+    else:
+        happ_link = f"happ://add/{sub_link}"
     return render(
         request,
         "connect/open_sub.html",
         {
             "happ_link": happ_link,
-            "happ_link_json": json.dumps(happ_link),
+            "happ_link_json": json.dumps(happ_link).replace("<", "\\u003c"),
         },
     )

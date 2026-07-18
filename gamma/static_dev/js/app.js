@@ -605,11 +605,7 @@ document.addEventListener('DOMContentLoaded', () => {
         paymentPollInterval = setInterval(async () => {
             try {
                 const tg = window.Telegram?.WebApp;
-                let url = `/shop/check-payment-api/${orderId}/`;
-                if (tg?.initData) {
-                    url += `?init_data=${encodeURIComponent(tg.initData)}`;
-                }
-                const resp = await fetch(url);
+                const resp = await fetch(`/shop/check-payment-api/${orderId}/`);
                 const data = await resp.json();
                 if (data.status === 'paid') {
                     clearInterval(paymentPollInterval);
@@ -1618,13 +1614,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const subType = window.selectedSubType || 'main';
         showLoading('Получение ссылки...');
         try {
-            const params = new URLSearchParams();
+            const formData = new FormData();
             if (tg?.initData) {
-                params.append('init_data', tg.initData);
+                formData.append('init_data', tg.initData);
             }
-            params.append('sub_type', subType);
+            formData.append('sub_type', subType);
+            formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
 
-            const response = await fetch(`/shop/get-sub-link-api/?${params.toString()}`);
+            const response = await fetch('/shop/get-sub-link-api/', {
+                method: 'POST',
+                body: formData,
+            });
 
             let data;
             try {
@@ -2537,17 +2537,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            let url = `/shop/sync-data-api/`;
-            const params = new URLSearchParams();
+            const formData = new FormData();
 
             if (tg?.initData) {
-                params.append('init_data', tg.initData);
+                formData.append('init_data', tg.initData);
             }
-            params.append('_t', Date.now());
+            formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
 
             try {
-                const response = await fetch(`${url}?${params.toString()}`, {
-                    headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+                const response = await fetch('/shop/sync-data-api/', {
+                    method: 'POST',
+                    body: formData,
+                    cache: 'no-store',
                 });
                 if (response.ok) {
                     const data = await response.json();

@@ -941,8 +941,11 @@ def buy_slot_api(request):
 
 
 def get_subscription_link_api(request):
-    init_data = request.GET.get("init_data")
-    sub_type = request.GET.get("sub_type", "main")  # "main" or "whitelist"
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    init_data = request.POST.get("init_data")
+    sub_type = request.POST.get("sub_type", "main")
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
     if is_valid:
@@ -1458,7 +1461,7 @@ def _get_authorized_telegram_id(request):
 
         return 1
 
-    init_data = request.GET.get("init_data") or request.POST.get("init_data")
+    init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
     if is_valid:
         return tg_user.get("id")
@@ -1527,7 +1530,10 @@ def fail_view(request, sub_id):
 
 
 def sync_data_api(request):
-    init_data = request.GET.get("init_data")
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
     if is_valid:

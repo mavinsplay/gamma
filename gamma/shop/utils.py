@@ -1,11 +1,15 @@
 import hashlib
 import hmac
 import json
+import time
 from urllib.parse import parse_qsl
 
 from django.conf import settings
 
 __all__ = ()
+
+
+TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = 300
 
 
 def verify_telegram_init_data(init_data: str):
@@ -23,6 +27,9 @@ def verify_telegram_init_data(init_data: str):
             return False, None
 
         received_hash = parsed_data.pop("hash")
+        auth_date = int(parsed_data.get("auth_date", ""))
+        if abs(time.time() - auth_date) > TELEGRAM_INIT_DATA_MAX_AGE_SECONDS:
+            return False, None
 
         # 2. Sort keys and create data_check_string
         data_check_string = "\n".join(
@@ -44,13 +51,12 @@ def verify_telegram_init_data(init_data: str):
         ).hexdigest()
 
         # 4. Compare hashes
-        if calculated_hash == received_hash:
+        if hmac.compare_digest(calculated_hash, received_hash):
             user_data = json.loads(parsed_data.get("user", "{}"))
             return True, user_data
 
         return False, None
-    except Exception as e:
-        print(f"Verification error: {e}")  # noqa: T201
+    except (TypeError, ValueError, json.JSONDecodeError):
         return False, None
 
 
@@ -84,4 +90,4 @@ def verify_telegram_login_data(data: dict):
         hashlib.sha256,
     ).hexdigest()
 
-    return calculated_hash == received_hash
+    return hmac.compare_digest(calculated_hash, received_hash)

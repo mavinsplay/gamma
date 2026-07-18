@@ -17,16 +17,17 @@ class Command(BaseCommand):
             "SUPERUSER_EMAIL",
             "admin@gamma.ru",
         )
-        superuser_password = os.getenv(
-            "SUPERUSER_PASSWORD",
-            "4pNWn0;3(!6zKka7B74H",
-        )
+        user_exists = get_user_model().objects.filter(
+            username=superuser_name,
+        ).exists()
+        superuser_password = os.getenv("SUPERUSER_PASSWORD")
 
-        if (
-            not get_user_model()
-            .objects.filter(username=superuser_name)
-            .exists()
-        ):
+        if not user_exists:
+            if not superuser_password:
+                raise ValueError(
+                    "SUPERUSER_PASSWORD must be set to create a superuser.",
+                )
+
             get_user_model().objects.create_superuser(
                 username=superuser_name,
                 email=superuser_email,
@@ -36,15 +37,13 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.SUCCESS(
                     "Superuser created successfully!\n"
-                    f"USERNAME: {superuser_name}\n"
-                    f"PASSWORD: {superuser_password}",
+                    f"USERNAME: {superuser_name}",
                 ),
             )
         else:
             self.stdout.write(
                 self.style.SUCCESS(
                     "Superuser already exists!\n"
-                    f"USERNAME: {superuser_name}\n"
-                    f"PASSWORD: {superuser_password}",
+                    f"USERNAME: {superuser_name}",
                 ),
             )

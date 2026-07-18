@@ -1,6 +1,11 @@
 from datetime import datetime, timedelta, timezone  # noqa: F401
 from decimal import Decimal
+import hashlib
+import hmac
+import json
+import time
 from unittest.mock import patch
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.test import Client, TestCase
@@ -12,9 +17,46 @@ from shop.services.yoomoney import (
     process_successful_payment,
     verify_payment_api,
 )
+from shop.utils import verify_telegram_init_data
 from user.models import Profile
 
 __all__ = ("PaymentTests",)
+
+
+class TelegramInitDataTests(TestCase):
+    def _build_init_data(self, auth_date):
+        data = {
+            "auth_date": str(auth_date),
+            "query_id": "test-query",
+            "user": json.dumps({"id": 12345}),
+        }
+        data_check_string = "\n".join(
+            f"{key}={value}" for key, value in sorted(data.items())
+        )
+        secret_key = hmac.new(
+            b"WebAppData",
+            settings.BOT_TOKEN.encode(),
+            hashlib.sha256,
+        ).digest()
+        data["hash"] = hmac.new(
+            secret_key,
+            data_check_string.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return urlencode(data)
+
+    def test_verify_telegram_init_data_rejects_expired_data(self):
+        init_data = self._build_init_data(int(time.time()) - 301)
+
+        self.assertEqual(verify_telegram_init_data(init_data), (False, None))
+
+    def test_verify_telegram_init_data_accepts_fresh_data(self):
+        init_data = self._build_init_data(int(time.time()))
+
+        self.assertEqual(
+            verify_telegram_init_data(init_data),
+            (True, {"id": 12345}),
+        )
 
 
 class PaymentTests(TestCase):
@@ -184,6 +226,10 @@ class PaymentTests(TestCase):
             status="PENDING",
         )
 
+        session = self.client.session
+        session["tg_user"] = {"id": 12345}
+        session.save()
+
         response = self.client.get(
             reverse("check_payment_api", args=[order.id]),
         )
@@ -198,6 +244,10 @@ class PaymentTests(TestCase):
             order_type="TOPUP",
             status="PAID",
         )
+
+        session = self.client.session
+        session["tg_user"] = {"id": 12345}
+        session.save()
 
         response = self.client.get(
             reverse("check_payment_api", args=[order.id]),
@@ -237,6 +287,10 @@ class PaymentTests(TestCase):
             created_at=datetime.now(timezone.utc) - timedelta(seconds=20),
         )
 
+        session = self.client.session
+        session["tg_user"] = {"id": 12345}
+        session.save()
+
         response = self.client.get(
             reverse("check_payment_api", args=[order.id]),
         )
@@ -261,6 +315,10 @@ class PaymentTests(TestCase):
             status="PENDING",
         )
 
+        session = self.client.session
+        session["tg_user"] = {"id": 12345}
+        session.save()
+
         response = self.client.get(
             reverse("check_payment_api", args=[order.id]),
         )
@@ -280,3 +338,13 @@ class PaymentTests(TestCase):
             reverse("check_payment_api", args=[999]),
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_sync_data_api_requires_post(self):
+        response = self.client.get(reverse("sync_data_api"))
+
+        self.assertEqual(response.status_code, 405)
+
+    def test_get_subscription_link_api_requires_post(self):
+        response = self.client.get(reverse("get_subscription_link_api"))
+
+        self.assertEqual(response.status_code, 405)
