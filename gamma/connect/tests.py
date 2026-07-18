@@ -1,6 +1,8 @@
 from django.test import TestCase
 from django.urls import reverse
 
+__all__ = "OpenSubscriptionRedirectTests"
+
 
 class OpenSubscriptionRedirectTests(TestCase):
     def test_rejects_xss_payload(self):

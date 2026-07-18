@@ -4,6 +4,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+__all__ = ()
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -14,6 +16,7 @@ def required_env(name):
     value = os.getenv(name)
     if not value:
         raise ValueError(f"{name} must be set.")
+
     return value
 
 
@@ -193,5 +196,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # YooMoney payment gateway
 YOOMONEY_RECEIVER = os.getenv("YOOMONEY_RECEIVER", "")
 YOOMONEY_TOKEN = os.getenv("YOOMONEY_TOKEN", "")
+
+# Platega payment gateway (SBP / Crypto)
+PLATEGA_MERCHANT_ID = os.getenv("PLATEGA_MERCHANT_ID", "")
+PLATEGA_SECRET = os.getenv("PLATEGA_SECRET", "")
 
 ORDER_TIMEOUT_MINUTES = 10

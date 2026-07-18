@@ -36,4 +36,9 @@ urlpatterns = [
         views.topup_whitelist_traffic_api,
         name="topup_whitelist_traffic_api",
     ),
+    path(
+        "platega-callback/",
+        views.platega_callback,
+        name="platega_callback",
+    ),
 ]

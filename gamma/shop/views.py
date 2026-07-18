@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
+import logging
 import re
 
 from asgiref.sync import async_to_sync
@@ -13,6 +14,12 @@ from django.views.decorators.csrf import csrf_exempt
 
 from connect.services.remnawave import RemnawaveClient
 from shop.models import Order, PromoCode, PromoCodeUsage, Tariff
+from shop.platega import Platega, PlategaAPIError, PlategaCallback
+from shop.services.platega import (
+    create_platega_payment,
+    process_platega_callback,
+    verify_platega_payment,
+)
 from shop.services.yoomoney import (
     cancel_expired_orders,
     create_payment_url,
@@ -22,6 +29,8 @@ from shop.services.yoomoney import (
 )
 from shop.utils import verify_telegram_init_data
 from user.models import Profile
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "app_index",
@@ -35,6 +44,7 @@ __all__ = [
     "fail_view",
     "sync_data_api",
     "topup_whitelist_traffic_api",
+    "platega_callback",
 ]
 
 
@@ -639,6 +649,11 @@ def topup_api(request):
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
     amount = request.POST.get("amount", 0)
+    # Метод оплаты: yoomoney, sbp или crypto
+    payment_provider = request.POST.get("payment_provider", "yoomoney")
+    if payment_provider not in ("yoomoney", "sbp", "crypto"):
+        return JsonResponse({"error": "Неверный метод оплаты"}, status=400)
+
     init_data = request.POST.get("init_data")
     is_valid, tg_user = verify_telegram_init_data(init_data)
 
@@ -717,41 +732,118 @@ def topup_api(request):
             amount=amount_dec,
             order_type="TOPUP",
             status="PENDING",
-        )
-
-    receiver = getattr(settings, "YOOMONEY_RECEIVER", "")
-    if not receiver:
-        return JsonResponse(
-            {"error": "Payment gateway not configured"},
-            status=500,
+            payment_provider=(
+                "platega"
+                if payment_provider in ("sbp", "crypto")
+                else "yoomoney"
+            ),
         )
 
     host = request.get_host()
     scheme = "https" if request.is_secure() else request.scheme
     success_url = f"{scheme}://{host}/shop/success/{order.id}/"
+    failed_url = f"{scheme}://{host}/shop/fail/{order.id}/"
+
+    # --- YooMoney ---
+    if payment_provider == "yoomoney":
+        receiver = getattr(settings, "YOOMONEY_RECEIVER", "")
+        if not receiver:
+            order.status = "FAILED"
+            order.save(update_fields=["status"])
+            return JsonResponse(
+                {"error": "Payment gateway not configured"},
+                status=500,
+            )
+
+        try:
+            payment_url = create_payment_url(
+                order_id=order.id,
+                amount=amount_dec,
+                receiver=receiver,
+                success_url=success_url,
+            )
+            expires_at = order.created_at + timedelta(
+                minutes=settings.ORDER_TIMEOUT_MINUTES,
+            )
+            return JsonResponse(
+                {
+                    "success": True,
+                    "payment_url": payment_url,
+                    "order_id": order.id,
+                    "expires_at": expires_at.isoformat(),
+                },
+            )
+        except Exception:
+            order.status = "FAILED"
+            order.save(update_fields=["status"])
+            return JsonResponse(
+                {"error": "Ошибка платежной системы"},
+                status=500,
+            )
+
+    # --- Platega (SBP / Crypto) ---
+    platega_method_map = {
+        "sbp": Platega.METHOD_SBP_QR,
+        "crypto": Platega.METHOD_CRYPTO,
+    }
+    platega_method = platega_method_map.get(payment_provider)
+    if not platega_method:
+        order.status = "FAILED"
+        order.save(update_fields=["status"])
+        return JsonResponse(
+            {"error": "Неизвестный метод оплаты"},
+            status=400,
+        )
+
+    if not getattr(settings, "PLATEGA_MERCHANT_ID", ""):
+        order.status = "FAILED"
+        order.save(update_fields=["status"])
+        return JsonResponse(
+            {"error": "Platega not configured"},
+            status=500,
+        )
 
     try:
-        payment_url = create_payment_url(
+        redirect_url, transaction_id = create_platega_payment(
             order_id=order.id,
             amount=amount_dec,
-            receiver=receiver,
-            success_url=success_url,
+            payment_method=platega_method,
+            return_url=success_url,
+            failed_url=failed_url,
         )
+        order.platega_transaction_id = transaction_id
+        order.save(update_fields=["platega_transaction_id"])
         expires_at = order.created_at + timedelta(
             minutes=settings.ORDER_TIMEOUT_MINUTES,
         )
         return JsonResponse(
             {
                 "success": True,
-                "payment_url": payment_url,
+                "payment_url": redirect_url,
                 "order_id": order.id,
                 "expires_at": expires_at.isoformat(),
             },
         )
-    except Exception:
+    except (PlategaAPIError, ValueError) as e:
+        logger.error(
+            f"[platega] create_payment error for order #{order.id}: {e}",
+        )
         order.status = "FAILED"
         order.save(update_fields=["status"])
-        return JsonResponse({"error": "Ошибка платежной системы"}, status=500)
+        return JsonResponse(
+            {"error": "Ошибка Platega: попробуйте позже"},
+            status=500,
+        )
+    except Exception as e:
+        logger.error(
+            f"[platega] unexpected error for order #{order.id}: {e}",
+        )
+        order.status = "FAILED"
+        order.save(update_fields=["status"])
+        return JsonResponse(
+            {"error": "Ошибка платежной системы"},
+            status=500,
+        )
 
 
 @csrf_exempt
@@ -800,30 +892,53 @@ def check_payment_api(request, order_id):
                         },
                     )
         else:
-            op_id = request.GET.get("operation_id")
-            confirmed = False
-            if op_id:
-                confirmed = verify_operation(
-                    op_id,
-                    order.id,
-                    order.amount,
-                )
-
-            if not confirmed:
-                confirmed = verify_payment_api(order.id, order.amount)
-
-            if confirmed:
-                result = process_successful_payment(order.id)
-                if result:
-                    profile = Profile.objects.get(
-                        telegram_id=order.telegram_id,
+            if order.payment_provider == "platega":
+                status = verify_platega_payment(order.platega_transaction_id)
+                if status == Platega.STATUS_CONFIRMED:
+                    result = process_successful_payment(order.id)
+                    if result:
+                        profile = Profile.objects.get(
+                            telegram_id=order.telegram_id,
+                        )
+                        return JsonResponse(
+                            {
+                                "status": "paid",
+                                "new_balance": float(profile.balance),
+                            },
+                        )
+                elif status == Platega.STATUS_CANCELED:  # noqa
+                    order.status = "FAILED"
+                    order.save(update_fields=["status"])
+                    return JsonResponse({"status": "failed"})
+                elif status == Platega.STATUS_CHARGEBACKED:
+                    order.status = "CHARGEBACK"
+                    order.save(update_fields=["status"])
+                    return JsonResponse({"status": "chargeback"})
+            else:
+                op_id = request.GET.get("operation_id")
+                confirmed = False
+                if op_id:
+                    confirmed = verify_operation(
+                        op_id,
+                        order.id,
+                        order.amount,
                     )
-                    return JsonResponse(
-                        {
-                            "status": "paid",
-                            "new_balance": float(profile.balance),
-                        },
-                    )
+
+                if not confirmed:
+                    confirmed = verify_payment_api(order.id, order.amount)
+
+                if confirmed:
+                    result = process_successful_payment(order.id)
+                    if result:
+                        profile = Profile.objects.get(
+                            telegram_id=order.telegram_id,
+                        )
+                        return JsonResponse(
+                            {
+                                "status": "paid",
+                                "new_balance": float(profile.balance),
+                            },
+                        )
 
         cutoff = datetime.now(timezone.utc) - timedelta(
             minutes=settings.ORDER_TIMEOUT_MINUTES,
@@ -1994,3 +2109,45 @@ def topup_whitelist_traffic_api(request):
             {"error": "Ошибка при покупке трафика"},
             status=500,
         )
+
+
+@csrf_exempt
+def platega_callback(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    merchant_id = getattr(settings, "PLATEGA_MERCHANT_ID", "")
+    secret = getattr(settings, "PLATEGA_SECRET", "")
+    if not merchant_id or not secret:
+        return JsonResponse({"error": "Platega not configured"}, status=500)
+
+    callback = PlategaCallback(merchant_id, secret)
+    if not callback.validate_django(request):
+        logger.warning(
+            f"[platega] Callback validation failed"
+            f": {callback.get_validation_error()}",
+        )
+        return JsonResponse(
+            {"error": callback.get_validation_error()},
+            status=400,
+        )
+
+    order_id_str = callback.get_order_id()
+    try:
+        order_id = int(order_id_str)
+    except (ValueError, TypeError):
+        logger.warning(
+            f"[platega] Invalid order_id in callback: {order_id_str}",
+        )
+        return JsonResponse({"error": "Invalid order_id"}, status=400)
+
+    status = callback.get_status()
+    order = process_platega_callback(order_id, status)
+    if not order:
+        logger.warning(
+            f"[platega] Order #{order_id} not processed"
+            f" (not found, already paid, or status ignored)",
+        )
+        return JsonResponse({"status": "ignored"})
+
+    return JsonResponse({"status": "ok"})

@@ -1562,19 +1562,27 @@ body {
 
 /* Pending Payment Banner */
 .pending-payment-banner {
-    flex-shrink: 0;
+    position: absolute;
+    top: 8px;
+    left: 20px;
+    right: 20px;
     padding: 10px 20px;
-    margin: 8px 20px 0;
+    margin: 0;
     background: var(--panel-bg);
     border: 1px solid rgba(208, 188, 255, 0.12);
     border-radius: 16px;
+    z-index: 100;
     animation: slideDown 0.4s var(--slide-timing);
 }
 
 @media (min-width: 768px) {
     .pending-payment-banner {
+        top: 8px;
+        left: auto;
+        right: auto;
+        width: calc(100% - 40px);
         max-width: 600px;
-        margin: 8px auto 0;
+        margin: 0 auto;
     }
 }
 
@@ -2331,4 +2339,129 @@ body {
 }
 #btn-get-link.hiding {
     display: none !important;
+}
+
+/* Payment Method Options in Modal */
+.payment-methods-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 16px;
+    margin-bottom: 8px;
+    width: 100%;
+}
+
+.payment-method-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+}
+
+.payment-method-item:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.payment-method-item.selected {
+    background: linear-gradient(135deg, rgba(208, 188, 255, 0.15) 0%, rgba(208, 188, 255, 0.05) 100%);
+    border-color: var(--md-sys-color-primary);
+}
+
+.payment-method-icon-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--md-sys-color-primary);
+}
+
+.payment-method-item.selected .payment-method-icon-wrapper {
+    background-color: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+}
+
+.payment-method-icon-wrapper.sbp-logo-wrapper {
+    background-color: transparent;
+    padding: 0;
+}
+
+.payment-method-item.selected .payment-method-icon-wrapper.sbp-logo-wrapper {
+    background-color: transparent;
+}
+
+.sbp-logo,
+.pm-brand-icon {
+    width: auto;
+    height: 32px;
+    display: block;
+}
+
+.yoomoney-logo {
+    height: 28px;
+}
+
+/* Brand badges keep their own colors regardless of selected state */
+.payment-method-icon-wrapper:has(.sbp-logo),
+.payment-method-icon-wrapper:has(.pm-brand-icon),
+.payment-method-icon-wrapper.crypto-badge {
+    background-color: transparent;
+    padding: 0;
+}
+
+.payment-method-item.selected .payment-method-icon-wrapper:has(.sbp-logo),
+.payment-method-item.selected .payment-method-icon-wrapper:has(.pm-brand-icon),
+.payment-method-item.selected .payment-method-icon-wrapper.crypto-badge {
+    background-color: transparent;
+}
+
+.payment-method-info {
+    flex: 1;
+}
+
+.payment-method-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #FFFFFF;
+    margin-bottom: 2px;
+}
+
+.payment-method-desc {
+    font-size: 12px;
+    color: var(--panel-icon);
+    opacity: 0.7;
+}
+
+.payment-method-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    color: transparent;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.payment-method-check svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+}
+
+.payment-method-item.selected .payment-method-check {
+    border-color: var(--md-sys-color-primary);
+    background-color: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
 }

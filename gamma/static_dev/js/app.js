@@ -468,6 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalAmountInput = document.getElementById('modal-amount-input');
 
     let lastModalTime = 0;
+    let modalKeepOpen = false;
 
     function showModal({ title, message, icon = 'info', actionText = 'Пополнить', onAction = null, showInput = false, inputValue = '', inputPlaceholder = 'Введите данные...', inputType = 'text', customHtml = '', closeBtnText = 'Закрыть' }) {
         lastModalTime = Date.now();
@@ -507,10 +508,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (onAction) {
             modalAction.style.display = 'block';
             modalAction.onclick = () => {
+                modalKeepOpen = false;
                 const currentModalTime = lastModalTime = Date.now();
                 onAction();
                 // Only hide if no other modal was opened during onAction
-                if (lastModalTime === currentModalTime) {
+                // and the action didn't request to stay open (e.g. debug mode).
+                if (!modalKeepOpen && lastModalTime === currentModalTime) {
                     hideModal();
                 }
             };
@@ -528,21 +531,101 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.test-topup-extra').forEach(el => el.remove());
     }
 
-    modalClose.onclick = hideModal;
+    modalClose.onclick = () => { if (!modalKeepOpen) hideModal(); };
     modalOverlay.onclick = (e) => {
-        if (e.target === modalOverlay) hideModal();
+        if (e.target === modalOverlay && !modalKeepOpen) hideModal();
     };
+
+    function showPaymentMethodPicker(amount) {
+        let selectedMethod = 'yoomoney';
+        const html = `
+            <div class="payment-methods-list">
+                <div class="payment-method-item selected bounce" data-method="yoomoney">
+                    <div class="payment-method-icon-wrapper">
+                        <svg class="pm-brand-icon yoomoney-logo" viewBox="0 0 1000 700" aria-label="ЮMoney" xmlns="http://www.w3.org/2000/svg">
+                            <path fill="#8B3FFD" fill-rule="evenodd" clip-rule="evenodd" d="M288.3,349c0.5-192.3,158-349,355.9-349c195.9,0,358.1,157.3,355.8,350c0,192.7-159.9,350-355.8,350C448.4,700,288.7,545.4,288.3,349.9V610.4H162.2L0,101.9h288.3V349zM511.2,350c0,70.9,60.8,130.7,132.9,130.7c74.3,0,132.9-59.8,132.9-130.7c0-70.9-60.8-130.7-132.9-130.7C572.1,219.3,511.2,279.1,511.2,350z"/>
+                        </svg>
+                    </div>
+                    <div class="payment-method-info">
+                        <div class="payment-method-title">По карте</div>
+                        <div class="payment-method-desc">Российские карты (ЮМани)</div>
+                    </div>
+                    <div class="payment-method-check">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="payment-method-item bounce" data-method="sbp">
+                    <div class="payment-method-icon-wrapper sbp-logo-wrapper">
+                        <svg class="sbp-logo" viewBox="0 0 345.5 398.9" aria-label="СБП" xmlns="http://www.w3.org/2000/svg">
+                            <path fill="#8F4794" d="M100.3,199.4l-52,30L0,313.1l196.9-113.7L100.3,199.4z"/>
+                            <path fill="#E40646" d="M248.9,113.7l-52,30l-48.3,83.7l196.9-113.7L248.9,113.7z"/>
+                            <polygon fill="#F9B429" points="196.9,83.7 148.6,0 148.6,171.5 148.6,227.4 148.6,398.9 196.9,315.2"/>
+                            <polygon fill="#EF8019" points="148.6,0 196.9,83.7 248.9,113.7 345.5,113.7"/>
+                            <polygon fill="#78B72A" points="148.6,171.5 148.6,398.9 196.9,315.2 196.9,255.2"/>
+                            <path fill="#00853F" d="M248.9,285.2l-52,30l-48.3,83.7l196.9-113.7L248.9,285.2z"/>
+                            <polygon fill="#5B57A2" points="0,85.8 0,313.1 48.3,229.5 48.3,169.4"/>
+                            <polygon fill="#0698D6" points="148.6,171.5 148.7,171.6 0,85.8 48.3,169.4 248.9,285.2 345.5,285.2"/>
+                        </svg>
+                    </div>
+                    <div class="payment-method-info">
+                        <div class="payment-method-title">СБП</div>
+                        <div class="payment-method-desc">Система быстрых платежей (Platega)</div>
+                    </div>
+                    <div class="payment-method-check">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="payment-method-item bounce" data-method="crypto">
+                    <div class="payment-method-icon-wrapper crypto-badge">
+                        <svg class="pm-brand-icon" viewBox="0 0 24 24" aria-label="Криптовалюта">
+                            <circle cx="12" cy="12" r="12" fill="#F7931A"/>
+                            <path d="M15.4 10.6c.2-1.3-.8-2-2.1-2.4l.4-1.7-1.1-.3-.4 1.6c-.3-.1-.6-.1-.9-.2l.4-1.6-1.1-.3-.4 1.7c-.2-.1-.5-.2-.7-.3l-1.5-.4-.3 1.1s.8.2.8.2c.4.1.5.4.5.6l-1.2 4.9c-.1.2-.3.5-.7.4 0 0-.8-.2-.8-.2l-.5 1.2 1.5.4c.3.1.5.2.8.3l-.4 1.8 1.1.3.4-1.7c.3.1.6.2.9.3l-.4 1.7 1.1.3.4-1.8c1.8.3 3.2.2 3.8-1.5.5-1.4-.1-2.3-1-2.8.7-.2 1.2-.6 1.3-1.4zm-2.4 3c-.3 1.2-2.4.6-3.1.4l.6-2.4c.7.2 2.9.5 2.5 2zm.3-3.1c-.3 1.1-2.1.5-2.7.4l.5-2.1c.6.1 2.5.4 2.2 1.7z" fill="#FFFFFF"/>
+                        </svg>
+                    </div>
+                    <div class="payment-method-info">
+                        <div class="payment-method-title">Криптовалюта</div>
+                        <div class="payment-method-desc">USDT, TON, TRX и др. (Platega)</div>
+                    </div>
+                    <div class="payment-method-check">✓</div>
+                </div>
+            </div>
+        `;
+        showModal({
+            title: 'Способ оплаты',
+            message: `Сумма: ${amount} ₽. Выберите метод оплаты:`,
+            icon: 'account_balance_wallet',
+            actionText: 'Оплатить',
+            showInput: false,
+            customHtml: html,
+            onAction: () => {
+                performTopup(amount, selectedMethod);
+            }
+        });
+        setTimeout(() => {
+            const items = document.querySelectorAll('.payment-method-item');
+            items.forEach(item => {
+                item.onclick = () => {
+                    items.forEach(i => i.classList.remove('selected'));
+                    item.classList.add('selected');
+                    selectedMethod = item.getAttribute('data-method');
+                };
+            });
+        }, 50);
+    }
 
     window.handleTopup = (initialAmount = '') => {
         const message = initialAmount
             ? `На вашем счёте недостаточно ${initialAmount} ₽. Введите сумму для пополнения:`
             : 'Введите сумму, на которую вы хотите пополнить счёт:';
-
         showModal({
             title: 'Пополнение баланса',
             message: message,
             icon: 'payments',
-            actionText: 'Пополнить',
+            actionText: 'Продолжить',
             showInput: true,
             inputValue: initialAmount,
             inputPlaceholder: 'Сумма в рублях',
@@ -553,7 +636,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     alert('Пожалуйста, введите корректную сумму.');
                     return;
                 }
-                performTopup(amount);
+                showPaymentMethodPicker(amount);
             }
         });
     };
@@ -621,6 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         icon: 'check_circle',
                         actionText: 'Отлично',
                         onAction: () => {
+                            modalKeepOpen = false;
                             hideModal();
                             if (window.syncNow) window.syncNow();
                         }
@@ -678,6 +762,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function clearPaymentState() {
+        modalKeepOpen = false;
         try {
             localStorage.removeItem(PENDING_PAYMENT_KEY);
         } catch (e) {}
@@ -719,7 +804,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function performTopup(amount) {
+    async function performTopup(amount, paymentMethod = 'yoomoney') {
+        // Keep the picker open synchronously (before any await) so the modal
+        // wrapper doesn't auto-close it while we await the fetch in dev mode.
+        if (typeof IS_DEBUG !== 'undefined' && IS_DEBUG) {
+            modalKeepOpen = true;
+        }
         const tg = window.Telegram?.WebApp;
         const userId = window.authenticatedUserId;
 
@@ -737,6 +827,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const formData = new FormData();
             formData.append('amount', amount);
+            formData.append('payment_provider', paymentMethod);
             formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
 
             if (tg?.initData) {
@@ -757,14 +848,39 @@ document.addEventListener('DOMContentLoaded', () => {
                         : (Date.now() + 10 * 60 * 1000);
                     startPaymentTimer(data.order_id, amount, data.payment_url, expiresAt);
                     if (typeof IS_DEBUG !== 'undefined' && IS_DEBUG) {
-                        // Don't redirect in debug — stay and watch the timer
-                        showModal({
-                            title: 'Режим отладки',
-                            message: `Платёж на ${amount} ₽ будет эмулирован через 15 секунд.`,
-                            icon: 'science',
-                            actionText: 'Ок',
-                            onAction: hideModal,
-                        });
+                        // Keep the payment method picker open in dev mode
+                        // and show a live countdown inside it instead of
+                        // closing it / redirecting.
+                        modalTitle.textContent = 'Оплата (отладка)';
+                        modalIcon.textContent = 'science';
+                        modalAction.style.display = 'none';
+                        modalInputContainer.style.display = 'none';
+                        let customContainer = document.getElementById('modal-custom-content');
+                        if (!customContainer) {
+                            customContainer = document.createElement('div');
+                            customContainer.id = 'modal-custom-content';
+                            customContainer.style.width = '100%';
+                            customContainer.style.marginTop = '15px';
+                            modalInputContainer.parentNode.insertBefore(customContainer, modalInputContainer);
+                        }
+                        customContainer.style.display = 'block';
+                        customContainer.innerHTML =
+                            '<div style="text-align:center;color:#CAC4D0;font-size:14px;line-height:1.5;">'
+                            + `Платёж на <strong>${amount} ₽</strong> будет эмулирован.<br>`
+                            + 'Не закрывайте это окно — статус обновится автоматически.</div>'
+                            + '<div id="debug-pay-timer" style="text-align:center;font-size:32px;font-weight:700;color:#D0BCFF;margin-top:12px;">0:15</div>';
+                        let debugLeft = 15;
+                        const debugTimerEl = document.getElementById('debug-pay-timer');
+                        clearInterval(window.__debugPayTimer);
+                        window.__debugPayTimer = setInterval(() => {
+                            debugLeft--;
+                            if (debugTimerEl) {
+                                const m = String(Math.floor(Math.max(debugLeft, 0) / 60)).padStart(2, '0');
+                                const s = String(Math.max(debugLeft, 0) % 60).padStart(2, '0');
+                                debugTimerEl.textContent = `${m}:${s}`;
+                            }
+                            if (debugLeft <= 0) clearInterval(window.__debugPayTimer);
+                        }, 1000);
                     } else {
                         if (tg?.openLink) {
                             tg.openLink(data.payment_url);
@@ -2899,15 +3015,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentOrderId = lastPendingOrderId || getStoredOrderId();
         const isDismissed = currentOrderId && sessionStorage.getItem('dismissed_payment_banner_' + currentOrderId) === 'true';
 
-        if (!IS_DEBUG && hasPending && !isDismissed) {
+        // Show the banner whenever a payment is pending (debug or not) so the
+        // user can always return to the payment and see the timer.
+        if (hasPending && !isDismissed) {
             pendingBanner.style.display = 'block';
         } else {
             pendingBanner.style.display = 'none';
         }
     }
 
-    // Initial load check (skip in DEBUG mode — payments are instant)
-    if (!IS_DEBUG && typeof HAS_PENDING_PAYMENT !== 'undefined') {
+    // Initial load check — restore the pending payment banner/timer if a
+    // transaction was interrupted (e.g. user left the screen by accident).
+    if (typeof HAS_PENDING_PAYMENT !== 'undefined') {
         updatePendingBanner(HAS_PENDING_PAYMENT);
     }
 

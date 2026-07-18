@@ -348,3 +348,119 @@ class PaymentTests(TestCase):
         response = self.client.get(reverse("get_subscription_link_api"))
 
         self.assertEqual(response.status_code, 405)
+
+    @patch("shop.views.verify_telegram_init_data")
+    @patch("shop.views.create_platega_payment")
+    def test_topup_api_platega_sbp(self, mock_create, mock_verify):
+        mock_verify.return_value = (
+            True,
+            {"id": 12345, "username": "testuser"},
+        )
+        mock_create.return_value = (
+            "https://platega.io/pay/xyz",
+            "platega-tx-123",
+        )
+        settings.PLATEGA_MERCHANT_ID = "test-merchant"
+        settings.PLATEGA_SECRET = "test-secret"
+
+        response = self.client.post(
+            reverse("topup_api"),
+            {
+                "init_data": "mock_data",
+                "amount": "300",
+                "payment_provider": "sbp",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["payment_url"], "https://platega.io/pay/xyz")
+        self.assertEqual(
+            Order.objects.filter(
+                telegram_id=12345,
+                payment_provider="platega",
+                platega_transaction_id="platega-tx-123",
+            ).count(),
+            1,
+        )
+
+    @patch("shop.views.verify_telegram_init_data")
+    @patch("shop.views.verify_platega_payment")
+    def test_check_payment_api_platega_confirmed(
+        self,
+        mock_verify_platega,
+        mock_verify_tg,
+    ):
+        mock_verify_tg.return_value = (True, {"id": 12345})
+        mock_verify_platega.return_value = "CONFIRMED"
+        settings.DEBUG = False
+
+        order = Order.objects.create(
+            telegram_id=12345,
+            amount=Decimal("300.00"),
+            order_type="TOPUP",
+            status="PENDING",
+            payment_provider="platega",
+            platega_transaction_id="platega-tx-123",
+        )
+
+        session = self.client.session
+        session["tg_user"] = {"id": 12345}
+        session.save()
+
+        response = self.client.get(
+            reverse("check_payment_api", args=[order.id]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "paid")
+        self.assertEqual(
+            data["new_balance"],
+            400.0,
+        )  # 100.0 initial in setUp + 300.0
+
+        order.refresh_from_db()
+        self.assertEqual(order.status, "PAID")
+
+    @patch("shop.views.PlategaCallback.validate_django")
+    @patch("shop.views.PlategaCallback.get_order_id")
+    @patch("shop.views.PlategaCallback.get_status")
+    def test_platega_callback_webhook(
+        self,
+        mock_status,
+        mock_order_id,
+        mock_validate,
+    ):
+        settings.PLATEGA_MERCHANT_ID = "test-merchant"
+        settings.PLATEGA_SECRET = "test-secret"
+
+        order = Order.objects.create(
+            telegram_id=12345,
+            amount=Decimal("150.00"),
+            order_type="TOPUP",
+            status="PENDING",
+            payment_provider="platega",
+            platega_transaction_id="platega-tx-999",
+        )
+
+        mock_validate.return_value = True
+        mock_order_id.return_value = str(order.id)
+        mock_status.return_value = "CONFIRMED"
+
+        response = self.client.post(
+            reverse("platega_callback"),
+            data=json.dumps({"dummy": "data"}),
+            content_type="application/json",
+            HTTP_X_MERCHANTID="test-merchant",
+            HTTP_X_SECRET="test-secret",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
+
+        order.refresh_from_db()
+        self.assertEqual(order.status, "PAID")
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.balance, Decimal("250.00"))

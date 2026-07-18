@@ -61,6 +61,10 @@ class Order(models.Model):
         ("TOPUP", "Top-up"),
         ("WHITELIST_TOPUP", "Whitelist Traffic Top-up"),
     )
+    PROVIDER_CHOICES = (
+        ("yoomoney", "YooMoney"),
+        ("platega", "Platega"),
+    )
     tariff = models.ForeignKey(
         Tariff,
         on_delete=models.SET_NULL,
@@ -78,6 +82,18 @@ class Order(models.Model):
         max_length=20,
         choices=STATUS_CHOICES,
         default="PENDING",
+    )
+    payment_provider = models.CharField(
+        max_length=20,
+        choices=PROVIDER_CHOICES,
+        default="yoomoney",
+        verbose_name="Платёжный провайдер",
+    )
+    platega_transaction_id = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        verbose_name="Platega Transaction ID",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

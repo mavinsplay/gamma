@@ -79,6 +79,7 @@ def open_sub_redirect(request):
         happ_link = ""
     else:
         happ_link = f"happ://add/{sub_link}"
+
     return render(
         request,
         "connect/open_sub.html",

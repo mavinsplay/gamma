@@ -17,9 +17,13 @@ class Command(BaseCommand):
             "SUPERUSER_EMAIL",
             "admin@gamma.ru",
         )
-        user_exists = get_user_model().objects.filter(
-            username=superuser_name,
-        ).exists()
+        user_exists = (
+            get_user_model()
+            .objects.filter(
+                username=superuser_name,
+            )
+            .exists()
+        )
         superuser_password = os.getenv("SUPERUSER_PASSWORD")
 
         if not user_exists:
