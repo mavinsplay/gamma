@@ -467,11 +467,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalInputContainer = document.getElementById('modal-input-container');
     const modalAmountInput = document.getElementById('modal-amount-input');
 
-    let lastModalTime = 0;
     let modalKeepOpen = false;
+    let showModalCount = 0;
 
     function showModal({ title, message, icon = 'info', actionText = 'Пополнить', onAction = null, showInput = false, inputValue = '', inputPlaceholder = 'Введите данные...', inputType = 'text', customHtml = '', closeBtnText = 'Закрыть' }) {
-        lastModalTime = Date.now();
+        showModalCount++;
+
+        // Re-trigger animation when replacing an already-open modal
+        if (modalOverlay.classList.contains('active')) {
+            modalOverlay.classList.remove('active');
+            void modalOverlay.offsetHeight; // force reflow
+        }
+
         modalTitle.textContent = title;
         modalMessage.textContent = message;
         modalIcon.textContent = icon;
@@ -509,11 +516,11 @@ document.addEventListener('DOMContentLoaded', () => {
             modalAction.style.display = 'block';
             modalAction.onclick = () => {
                 modalKeepOpen = false;
-                const currentModalTime = lastModalTime = Date.now();
+                const prevCount = showModalCount;
                 onAction();
                 // Only hide if no other modal was opened during onAction
                 // and the action didn't request to stay open (e.g. debug mode).
-                if (!modalKeepOpen && lastModalTime === currentModalTime) {
+                if (!modalKeepOpen && showModalCount === prevCount) {
                     hideModal();
                 }
             };
@@ -531,9 +538,9 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.test-topup-extra').forEach(el => el.remove());
     }
 
-    modalClose.onclick = () => { if (!modalKeepOpen) hideModal(); };
+    modalClose.onclick = hideModal;
     modalOverlay.onclick = (e) => {
-        if (e.target === modalOverlay && !modalKeepOpen) hideModal();
+        if (e.target === modalOverlay) hideModal();
     };
 
     function showPaymentMethodPicker(amount) {
