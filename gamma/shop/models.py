@@ -95,6 +95,12 @@ class Order(models.Model):
         blank=True,
         verbose_name="Platega Transaction ID",
     )
+    payment_url = models.URLField(
+        max_length=500,
+        null=True,
+        blank=True,
+        verbose_name="URL оплаты",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

@@ -652,7 +652,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let paymentTimerInterval = null;
     let paymentTimerSeconds = 0;
 
-    function startPaymentTimer(orderId, amount, paymentUrl, expiresAt) {
+    function startPaymentTimer(orderId, amount, paymentUrl, expiresAt, paymentProvider) {
         if (!expiresAt) {
             expiresAt = Date.now() + 10 * 60 * 1000;
         }
@@ -661,6 +661,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 orderId: orderId,
                 amount: amount,
                 paymentUrl: paymentUrl,
+                paymentProvider: paymentProvider || 'yoomoney',
                 expiresAt: expiresAt
             }));
         } catch (e) {}
@@ -853,7 +854,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     var expiresAt = data.expires_at
                         ? new Date(data.expires_at).getTime()
                         : (Date.now() + 10 * 60 * 1000);
-                    startPaymentTimer(data.order_id, amount, data.payment_url, expiresAt);
+                    startPaymentTimer(data.order_id, amount, data.payment_url, expiresAt, paymentMethod);
                     if (typeof IS_DEBUG !== 'undefined' && IS_DEBUG) {
                         // Keep the payment method picker open in dev mode
                         // and show a live countdown inside it instead of
@@ -918,7 +919,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 if (window.syncNow) window.syncNow();
             } else if (response.status === 409) {
-                // Timer will be restored on next sync from server data
+                if (data.existing_order_id && data.payment_url) {
+                    startPaymentTimer(
+                        data.existing_order_id,
+                        amount,
+                        data.payment_url,
+                        null,
+                        data.payment_provider
+                    );
+                }
                 if (window.syncNow) window.syncNow();
                 showModal({
                     title: 'Платёж уже выполняется',
@@ -3103,6 +3112,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     orderId: pp.order_id,
                     amount: pp.amount,
                     paymentUrl: pp.payment_url,
+                    paymentProvider: pp.payment_provider || 'yoomoney',
                     expiresAt: new Date(pp.expires_at).getTime()
                 }));
             } catch (e) {}

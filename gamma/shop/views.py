@@ -723,6 +723,8 @@ def topup_api(request):
                         "Дождитесь его завершения."
                     ),
                     "existing_order_id": existing_pending.id,
+                    "payment_url": existing_pending.payment_url or "",
+                    "payment_provider": existing_pending.payment_provider,
                 },
                 status=409,
             )
@@ -762,6 +764,8 @@ def topup_api(request):
                 receiver=receiver,
                 success_url=success_url,
             )
+            order.payment_url = payment_url
+            order.save(update_fields=["payment_url"])
             expires_at = order.created_at + timedelta(
                 minutes=settings.ORDER_TIMEOUT_MINUTES,
             )
@@ -812,7 +816,8 @@ def topup_api(request):
             failed_url=failed_url,
         )
         order.platega_transaction_id = transaction_id
-        order.save(update_fields=["platega_transaction_id"])
+        order.payment_url = redirect_url
+        order.save(update_fields=["platega_transaction_id", "payment_url"])
         expires_at = order.created_at + timedelta(
             minutes=settings.ORDER_TIMEOUT_MINUTES,
         )
@@ -1841,21 +1846,26 @@ def sync_data_api(request):
         has_pending_payment = pending_order is not None
         pending_payment = None
         if pending_order:
-            receiver = getattr(settings, "YOOMONEY_RECEIVER", "")
-            success_url = "{scheme}://{host}/shop/success/{oid}/".format(
-                scheme=request.scheme,
-                host=request.get_host(),
-                oid=pending_order.id,
-            )
-            pending_payment = {
-                "order_id": pending_order.id,
-                "amount": float(pending_order.amount),
-                "payment_url": create_payment_url(
+            payment_url = pending_order.payment_url
+            if not payment_url:
+                receiver = getattr(settings, "YOOMONEY_RECEIVER", "")
+                success_url = "{scheme}://{host}/shop/success/{oid}/".format(
+                    scheme=request.scheme,
+                    host=request.get_host(),
+                    oid=pending_order.id,
+                )
+                payment_url = create_payment_url(
                     pending_order.id,
                     pending_order.amount,
                     receiver,
                     success_url,
-                ),
+                )
+
+            pending_payment = {
+                "order_id": pending_order.id,
+                "amount": float(pending_order.amount),
+                "payment_url": payment_url,
+                "payment_provider": pending_order.payment_provider,
                 "expires_at": (
                     pending_order.created_at
                     + timedelta(minutes=settings.ORDER_TIMEOUT_MINUTES)
