@@ -1953,6 +1953,9 @@ def sync_data_api(request):
                         "notifications_enabled": (
                             profile.notifications_enabled
                         ),
+                        "server_notifications_enabled": (
+                            profile.server_notifications_enabled
+                        ),
                         "whitelist_uuid": (
                             str(profile.whitelist_uuid)
                             if profile.whitelist_uuid
@@ -2024,6 +2027,11 @@ def update_preferences_api(request):
         profile.payment_reminder_enabled = value
     elif pref_type == "notifications":
         profile.notifications_enabled = value
+    elif pref_type == "server_notifications":
+        if str(telegram_id) != str(settings.ADMIN_TELEGRAM_ID):
+            return JsonResponse({"error": "Unauthorized"}, status=403)
+
+        profile.server_notifications_enabled = value
     else:
         return JsonResponse({"error": "Invalid type"}, status=400)
 

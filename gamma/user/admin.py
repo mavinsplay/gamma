@@ -70,6 +70,7 @@ class ProfileAdmin(admin.ModelAdmin):
                 "fields": (
                     "payment_reminder_enabled",
                     "notifications_enabled",
+                    "server_notifications_enabled",
                     "subscription_expired_notification_sent",
                 ),
             },

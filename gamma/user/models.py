@@ -36,6 +36,10 @@ class Profile(models.Model):
         default=False,
         verbose_name="Уведомление об окончании подписки отправлено",
     )
+    server_notifications_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Уведомления о серверах",
+    )
     # Whitelist bypass subscription (separate Remnawave user)
     whitelist_uuid = models.CharField(
         max_length=100,

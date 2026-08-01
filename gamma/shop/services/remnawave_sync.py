@@ -5,7 +5,6 @@ from django.conf import settings
 
 from connect.services.remnawave import RemnawaveClient
 
-
 logger = logging.getLogger(__name__)
 
 WHITELIST_EXTERNAL_SQUAD_UUID = getattr(

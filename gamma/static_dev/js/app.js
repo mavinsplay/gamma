@@ -2159,11 +2159,15 @@ document.addEventListener('DOMContentLoaded', () => {
             // Update settings toggles
             const paymentReminderToggle = document.getElementById('toggle-payment-reminder');
             const notificationsToggle = document.getElementById('toggle-notifications');
+            const serverNotificationsToggle = document.getElementById('toggle-server-notifications');
             if (paymentReminderToggle && data.profile.payment_reminder_enabled !== undefined) {
                 paymentReminderToggle.checked = data.profile.payment_reminder_enabled;
             }
             if (notificationsToggle && data.profile.notifications_enabled !== undefined) {
                 notificationsToggle.checked = data.profile.notifications_enabled;
+            }
+            if (serverNotificationsToggle && data.profile.server_notifications_enabled !== undefined) {
+                serverNotificationsToggle.checked = data.profile.server_notifications_enabled;
             }
         }
 

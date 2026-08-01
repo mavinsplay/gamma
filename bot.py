@@ -260,9 +260,106 @@ async def subscription_reminder_task():
         await asyncio.sleep(24 * 3600)  # Check once a day
 
 
+async def check_and_notify_nodes(raw_nodes, admin_id):
+    from connect.models import NodeStatus
+
+    statuses = await sync_to_async(
+        lambda: {s.node_id: s for s in NodeStatus.objects.all()},
+    )()
+
+    for node in raw_nodes:
+        node_id = str(node.get("id") or node.get("uuid") or "")
+        if not node_id:
+            continue
+
+        node_name = node.get("name", f"Server {node_id}")
+
+        if node.get("isConnected") is None:
+            continue
+
+        is_connected = bool(node.get("isConnected"))
+
+        node_status = statuses.get(node_id)
+        if not node_status:
+            node_status = await sync_to_async(NodeStatus.objects.create)(
+                node_id=node_id,
+                last_known_online=is_connected,
+            )
+            statuses[node_id] = node_status
+            continue
+
+        # Skip notifications for nodes with manual status override
+        if node_status.use_manual_status:
+            continue
+
+        # If previous state was online and now is offline -> Send OFF alert
+        if node_status.last_known_online is True and not is_connected:
+            if node_status.last_alert_sent != "OFFLINE":
+                msg = (
+                    "⚠️ <b>Внимание! Сервер отключился!</b>\n\n"
+                    f"🖥 <b>Сервер:</b> {node_name}\n"
+                    f"🔴 <b>Состояние:</b> Отключен (Offline)\n"
+                    f"🆔 <code>{node_id}</code>"
+                )
+                try:
+                    await bot.send_message(admin_id, msg, parse_mode="HTML")
+                    node_status.last_alert_sent = "OFFLINE"
+                except Exception as e:
+                    logging.error(
+                        f"Failed to send server offline alert to admin: {e}",
+                    )
+
+        # If previous state was offline and now is online -> Send ON alert once
+        elif node_status.last_known_online is False and is_connected:
+            if node_status.last_alert_sent != "ONLINE":
+                msg = (
+                    "✅ <b>Сервер снова работает!</b>\n\n"
+                    f"🖥 <b>Сервер:</b> {node_name}\n"
+                    f"🟢 <b>Состояние:</b> Доступен (Online)\n"
+                    f"🆔 <code>{node_id}</code>"
+                )
+                try:
+                    await bot.send_message(admin_id, msg, parse_mode="HTML")
+                    node_status.last_alert_sent = "ONLINE"
+                except Exception as e:
+                    logging.error(
+                        f"Failed to send server online alert to admin: {e}",
+                    )
+
+        if node_status.last_known_online != is_connected:
+            node_status.last_known_online = is_connected
+            await sync_to_async(node_status.save)()
+
+
+async def node_monitoring_task():
+    while True:
+        try:
+            admin_id = ADMIN_ID
+            if admin_id:
+                admin_profile = await sync_to_async(
+                    Profile.objects.filter(telegram_id=admin_id).first,
+                )()
+                if (
+                    admin_profile
+                    and admin_profile.server_notifications_enabled
+                ):
+                    client = RemnawaveClient()
+                    try:
+                        raw_nodes = await client.get_nodes()
+                        if isinstance(raw_nodes, list):
+                            await check_and_notify_nodes(raw_nodes, admin_id)
+                    finally:
+                        await client.close()
+        except Exception as e:
+            logging.error(f"Error in node monitoring task: {e}")
+
+        await asyncio.sleep(60)
+
+
 async def main() -> None:
     logging.info("Бот успешно запущен и готов к работе!")
     asyncio.create_task(subscription_reminder_task())
+    asyncio.create_task(node_monitoring_task())
 
     retry_delay = 5
     while True:

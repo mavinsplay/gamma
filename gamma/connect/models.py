@@ -60,6 +60,17 @@ class NodeStatus(models.Model):
         default=True,
         verbose_name="Статус онлайн (вручную)",
     )
+    last_known_online = models.BooleanField(
+        null=True,
+        blank=True,
+        verbose_name="Последнее известное состояние (онлайн)",
+    )
+    last_alert_sent = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        verbose_name="Последнее отправленное уведомление",
+    )
 
     class Meta:
         verbose_name = "Статус сервера"
