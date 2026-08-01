@@ -1,9 +1,18 @@
 from datetime import datetime, timedelta, timezone
 import logging
 
+from django.conf import settings
+
 from connect.services.remnawave import RemnawaveClient
 
+
 logger = logging.getLogger(__name__)
+
+WHITELIST_EXTERNAL_SQUAD_UUID = getattr(
+    settings,
+    "WHITELIST_EXTERNAL_SQUAD_UUID",
+    "68fce704-b469-43f4-afc9-8a38a5c8b851",
+)
 
 __all__ = ["sync_tariff_to_remnawave"]
 
@@ -83,10 +92,14 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                                 expire_at=new_expire,
                                 status="ACTIVE",
                                 trafficlimitbytes=5368709120,
+                                trafficlimitstrategy="MONTH",
                                 hwiddevicelimit=20,
                                 activeinternalsquads=[
                                     tariff.whitelist_squad_uuid,
                                 ],
+                                externalsquaduuid=(
+                                    WHITELIST_EXTERNAL_SQUAD_UUID
+                                ),
                             )
                             whitelist_uuid = cur_whitelist_uuid
                         except Exception:
@@ -104,11 +117,15 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                                         uuid=u["uuid"],
                                         expire_at=new_expire,
                                         trafficlimitbytes=5368709120,
+                                        trafficlimitstrategy="MONTH",
                                         hwiddevicelimit=20,
                                         status="ACTIVE",
                                         activeinternalsquads=[
                                             tariff.whitelist_squad_uuid,
                                         ],
+                                        externalsquaduuid=(
+                                            WHITELIST_EXTERNAL_SQUAD_UUID
+                                        ),
                                     )
                                     whitelist_uuid = u["uuid"]
                                 except Exception:
@@ -126,11 +143,15 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                                 ),
                                 days=tariff.duration_days,
                                 trafficlimitbytes=5368709120,
+                                trafficlimitstrategy="MONTH",
                                 hwiddevicelimit=20,
                                 telegramid=int(telegram_id),
                                 activeinternalsquads=[
                                     tariff.whitelist_squad_uuid,
                                 ],
+                                externalsquaduuid=(
+                                    WHITELIST_EXTERNAL_SQUAD_UUID
+                                ),
                             )
                             if wl_user and wl_user.get("uuid"):
                                 whitelist_uuid = wl_user["uuid"]
@@ -196,9 +217,11 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                                 else None
                             ),
                             trafficlimitbytes=5368709120,
+                            trafficlimitstrategy="MONTH",
                             hwiddevicelimit=20,
                             status="ACTIVE",
                             activeinternalsquads=[tariff.whitelist_squad_uuid],
+                            externalsquaduuid=WHITELIST_EXTERNAL_SQUAD_UUID,
                         )
                         whitelist_uuid = u["uuid"]
                     except Exception:
@@ -212,9 +235,11 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                         username=f"{username}_wl",
                         days=tariff.duration_days,
                         trafficlimitbytes=5368709120,
+                        trafficlimitstrategy="MONTH",
                         hwiddevicelimit=20,
                         telegramid=int(telegram_id),
                         activeinternalsquads=[tariff.whitelist_squad_uuid],
+                        externalsquaduuid=WHITELIST_EXTERNAL_SQUAD_UUID,
                     )
                     if wl_user and wl_user.get("uuid"):
                         whitelist_uuid = wl_user["uuid"]

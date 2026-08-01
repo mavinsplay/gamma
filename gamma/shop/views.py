@@ -32,6 +32,12 @@ from user.models import Profile
 
 logger = logging.getLogger(__name__)
 
+WHITELIST_EXTERNAL_SQUAD_UUID = getattr(
+    settings,
+    "WHITELIST_EXTERNAL_SQUAD_UUID",
+    "68fce704-b469-43f4-afc9-8a38a5c8b851",
+)
+
 __all__ = [
     "app_index",
     "buy_tariff_api",
@@ -447,11 +453,15 @@ def buy_tariff_api(request):
                                             else None
                                         ),
                                         trafficlimitbytes=5368709120,
+                                        trafficlimitstrategy="MONTH",
                                         hwiddevicelimit=20,
                                         status="ACTIVE",
                                         activeinternalsquads=[
                                             tariff.whitelist_squad_uuid,
                                         ],
+                                        externalsquaduuid=(
+                                            WHITELIST_EXTERNAL_SQUAD_UUID
+                                        ),
                                     )
                                     whitelist_uuid = u["uuid"]
                                 except Exception:
@@ -465,11 +475,15 @@ def buy_tariff_api(request):
                                 username=f"{username}_wl",
                                 days=tariff.duration_days,
                                 trafficlimitbytes=5368709120,
+                                trafficlimitstrategy="MONTH",
                                 hwiddevicelimit=20,
                                 telegramid=int(telegram_id),
                                 activeinternalsquads=[
                                     tariff.whitelist_squad_uuid,
                                 ],
+                                externalsquaduuid=(
+                                    WHITELIST_EXTERNAL_SQUAD_UUID
+                                ),
                             )
                             if wl_user and wl_user.get("uuid"):
                                 whitelist_uuid = wl_user["uuid"]
@@ -519,6 +533,15 @@ def buy_tariff_api(request):
                                 uuid=cur_whitelist_uuid,
                                 expire_at=new_expire,
                                 status="ACTIVE",
+                                trafficlimitbytes=5368709120,
+                                trafficlimitstrategy="MONTH",
+                                hwiddevicelimit=20,
+                                activeinternalsquads=[
+                                    tariff.whitelist_squad_uuid,
+                                ],
+                                externalsquaduuid=(
+                                    WHITELIST_EXTERNAL_SQUAD_UUID
+                                ),
                             )
                             whitelist_uuid = cur_whitelist_uuid
                         except Exception:
@@ -535,11 +558,15 @@ def buy_tariff_api(request):
                                         uuid=u["uuid"],
                                         expire_at=new_expire,
                                         trafficlimitbytes=5368709120,
+                                        trafficlimitstrategy="MONTH",
                                         hwiddevicelimit=20,
                                         status="ACTIVE",
                                         activeinternalsquads=[
                                             tariff.whitelist_squad_uuid,
                                         ],
+                                        externalsquaduuid=(
+                                            WHITELIST_EXTERNAL_SQUAD_UUID
+                                        ),
                                     )
                                     whitelist_uuid = u["uuid"]
                                 except Exception:
@@ -556,11 +583,15 @@ def buy_tariff_api(request):
                                 ),
                                 days=tariff.duration_days,
                                 trafficlimitbytes=5368709120,
+                                trafficlimitstrategy="MONTH",
                                 hwiddevicelimit=20,
                                 telegramid=int(telegram_id),
                                 activeinternalsquads=[
                                     tariff.whitelist_squad_uuid,
                                 ],
+                                externalsquaduuid=(
+                                    WHITELIST_EXTERNAL_SQUAD_UUID
+                                ),
                             )
                             if wl_user and wl_user.get("uuid"):
                                 whitelist_uuid = wl_user["uuid"]

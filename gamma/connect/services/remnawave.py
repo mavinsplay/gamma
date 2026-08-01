@@ -61,6 +61,8 @@ class RemnawaveClient:
         telegramid: int = None,
         activeinternalsquads: list[str] = None,
         status: str = "ACTIVE",
+        externalsquaduuid: str = None,
+        trafficlimitstrategy: str = "NO_RESET",
     ):
         expire_at = (
             datetime.utcnow() + timedelta(days=days)
@@ -70,11 +72,12 @@ class RemnawaveClient:
             "username": username,
             "expireAt": expire_at,
             "trafficLimitBytes": trafficlimitbytes,
-            "trafficLimitStrategy": "NO_RESET",
+            "trafficLimitStrategy": trafficlimitstrategy,
             "status": status,
             "hwidDeviceLimit": hwiddevicelimit,
             "telegramId": telegramid,
             "activeInternalSquads": activeinternalsquads,
+            "externalSquadUuid": externalsquaduuid,
         }
 
         response = await self.http_client.post("users", json=payload)
@@ -91,6 +94,8 @@ class RemnawaveClient:
         telegramid: int = None,
         status: str = None,
         activeinternalsquads: list = None,
+        externalsquaduuid: str = None,
+        trafficlimitstrategy: str = None,
     ):
         # Fetch current user to merge data
         current_user = await self.get_user(uuid)
@@ -120,7 +125,11 @@ class RemnawaveClient:
                 if trafficlimitbytes is not None
                 else current_user.get("trafficLimitBytes", 0)
             ),
-            "trafficLimitStrategy": "NO_RESET",
+            "trafficLimitStrategy": (
+                trafficlimitstrategy
+                if trafficlimitstrategy is not None
+                else current_user.get("trafficLimitStrategy", "NO_RESET")
+            ),
             "expireAt": (
                 expire_at
                 if expire_at is not None
@@ -140,7 +149,11 @@ class RemnawaveClient:
                 else current_user.get("hwidDeviceLimit", 0)
             ),
             "activeInternalSquads": squad_uuids,
-            "externalSquadUuid": current_user.get("externalSquadUuid"),
+            "externalSquadUuid": (
+                externalsquaduuid
+                if externalsquaduuid is not None
+                else current_user.get("externalSquadUuid")
+            ),
         }
 
         response = await self.http_client.patch("users", json=payload)
