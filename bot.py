@@ -7,7 +7,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "gamma"))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "gamma.settings")
 
-from aiogram import Bot, Dispatcher, F, types  # noqa: E402
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, types  # noqa: E402
 from aiogram.exceptions import TelegramNetworkError  # noqa: E402
 from aiogram.filters import Command, CommandStart  # noqa: E402
 from aiogram.fsm.context import FSMContext  # noqa: E402
@@ -33,6 +33,8 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBAPP_URL = os.getenv("WEBAPP_URL")
 ADMIN_ID = int(os.getenv("ADMIN_TELEGRAM_ID", 0))
+REQUIRED_CHANNEL_ID = os.getenv("REQUIRED_CHANNEL_ID", "").strip()
+REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "").strip()
 
 if not BOT_TOKEN or BOT_TOKEN == "1234567890:YOUR_BOT_TOKEN_HERE":
     raise ValueError("Необходимо указать настоящий BOT_TOKEN в файле .env!")
@@ -58,12 +60,11 @@ SUPPORT_USERNAME = os.getenv(
 ).lstrip("@")
 
 
-@dp.message(CommandStart())
-async def command_start_handler(message: types.Message) -> None:
+def build_welcome_markup() -> InlineKeyboardMarkup:
     status_url = f"{WEBAPP_URL}?tab=connection"
     support_url = f"https://t.me/{SUPPORT_USERNAME}"
 
-    markup = InlineKeyboardMarkup(
+    return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
@@ -106,16 +107,25 @@ async def command_start_handler(message: types.Message) -> None:
         ],
     )
 
-    await message.answer(
+
+def build_welcome_text(first_name: str) -> str:
+    return (
         f"✨ <b>Добро пожаловать в Gamma</b>\n\n"
-        f"Привет, {message.from_user.first_name}! 👋\n"
+        f"Привет, {first_name}! 👋\n"
         f"Быстрый и надёжный сервис для ежедневного использования.\n\n"
         f"• 🚀 <b>Скорость</b> без ограничений\n"
         f"• 🌍 <b>Серверы</b> в разных странах\n"
         f"• 🔒 <b>Защита</b> ваших данных\n\n"
-        f"Выберите действие:",
+        f"Выберите действие:"
+    )
+
+
+@dp.message(CommandStart())
+async def command_start_handler(message: types.Message) -> None:
+    await message.answer(
+        build_welcome_text(message.from_user.first_name),
         parse_mode="HTML",
-        reply_markup=markup,
+        reply_markup=build_welcome_markup(),
     )
 
 
@@ -168,6 +178,80 @@ async def process_broadcast(message: types.Message, state: FSMContext):
         f"✅ Рассылка завершена!\nДоставлено: <b>{count}</b> пользователям.",
         parse_mode="HTML",
     )
+
+
+async def is_subscribed(user_id) -> bool:
+    if not REQUIRED_CHANNEL_ID:
+        return True
+
+    try:
+        member = await bot.get_chat_member(
+            chat_id=REQUIRED_CHANNEL_ID,
+            user_id=user_id,
+        )
+        return member.status in ("creator", "administrator", "member")
+    except Exception as e:
+        logging.error(f"Failed to check channel subscription: {e}")
+        return True
+
+
+class SubscriptionMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        user_id = getattr(event.from_user, "id", None)
+        if (
+            user_id is None
+            or user_id == ADMIN_ID
+            or await is_subscribed(user_id)
+        ):
+            return await handler(event, data)
+
+        buttons = []
+        if REQUIRED_CHANNEL_URL:
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text="📢 Подписаться",
+                        url=REQUIRED_CHANNEL_URL,
+                    ),
+                ],
+            )
+
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="✅ Проверить подписку",
+                    callback_data="check_subscription",
+                ),
+            ],
+        )
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await event.answer(
+            "🔒 <b>Для доступа нужно подписаться на наш канал</b>\n\n"
+            "Подпишитесь и нажмите кнопку ниже, чтобы продолжить.",
+            parse_mode="HTML",
+            reply_markup=markup,
+        )
+        return None
+
+
+@dp.callback_query(F.data == "check_subscription")
+async def check_subscription_callback(
+    callback: types.CallbackQuery,
+) -> None:
+    user_id = callback.from_user.id
+    if await is_subscribed(user_id):
+        await callback.answer("Подписка подтверждена!")
+        await callback.message.delete()
+        await callback.message.answer(
+            build_welcome_text(callback.from_user.first_name),
+            parse_mode="HTML",
+            reply_markup=build_welcome_markup(),
+        )
+    else:
+        await callback.answer("Вы ещё не подписаны на канал.", show_alert=True)
+
+
+dp.message.middleware(SubscriptionMiddleware())
 
 
 async def subscription_reminder_task():
