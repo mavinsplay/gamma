@@ -27,22 +27,24 @@
             </div>
             {% endif %}
 
-            <button id="btn-get-link" class="action-btn bounce" style="margin-top: 16px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="handleConnect()">
-                <span class="material-symbols-rounded">link</span>
-                Получить ссылку для подключения
-            </button>
-            <div id="connection-result" class="connection-result" style="margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
+            <div id="conn-loading-placeholder" style="display:none; align-items:center; justify-content: space-between; gap:10px; margin-top:16px; padding: 14px 16px; background: rgba(255,255,255,0.04); border-radius: 16px;">
+                <div class="spinner" style="position: relative; width:20px; height:20px; border-width:2px; flex-shrink:0;"></div>
+                <span style="font-size:13px; opacity:0.6;">Получение данных...</span>
+            </div>
+            <div id="connection-result" class="connection-result" style="margin-top: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
                 <span style="font-size: 14px; color: var(--panel-icon); text-align: center;">Отсканируйте QR-код или скопируйте ссылку для настройки клиента</span>
-                <canvas id="qr-code-canvas" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px; display: block;"></canvas>
-                <div style="display: flex; gap: 8px; width: 100%;">
-                    <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: rgba(255,255,255,0.1);" onclick="copySubLink()">
-                        <span class="material-symbols-rounded" style="font-size: 20px;">content_copy</span>
-                        Скопировать
-                    </button>
-                    <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="showInstructions()">
-                        <span class="material-symbols-rounded" style="font-size: 20px;">open_in_new</span>
-                        Подключить
-                    </button>
+                <div id="conn-content" style="display: none; width: 100%; flex-direction: column; align-items: center; gap: 16px;">
+                    <canvas id="qr-code-canvas" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px; display: block;"></canvas>
+                    <div style="display: flex; gap: 8px; width: 100%;">
+                        <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: rgba(255,255,255,0.1);" onclick="copySubLink()">
+                            <span class="material-symbols-rounded" style="font-size: 20px;">content_copy</span>
+                            Скопировать
+                        </button>
+                        <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="showInstructions()">
+                            <span class="material-symbols-rounded" style="font-size: 20px;">open_in_new</span>
+                            Подключить
+                        </button>
+                    </div>
                 </div>
             </div>
             {% else %}

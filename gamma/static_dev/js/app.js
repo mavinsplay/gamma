@@ -199,6 +199,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        // Auto-load connection link when navigating to connection view
+        if (targetId === 'view-connection' && !noAnimation && !window._connectFetching) {
+            setTimeout(() => {
+                if (!window._connectFetching) {
+                    const subType = window.selectedSubType || 'main';
+                    const cachedLink = subLinkCache[subType];
+                    if (!cachedLink && window.authenticatedUserId && window.hasActiveSubscription() && window.handleConnect) {
+                        window.handleConnect();
+                    }
+                }
+            }, 350);
+        }
+
         const profileNav = document.querySelector('.nav-profile');
         if (profileNav) {
             if (targetId === 'view-profile') {
@@ -1181,9 +1194,14 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </div>
                             </div>
                             <div class="sub-footer">
-                                <button class="action-btn bounce extend-btn" style="background: rgba(76, 175, 80, 0.15); color: #4CAF50;" onclick="handleTopupWhitelistTraffic()">
-                                    <span class="material-symbols-rounded">add_circle</span>+5 ГБ за 150 ₽
-                                </button>
+                                <div class="sub-actions">
+                                    <button class="action-btn bounce extend-btn" style="background: rgba(76, 175, 80, 0.15); color: #4CAF50;" onclick="handleTopupWhitelistTraffic()">
+                                        <span class="material-symbols-rounded">add_circle</span>+5 ГБ за 150 ₽
+                                    </button>
+                                    <button class="action-btn bounce connect-btn" onclick="connectAndSwitch('whitelist')">
+                                        <span class="material-symbols-rounded">vpn_key</span>Подключить
+                                    </button>
+                                </div>
                             </div>`;
                         subSlider.appendChild(wlSlide);
                         // Show slider dots
@@ -1210,8 +1228,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (connInfo && data.has_whitelist) {
                     const existingSwitcher = document.getElementById('sub-type-switcher');
                     if (!existingSwitcher) {
-                        const btnGet = document.getElementById('btn-get-link');
-                        if (btnGet) {
+                        const anchor = document.getElementById('conn-loading-placeholder')
+                            || document.getElementById('connection-result');
+                        if (anchor) {
                             const switcher = document.createElement('div');
                             switcher.id = 'sub-type-switcher';
                             switcher.className = 'sub-type-switcher';
@@ -1223,16 +1242,21 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <button id="sub-type-whitelist" class="sub-type-btn" onclick="switchSubType('whitelist')">
                                     <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">shield_locked</span>Дополнительная
                                 </button>`;
-                            btnGet.parentNode.insertBefore(switcher, btnGet);
+                            anchor.parentNode.insertBefore(switcher, anchor);
                         }
                     }
+                    updateSubTypeTabs(window.selectedSubType);
                 }
 
-                // Force connection view rebuild after buy by removing the button
-                const oldBtn = document.getElementById('btn-get-link');
-                if (oldBtn) oldBtn.remove();
+                // Clear link cache after new purchase so connection view reloads fresh
+                subLinkCache.main = '';
+                subLinkCache.whitelist = '';
+                currentSubLink = '';
+                window._subLinksPrefetched = false;
                 const oldResult = document.getElementById('connection-result');
                 if (oldResult) oldResult.remove();
+                const oldPlaceholder = document.getElementById('conn-loading-placeholder');
+                if (oldPlaceholder) oldPlaceholder.remove();
 
                 if (window.syncNow) window.syncNow();
                 showSuccessAnim(() => {
@@ -1652,11 +1676,110 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
+    const subLinkCache = { main: '', whitelist: '' };
     let currentSubLink = '';
     window.selectedSubType = 'main';
 
-    window.switchSubType = (type) => {
-        window.selectedSubType = type;
+    window.hasActiveSubscription = () => {
+        if (window.OPTIMISTIC_HAS_SUB) return true;
+        if (window.HAS_ACTIVE_SUB) return true;
+        if (document.getElementById('connection-remaining-days')) return true;
+        return !!(window.REMAINING_DAYS && window.REMAINING_DAYS > 0);
+    };
+
+    // Eagerly fetch subscription link(s) in the background after the first
+    // sync so the "Подключение" tab is ready without waiting for a click.
+    async function prefetchSubLinks() {
+        if (window._subLinksPrefetched) return;
+        if (!window.authenticatedUserId) return;
+        if (!window.hasActiveSubscription()) return;
+        window._subLinksPrefetched = true;
+        const types = ['main'];
+        if (window.HAS_WHITELIST_SUB) types.push('whitelist');
+        for (const type of types) {
+            if (!subLinkCache[type] && !window._connectFetching) {
+                await window.handleConnect({ silent: true, subType: type });
+            }
+        }
+    }
+
+    function showConnContent() {
+        const content = document.getElementById('conn-content');
+        if (content) content.style.display = 'flex';
+    }
+
+    function hideConnContent() {
+        const content = document.getElementById('conn-content');
+        if (content) content.style.display = 'none';
+    }
+
+    function renderSubLink(link) {
+        currentSubLink = link;
+        const qrCanvas = document.getElementById('qr-code-canvas');
+        if (qrCanvas && window.QRious) {
+            new QRious({
+                element: qrCanvas,
+                value: link,
+                size: 160,
+                level: 'M',
+                background: 'white',
+                foreground: 'black'
+            });
+        }
+        showConnContent();
+    }
+
+    // Generation token so rapid switching cancels stale animation steps.
+    let switchAnimToken = 0;
+    let lastShownSubType = 'main';
+    let switchInProgress = false;
+
+    function animateResultIn(resultDiv, fromX, fromY) {
+        if (!resultDiv) return;
+        const token = switchAnimToken;
+        resultDiv.classList.remove('hiding');
+        resultDiv.classList.add('animate-in');
+        resultDiv.style.transition = 'none';
+        resultDiv.style.opacity = '0';
+        resultDiv.style.transform = `translate(${fromX || 0}px, ${fromY || 0}px) scale(0.98)`;
+        void resultDiv.offsetWidth;
+        resultDiv.style.transition =
+            'opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1), transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)';
+        resultDiv.style.opacity = '1';
+        resultDiv.style.transform = 'translate(0, 0) scale(1)';
+        setTimeout(() => {
+            if (token !== switchAnimToken) return;
+            resultDiv.style.transition = '';
+            resultDiv.style.opacity = '';
+            resultDiv.style.transform = '';
+        }, 300);
+    }
+
+    function animateResultOut(resultDiv, toX, toY, callback) {
+        if (!resultDiv) {
+            if (callback) callback();
+            return;
+        }
+        const token = switchAnimToken;
+        resultDiv.classList.remove('animate-in');
+        resultDiv.style.transition = 'none';
+        resultDiv.style.opacity = '1';
+        resultDiv.style.transform = 'translate(0, 0) scale(1)';
+        void resultDiv.offsetWidth;
+        resultDiv.style.transition =
+            'opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
+        resultDiv.style.opacity = '0';
+        resultDiv.style.transform = `translate(${toX || 0}px, ${toY || 0}px) scale(0.98)`;
+        setTimeout(() => {
+            if (token !== switchAnimToken) return;
+            resultDiv.style.transition = '';
+            resultDiv.style.opacity = '';
+            resultDiv.style.transform = '';
+            if (callback) callback();
+        }, 220);
+    }
+
+    function updateSubTypeTabs(type) {
         const mainBtn = document.getElementById('sub-type-main');
         const wlBtn = document.getElementById('sub-type-whitelist');
         const indicator = document.querySelector('.sub-type-indicator');
@@ -1671,22 +1794,45 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (indicator) indicator.classList.add('whitelist');
             }
         }
-        // Reset QR result when switching
-        const btnGet = document.getElementById('btn-get-link');
+    }
+
+    function showSubType(type) {
+        window.selectedSubType = type;
+        updateSubTypeTabs(type);
+
+        // Slide in the direction of the tab being switched to:
+        // main -> whitelist pushes left, whitelist -> main pushes right.
+        switchAnimToken++;
+        switchInProgress = true;
+        const goingRight = type === 'main';
+        const outX = goingRight ? 24 : -24;
+
         const resultDiv = document.getElementById('connection-result');
-        if (resultDiv && resultDiv.classList.contains('animate-in')) {
-            resultDiv.classList.remove('animate-in');
-            resultDiv.classList.add('hiding');
-            setTimeout(() => {
-                resultDiv.classList.remove('hiding');
-                currentSubLink = '';
-            }, 300);
-        } else {
+        animateResultOut(resultDiv, outX, 0, () => {
+            if (window.selectedSubType !== type) return;
+            switchInProgress = false;
+            lastShownSubType = type;
             currentSubLink = '';
-        }
-        if (btnGet) {
-            btnGet.classList.remove('hiding');
-        }
+            hideConnContent();
+            if (resultDiv) {
+                resultDiv.classList.remove('animate-in');
+                resultDiv.classList.remove('hiding');
+            }
+            const cachedLink = subLinkCache[type];
+            if (cachedLink) {
+                renderSubLink(cachedLink);
+                animateResultIn(resultDiv, -outX, 0);
+            } else if (window.handleConnect && !window._connectFetching) {
+                // Fallback for a link that wasn't prefetched yet (e.g. no sync).
+                window.handleConnect({ fromX: -outX, fromY: 0 });
+            }
+        });
+    }
+
+    window.switchSubType = (type) => {
+        // Ignore clicks on the tab that is already shown.
+        if (type === lastShownSubType && !switchInProgress) return;
+        showSubType(type);
     };
 
     window.copySubLink = () => {
@@ -1728,23 +1874,58 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    window.handleConnect = async () => {
+    window.connectAndSwitch = (subType) => {
+        const type = subType || 'main';
+        window.selectedSubType = type;
+        updateSubTypeTabs(type);
+        window.activateTabById('view-connection', 'Подключение');
+        setTimeout(() => {
+            showSubType(type);
+            if (subLinkCache[type] && window.authenticatedUserId) {
+                window.showInstructions();
+            }
+        }, 450);
+    };
+
+    window.handleConnect = async (options = {}) => {
+        if (window._connectFetching) return;
+        window._connectFetching = true;
+
+        const fromX = options.fromX || 0;
+        const fromY = options.fromY === undefined ? 12 : options.fromY;
+        const silent = !!options.silent;
+        const subType = options.subType || window.selectedSubType || 'main';
         const tg = window.Telegram?.WebApp;
         const userId = window.authenticatedUserId;
 
         if (!userId || userId === 'undefined') {
-            showModal({
-                title: 'Ошибка',
-                message: 'Ваш профиль еще не загружен. Пожалуйста, подождите секунду и попробуйте снова.',
-                icon: 'hourglass_empty',
-                actionText: 'Ок',
-                onAction: hideModal
-            });
+            window._connectFetching = false;
+            if (!silent) {
+                showModal({
+                    title: 'Ошибка',
+                    message: 'Ваш профиль еще не загружен. Пожалуйста, подождите секунду и попробуйте снова.',
+                    icon: 'hourglass_empty',
+                    actionText: 'Ок',
+                    onAction: hideModal
+                });
+            }
             return;
         }
 
-        const subType = window.selectedSubType || 'main';
-        showLoading('Получение ссылки...');
+        const placeholder = document.getElementById('conn-loading-placeholder');
+        const resultDiv = document.getElementById('connection-result');
+        // Only touch the visible area when we'll actually render this sub-type,
+        // so silent background prefetches don't disturb the QR that is shown.
+        const willRender = window.selectedSubType === subType;
+        if (willRender) {
+            hideConnContent();
+            if (placeholder) placeholder.style.display = 'flex';
+            if (resultDiv) {
+                resultDiv.classList.remove('animate-in');
+                resultDiv.classList.remove('hiding');
+            }
+        }
+
         try {
             const formData = new FormData();
             if (tg?.initData) {
@@ -1765,49 +1946,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error('Invalid JSON response');
             }
 
-            if (response.ok && data.success && data.link) {
-                showSuccessAnim(() => {
-                    currentSubLink = data.link;
-                    const btnGet = document.getElementById('btn-get-link');
-                    const resultDiv = document.getElementById('connection-result');
-                    const qrCanvas = document.getElementById('qr-code-canvas');
+            if (placeholder && willRender) placeholder.style.display = 'none';
 
-                    if (btnGet) btnGet.classList.add('hiding');
-                    if (resultDiv) {
-                        resultDiv.classList.remove('hiding');
-                        resultDiv.classList.add('animate-in');
-                        if (qrCanvas && window.QRious) {
-                            new QRious({
-                                element: qrCanvas,
-                                value: data.link,
-                                size: 160,
-                                level: 'M',
-                                background: 'white',
-                                foreground: 'black'
-                            });
-                        }
-                    }
-                });
+            if (response.ok && data.success && data.link) {
+                subLinkCache[subType] = data.link;
+                // Ignore stale responses if the user switched sub-type mid-fetch.
+                if (willRender) {
+                    renderSubLink(data.link);
+                    animateResultIn(resultDiv, fromX, fromY);
+                }
             } else {
-                hideLoading();
+                if (placeholder && willRender) placeholder.style.display = 'none';
+                if (!silent) {
+                    showModal({
+                        title: 'Ошибка',
+                        message: data.error || 'У вас нет активной подписки.',
+                        icon: 'error',
+                        actionText: 'Ок',
+                        onAction: hideModal
+                    });
+                }
+            }
+        } catch (error) {
+            if (placeholder && willRender) placeholder.style.display = 'none';
+            console.error('handleConnect error:', error);
+            if (!silent) {
                 showModal({
                     title: 'Ошибка',
-                    message: data.error || 'У вас нет активной подписки.',
-                    icon: 'error',
+                    message: 'Не удалось получить ссылку. Проверьте интернет-соединение или попробуйте позже.',
+                    icon: 'cloud_off',
                     actionText: 'Ок',
                     onAction: hideModal
                 });
             }
-        } catch (error) {
-            console.error('handleConnect error:', error);
-            hideLoading();
-            showModal({
-                title: 'Ошибка',
-                message: 'Не удалось получить ссылку. Проверьте интернет-соединение или попробуйте позже.',
-                icon: 'cloud_off',
-                actionText: 'Ок',
-                onAction: hideModal
-            });
+        } finally {
+            window._connectFetching = false;
+            // If the sub-type changed while this request was in flight,
+            // fetch the link for the now-selected sub-type.
+            if (!silent && window.selectedSubType !== subType) {
+                window.handleConnect({ fromX: 20, fromY: 0 });
+            }
         }
     };
 
@@ -2229,6 +2407,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Update Whitelist Slide specifically if exists
                 if (data.whitelist_user) {
+                    window.HAS_WHITELIST_SUB = true;
                     const wlLimit = data.whitelist_user.trafficLimitBytes || 0;
                     const wlUsed = data.whitelist_user.userTraffic?.usedTrafficBytes || 0;
                     
@@ -2312,15 +2491,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const connectionSubInfo = document.querySelector('#view-connection .subscription-info');
         if (connectionSubInfo && data.profile) {
             const daysEl = document.getElementById('connection-remaining-days');
-            const getBtn = document.getElementById('btn-get-link');
             const resultEl = document.getElementById('connection-result');
 
-            const wasActive = !!getBtn;
+            const wasActive = !!daysEl;
             const isActive = !!data.rw_user;
-            const needsRebuild = !getBtn && isActive;
+            const needsRebuild = !resultEl && isActive;
 
             if (wasActive !== isActive || needsRebuild) {
-                // Redraw everything only if status changed or button missing
+                // Redraw everything only if status changed or result block missing
                 const username = document.getElementById('connection-username')?.textContent || `@${tg?.initDataUnsafe?.user?.username || SAFE_MOCK_USER_DATA?.username || 'user'}`;
                 let connHtml = `
                     <div class="info-item">
@@ -2341,35 +2519,38 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>`;
 
                     if (hasWl) {
+                        const mainActive = window.selectedSubType !== 'whitelist';
                         connHtml += `
                         <div id="sub-type-switcher" class="sub-type-switcher">
-                            <div class="sub-type-indicator"></div>
-                            <button id="sub-type-main" class="sub-type-btn active" onclick="switchSubType('main')">
+                            <div class="sub-type-indicator${mainActive ? '' : ' whitelist'}"></div>
+                            <button id="sub-type-main" class="sub-type-btn${mainActive ? ' active' : ''}" onclick="switchSubType('main')">
                                 <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">verified_user</span>Основная
                             </button>
-                            <button id="sub-type-whitelist" class="sub-type-btn" onclick="switchSubType('whitelist')">
+                            <button id="sub-type-whitelist" class="sub-type-btn${mainActive ? '' : ' active'}" onclick="switchSubType('whitelist')">
                                 <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">shield_locked</span>Дополнительная
                             </button>
                         </div>`;
                     }
 
                     connHtml += `
-                        <button id="btn-get-link" class="action-btn bounce" style="margin-top: 16px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="handleConnect()">
-                            <span class="material-symbols-rounded">link</span>
-                            Получить ссылку для подключения
-                        </button>
-                        <div id="connection-result" class="connection-result" style="margin-top: 16px; flex-direction: column; align-items: center; gap: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
+                        <div id="conn-loading-placeholder" style="display:none; align-items:center; justify-content: space-between; gap:10px; margin-top:16px; padding: 14px 16px; background: rgba(255,255,255,0.04); border-radius: 16px;">
+                            <div class="spinner" style="position: relative; width:20px; height:20px; border-width:2px; flex-shrink:0;"></div>
+                            <span style="font-size:13px; opacity:0.6;">Получение данных...</span>
+                        </div>
+                        <div id="connection-result" class="connection-result" style="margin-top: 16px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 16px;">
                             <span style="font-size: 14px; color: var(--panel-icon); text-align: center;">Отсканируйте QR-код или скопируйте ссылку для настройки клиента</span>
-                            <canvas id="qr-code-canvas" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px; display: block;"></canvas>
-                            <div style="display: flex; gap: 8px; width: 100%;">
-                                <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: rgba(255,255,255,0.1);" onclick="copySubLink()">
-                                    <span class="material-symbols-rounded" style="font-size: 20px;">content_copy</span>
-                                    Скопировать
-                                </button>
-                                <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="showInstructions()">
-                                    <span class="material-symbols-rounded" style="font-size: 20px;">open_in_new</span>
-                                    Подключить
-                                </button>
+                            <div id="conn-content" style="display: none; width: 100%; flex-direction: column; align-items: center; gap: 16px;">
+                                <canvas id="qr-code-canvas" style="width: 160px; height: 160px; border-radius: 12px; background: white; padding: 8px; display: block;"></canvas>
+                                <div style="display: flex; gap: 8px; width: 100%;">
+                                    <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: rgba(255,255,255,0.1);" onclick="copySubLink()">
+                                        <span class="material-symbols-rounded" style="font-size: 20px;">content_copy</span>
+                                        Скопировать
+                                    </button>
+                                    <button class="action-btn bounce" style="flex: 1; padding: 12px; font-size: 14px; background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="showInstructions()">
+                                        <span class="material-symbols-rounded" style="font-size: 20px;">open_in_new</span>
+                                        Подключить
+                                    </button>
+                                </div>
                             </div>
                         </div>`;
                 } else {
@@ -2380,26 +2561,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         </button>`;
                 }
                 connectionSubInfo.innerHTML = connHtml;
-                // Re-render QR code if a link was already fetched this session
-                if (currentSubLink) {
+                // Re-render QR code from cache if already fetched this session
+                const cachedLink = subLinkCache[window.selectedSubType || 'main'];
+                if (cachedLink) {
+                    renderSubLink(cachedLink);
                     const resultDiv = document.getElementById('connection-result');
-                    const qrCanvas = document.getElementById('qr-code-canvas');
-                    const btnGet = document.getElementById('btn-get-link');
-                    if (resultDiv) {
-                        resultDiv.classList.remove('hiding');
-                        resultDiv.classList.add('animate-in');
-                    }
-                    if (btnGet) btnGet.classList.add('hiding');
-                    if (qrCanvas && window.QRious) {
-                        new QRious({
-                            element: qrCanvas,
-                            value: currentSubLink,
-                            size: 160,
-                            level: 'M',
-                            background: 'white',
-                            foreground: 'black'
-                        });
-                    }
+                    if (resultDiv) resultDiv.classList.add('animate-in');
+                } else if (isActive) {
+                    // Active sub with no cached link — auto-fetch on rebuild.
+                    setTimeout(() => window.handleConnect && window.handleConnect(), 200);
                 }
             }
         }
@@ -2622,6 +2792,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 historyContainer.innerHTML = historyHtml;
             }
         }
+
+        // Background-prefetch subscription links once data is available.
+        prefetchSubLinks();
     }
 
     window.handleTogglePreference = async (prefType, value) => {
@@ -3167,8 +3340,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    initTelegram();
-    startDataSync();
+    // Wait for auth (initTelegram sets authenticatedUserId) before the first
+    // sync, so the initial sync + link prefetch always run with a known user.
+    initTelegram().then(() => startDataSync());
 
     // Mouse drag-to-scroll for sliders
     const sliders = document.querySelectorAll('.subscription-slider');

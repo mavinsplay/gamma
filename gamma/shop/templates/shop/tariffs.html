@@ -27,12 +27,20 @@
                     </div>
 
                     <div class="sub-footer">
-                        <button class="action-btn bounce extend-btn" onclick="toggleExtendMenu('main')">
-                            <span class="material-symbols-rounded">update</span>Продлить подписку
-                        </button>
                         <div class="sub-device-info">
                             <span class="material-symbols-rounded" style="font-size: 16px;">devices</span>
                             <span id="sub-device-text">{{ hwid_devices|length }} / {{ rw_user.hwidDeviceLimit|default:profile.tarif.device_limit }} устройств</span>
+                            <button class="action-btn icon-btn bounce" onclick="activateTabById('view-settings','Настройки')" title="Настройки" aria-label="Настройки">
+                                <span class="material-symbols-rounded">brush</span>
+                            </button>
+                        </div>
+                        <div class="sub-actions">
+                            <button class="action-btn bounce extend-btn" onclick="toggleExtendMenu('main')">
+                                <span class="material-symbols-rounded">update</span>Продлить подписку
+                            </button>
+                            <button class="action-btn bounce connect-btn" onclick="connectAndSwitch('main')">
+                                <span class="material-symbols-rounded">vpn_key</span>Подключить
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -47,6 +55,7 @@
                         <div class="sub-info">
                             <span class="sub-label">Дополнительная подписка</span>
                             <h3 class="sub-title">Расширенный доступ</h3>
+                            <span class="sub-label" style="font-size:11px; opacity:0.65; margin-top:2px; display:block;">Работает в условиях белых ограничений</span>
                         </div>
                     </div>
                     
@@ -72,9 +81,14 @@
                     </div>
 
                     <div class="sub-footer">
-                        <button class="action-btn bounce extend-btn" style="background: rgba(76, 175, 80, 0.15); color: #4CAF50;" onclick="handleTopupWhitelistTraffic()">
-                            <span class="material-symbols-rounded">add_circle</span>+5 ГБ за 150 ₽
-                        </button>
+                        <div class="sub-actions">
+                            <button class="action-btn bounce extend-btn" style="background: rgba(76, 175, 80, 0.15); color: #4CAF50;" onclick="handleTopupWhitelistTraffic()">
+                                <span class="material-symbols-rounded">add_circle</span>+5 ГБ за 150 ₽
+                            </button>
+                            <button class="action-btn bounce connect-btn" onclick="connectAndSwitch('whitelist')">
+                                <span class="material-symbols-rounded">vpn_key</span>Подключить
+                            </button>
+                        </div>
                     </div>
                 </div>
                 {% endif %}
@@ -133,9 +147,9 @@
                             <span>{{ tariff.device_limit }} устройств</span>
                         </div>
                         {% if tariff.has_whitelist %}
-                        <div class="v2-feature">
-                            <span class="material-symbols-rounded">verified_user</span>
-                            <span>Расширенный доступ</span>
+                        <div class="v2-feature" title="Доступ сохраняется даже в условиях белых ограничений">
+                            <span class="material-symbols-rounded">shield_locked</span>
+                            <span>Расширенный доступ <span style="opacity:0.55; font-size:11px;">— работает при белых ограничениях</span></span>
                         </div>
                         {% endif %}
                         {% if 'прокси' in tariff.description|lower %}
