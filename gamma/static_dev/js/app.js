@@ -1881,18 +1881,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.openSubLink = () => {
         if (!currentSubLink) return;
+        const app = APP_DATA[window._selectedApp] || APP_DATA.incy;
+        const deepLink = (app.scheme || 'happ://add/') + currentSubLink;
 
         if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink) {
-            // Inside Telegram Mini App: happ:// can't be opened directly from WebView.
+            // Inside Telegram Mini App: <app>:// can't be opened directly from WebView.
             // Open our server-side redirect page in the system browser via Telegram API —
-            // the system browser handles the happ:// deep link correctly.
+            // the system browser handles the <app>:// deep link correctly.
             const redirectUrl = window.location.origin
-                + '/connect/open-sub/?link='
+                + '/connect/open-sub/?app='
+                + encodeURIComponent(window._selectedApp)
+                + '&link='
                 + encodeURIComponent(currentSubLink);
             window.Telegram.WebApp.openLink(redirectUrl, { try_instant_view: false });
         } else {
             // Regular browser: direct deep link works fine
-            window.location.href = 'happ://' + currentSubLink;
+            window.location.href = deepLink;
+        }
+    };
+
+    window.openSupport = (el) => {
+        const url = el && el.getAttribute('data-url');
+        if (!url) return;
+
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink) {
+            window.Telegram.WebApp.openLink(url);
+        } else {
+            window.open(url, '_blank');
         }
     };
 
@@ -2899,7 +2914,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Instruction Carousel Logic ---
     let currentInstrSlide = 0;
-    const totalInstrSlides = 4;
 
     let galleriesInitialized = false;
 
@@ -3038,6 +3052,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // Reset slide BEFORE making overlay visible to avoid
             // accidental clicks on slide-4's openSubLink() button
             currentInstrSlide = 0;
+
+            // Sync the app picker (Incy / Happ) first so the carousel
+            // knows whether "Шаг 3" is hidden (Incy has 3 steps).
+            renderAppSelection();
             updateInstructionCarousel();
 
             overlay.style.display = 'flex';
@@ -3058,15 +3076,96 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    window.downloadHiddify = (platform) => {
-        let url = 'https://happ.su/';
-        if (platform === 'ios' || platform === 'mac') {
-            url = 'https://apps.apple.com/us/app/happ-proxy-utility/id6504287215';
-        } else if (platform === 'android') {
-            url = 'https://play.google.com/store/apps/details?id=com.happproxy';
-        } else if (platform === 'windows') {
-            url = 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe';
+    // Apps offered in the instruction "Установка" step.
+    const APP_DATA = {
+        incy: {
+            name: 'Incy',
+            scheme: 'incy://add/',
+            links: {
+                ios: 'https://apps.apple.com/us/app/incy/id6756943388',
+                mac: 'https://apps.apple.com/us/app/incy/id6756943388',
+                android: 'https://play.google.com/store/apps/details?id=llc.itdev.incy&pli=1',
+                windows: 'https://github.com/INCY-DEV/incy-platforms/releases',
+            },
+        },
+        happ: {
+            name: 'Happ',
+            scheme: 'happ://add/',
+            links: {
+                ios: 'https://apps.apple.com/us/app/happ-proxy-utility/id6504287215',
+                mac: 'https://apps.apple.com/us/app/happ-proxy-utility/id6504287215',
+                android: 'https://play.google.com/store/apps/details?id=com.happproxy',
+                windows: 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe',
+            },
+        },
+    };
+    window._selectedApp = 'incy';
+
+    function updateInstrImages(app) {
+        const gallery = document.getElementById('instr-frag-gallery');
+        if (!gallery) return;
+        const imgs = gallery.querySelectorAll('img');
+        const srcs = app === 'incy'
+            ? ['/static/insructions/INCY1.jpg', '/static/insructions/INCY2.jpg']
+            : ['/static/insructions/settings.jpg', '/static/insructions/frag.jpg'];
+        imgs.forEach((img, i) => {
+            if (srcs[i]) img.src = srcs[i];
+        });
+    }
+
+    function renderAppSelection() {
+        const app = APP_DATA[window._selectedApp] ? window._selectedApp : 'incy';
+        document.querySelectorAll('.app-card').forEach(card => {
+            card.classList.toggle('selected', card.id === 'app-card-' + app);
+        });
+        const sub = document.getElementById('instr-app-subtitle');
+        if (sub) sub.textContent = `Скачайте ${APP_DATA[app].name} для вашего устройства.`;
+        updateInstrImages(app);
+
+        // Incy skips "Шаг 3: Авторизация Inbound" (fragment step is enough).
+        const overlay = document.getElementById('instruction-overlay');
+        const slide3 = document.getElementById('instr-slide-3');
+        window._instrSlideCount = (app === 'incy') ? 3 : 4;
+        if (overlay) overlay.classList.toggle('incy-mode', app === 'incy');
+        if (slide3) slide3.style.display = (app === 'incy') ? 'none' : '';
+    }
+
+    function getInstrSlideCount() {
+        return (window._instrSlideCount > 0) ? window._instrSlideCount : 4;
+    }
+
+    window.selectApp = (app) => {
+        if (!APP_DATA[app] || app === window._selectedApp) return;
+        window._selectedApp = app;
+        renderAppSelection();
+
+        // Clamp the carousel if the current slide disappears (Incy has 3 steps).
+        if (currentInstrSlide > getInstrSlideCount() - 1) {
+            currentInstrSlide = getInstrSlideCount() - 1;
+            updateInstructionCarousel();
         }
+
+        // Pop animation on the newly selected card.
+        const card = document.getElementById('app-card-' + app);
+        if (card) {
+            card.classList.remove('pop');
+            void card.offsetWidth;
+            card.classList.add('pop');
+        }
+
+        // Slide-in animation for the switching download links.
+        const links = document.getElementById('instr-platform-links');
+        if (links) {
+            links.classList.remove('switching');
+            void links.offsetWidth;
+            links.classList.add('switching');
+        }
+    };
+
+    window.downloadHiddify = (platform) => {
+        const app = APP_DATA[window._selectedApp] || APP_DATA.incy;
+        const url = (app.links && app.links[platform]) || app.links.ios || '';
+        if (!url) return;
 
         if (window.Telegram && window.Telegram.WebApp) {
             window.Telegram.WebApp.openLink(url);
@@ -3114,14 +3213,14 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.nextInstructionSlide = () => {
-        if (currentInstrSlide < totalInstrSlides - 1) {
+        if (currentInstrSlide < getInstrSlideCount() - 1) {
             currentInstrSlide++;
             updateInstructionCarousel();
         }
     };
 
     window.skipToLastSlide = () => {
-        currentInstrSlide = totalInstrSlides - 1;
+        currentInstrSlide = getInstrSlideCount() - 1;
         updateInstructionCarousel();
     };
 
@@ -3138,13 +3237,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const prevBtn = document.getElementById('instr-prev-btn');
         const nextBtn = document.getElementById('instr-next-btn');
         const skipBtn = document.getElementById('instr-skip-btn');
+        const slideCount = getInstrSlideCount();
 
         if (track) {
-            track.style.transform = `translateX(-${currentInstrSlide * 25}%)`;
+            track.style.transform = `translateX(-${currentInstrSlide * (100 / slideCount)}%)`;
         }
 
         if (dots) {
             dots.forEach((dot, index) => {
+                dot.style.display = index < slideCount ? '' : 'none';
                 dot.classList.toggle('active', index === currentInstrSlide);
             });
         }
@@ -3154,11 +3255,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (skipBtn) {
-            skipBtn.style.display = currentInstrSlide === totalInstrSlides - 1 ? 'none' : 'block';
+            skipBtn.style.display = currentInstrSlide === slideCount - 1 ? 'none' : 'block';
         }
 
         if (nextBtn) {
-            if (currentInstrSlide === totalInstrSlides - 1) {
+            if (currentInstrSlide === slideCount - 1) {
                 nextBtn.style.display = 'none';
             } else {
                 nextBtn.style.display = 'block';

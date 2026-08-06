@@ -167,8 +167,23 @@
                     <div class="slide-content">
                         <div class="slide-icon"><span class="material-symbols-rounded">download</span></div>
                         <h4>Шаг 1: Установка</h4>
-                        <p>Скачайте приложение Happ для вашего устройства.</p>
-                        <div class="platform-links">
+                        <p>Выберите приложение и установите его на своё устройство.</p>
+                        <div class="app-picker">
+                            <div class="app-card selected" id="app-card-incy" onclick="selectApp('incy')">
+                                <div class="app-avatar">
+                                    <img src="https://play-lh.googleusercontent.com/-c18-MNZlXWoErwBXYxIuygXeaud2KBN96E9SU_RpKgsOE3nGTDD-YghIAjvCWasLMyJOIaMfApSz-gThCaclg" alt="Incy" loading="lazy">
+                                </div>
+                                <span class="app-name">Incy</span>
+                            </div>
+                            <div class="app-card" id="app-card-happ" onclick="selectApp('happ')">
+                                <div class="app-avatar">
+                                    <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT5KjxqAy_2PkK6TTvafW4VIHaMGYwKVEhA6W6Ei7XFzQ&s" alt="Happ" loading="lazy">
+                                </div>
+                                <span class="app-name">Happ</span>
+                            </div>
+                        </div>
+                        <p id="instr-app-subtitle" style="font-size: 12px; opacity: 0.65; margin-top: -8px;">Скачайте Incy для вашего устройства.</p>
+                        <div class="platform-links" id="instr-platform-links">
                             <a href="javascript:void(0)" onclick="downloadHiddify('ios')" class="platform-btn bounce" data-platform="ios">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                                     <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
@@ -186,7 +201,7 @@
                         <h4>Шаг 2: Фрагментация</h4>
                         <p>Зайдите в настройки приложения и включите фрагментацию для стабильного подключения.</p>
                         <p class="swipe-hint" style="font-size: 11px; opacity: 0.5; margin: -8px 0 4px 0;"><span class="material-symbols-rounded" style="font-size: 14px; vertical-align: middle;">swipe</span> Свайпните фото 👈</p>
-                        <div class="instruction-images">
+                        <div class="instruction-images" id="instr-frag-gallery">
                             <img src="/static/insructions/settings.jpg" alt="Настройки" draggable="false">
                             <img src="/static/insructions/frag.jpg" alt="Фрагментация" draggable="false">
                         </div>
@@ -197,7 +212,7 @@
                     </div>
                 </div>
                 <!-- Slide 3 -->
-                <div class="carousel-slide">
+                <div class="carousel-slide" id="instr-slide-3">
                     <div class="slide-content">
                         <h4>Шаг 3: Авторизация Inbound</h4>
                         <p>В тех же настройках переключите «Авторизация Inbound» в режим Авто.</p>
@@ -218,12 +233,17 @@
                 <div class="carousel-slide">
                     <div class="slide-content">
                         <div class="slide-icon"><span class="material-symbols-rounded">vpn_key</span></div>
-                        <h4>Шаг 4: Подключение</h4>
                         <p>Теперь всё готово! Нажмите кнопку ниже, чтобы импортировать подписку и подключиться.</p>
-                        <button class="action-btn bounce" style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); margin-top: 24px;" onclick="openSubLink()">
-                            <span class="material-symbols-rounded" style="font-size: 20px;">rocket_launch</span>
-                            Подключить
-                        </button>
+                        <div class="final-buttons">
+                            <button class="action-btn bounce" style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);" onclick="openSubLink()">
+                                <span class="material-symbols-rounded" style="font-size: 20px;">rocket_launch</span>
+                                Подключить
+                            </button>
+                            <button type="button" class="support-btn bounce" data-url="{{ support_url|default:'' }}" onclick="openSupport(this)">
+                                <span class="material-symbols-rounded" style="font-size: 18px;">support_agent</span>
+                                Связаться с поддержкой
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

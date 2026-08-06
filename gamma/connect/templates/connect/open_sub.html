@@ -40,13 +40,13 @@
 </head>
 <body>
     <div class="icon">🔗</div>
-    <h1>Открытие Happ...</h1>
+    <h1>Открытие {{ app_name }}...</h1>
     <p>Если приложение не открылось автоматически,<br>нажмите кнопку ниже.</p>
-    <a class="open-btn" href="{{ happ_link }}">Открыть в Happ</a>
+    <a class="open-btn" href="{{ app_link }}">Открыть в {{ app_name }}</a>
     <script>
-        // Auto-redirect to happ:// deep link
+        // Auto-redirect to app deep link
         (function() {
-            var link = {{ happ_link_json|safe }};
+            var link = {{ app_link_json|safe }};
             setTimeout(function() {
                 window.location.href = link;
             }, 300);

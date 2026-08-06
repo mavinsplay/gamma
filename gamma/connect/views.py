@@ -64,10 +64,17 @@ def set_node_status_api(request):
     return JsonResponse({"success": True})
 
 
+APP_SCHEMES = {"incy": "incy://add/", "happ": "happ://add/"}
+APP_NAMES = {"incy": "Incy", "happ": "Happ"}
+
+
 def open_sub_redirect(request):
-    """Open happ:// deep link via system browser (works in Telegram Mini App).
-    No auth required — only constructs a happ:// deep link, no user data exposed.
+    """Open <app>:// deep link via system browser (works in Telegram Mini App).
+    No auth required — only constructs a deep link, no user data exposed.
     """  # noqa: E501
+    app = request.GET.get("app", "happ")
+    scheme = APP_SCHEMES.get(app, APP_SCHEMES["happ"])
+    app_name = APP_NAMES.get(app, APP_NAMES["happ"])
     sub_link = request.GET.get("link", "")
     parsed_link = urlsplit(sub_link)
     if (
@@ -76,15 +83,16 @@ def open_sub_redirect(request):
         or parsed_link.username
         or parsed_link.password
     ):
-        happ_link = ""
+        app_link = ""
     else:
-        happ_link = f"happ://add/{sub_link}"
+        app_link = f"{scheme}{sub_link}"
 
     return render(
         request,
         "connect/open_sub.html",
         {
-            "happ_link": happ_link,
-            "happ_link_json": json.dumps(happ_link).replace("<", "\\u003c"),
+            "app_link": app_link,
+            "app_link_json": json.dumps(app_link).replace("<", "\\u003c"),
+            "app_name": app_name,
         },
     )
