@@ -7,6 +7,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const pillNavItems = document.querySelectorAll('.nav-pill .nav-item');
     window.authenticatedUserId = null;
 
+    // Escape a value for safe insertion into HTML text/attribute content.
+    function escapeHtml(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#x27;');
+    }
+
+    // Escape a value for safe insertion into a single-quoted JS string that
+    // lives inside a double-quoted HTML attribute (e.g. inline onclick).
+    function escapeJsAttr(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '\u003c')
+            .replace(/>/g, '\u003e')
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'");
+    }
+
     function isDesktop() {
         return window.innerWidth >= 768;
     }
@@ -1320,7 +1342,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div style="width:100%;text-align:left;display:flex;flex-direction:column;gap:10px;">
                     <div style="background:rgba(255,255,255,0.05);border-radius:14px;padding:12px 14px;">
                         <div style="font-size:10px;color:var(--md-sys-color-primary);opacity:.8;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;">Текущий тариф</div>
-                        <div style="font-size:15px;font-weight:500;color:#E6E1E5;">${currentName}</div>
+                        <div style="font-size:15px;font-weight:500;color:#E6E1E5;">${escapeHtml(currentName)}</div>
                         <div style="font-size:12px;color:rgba(230,225,229,.55);margin-top:3px;">Осталось: <b style="color:rgba(230,225,229,.85);">${remainingDays} дней</b></div>
                     </div>
                     <div style="display:flex;justify-content:center;">
@@ -1328,7 +1350,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div style="background:rgba(208,188,255,.08);border:1px solid rgba(208,188,255,.18);border-radius:14px;padding:12px 14px;">
                         <div style="font-size:10px;color:var(--md-sys-color-primary);opacity:.8;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;">Новый тариф</div>
-                        <div style="font-size:15px;font-weight:500;color:#E6E1E5;">${tariffName}</div>
+                        <div style="font-size:15px;font-weight:500;color:#E6E1E5;">${escapeHtml(tariffName)}</div>
                         <div style="font-size:12px;color:rgba(230,225,229,.55);margin-top:3px;">${tariffDays} дней &middot; ${price} ₽</div>
                     </div>
                     <div style="background:rgba(239,83,80,.08);border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:flex-start;">
@@ -2364,7 +2386,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
                             <div style="flex: 1;">
                                 <div style="display: flex; align-items: center; gap: 6px;">
-                                    <h4 style="margin: 0; font-size: 15px; font-weight: 500; color: #FFFFFF;">${proxy.name}</h4>
+                                    <h4 style="margin: 0; font-size: 15px; font-weight: 500; color: #FFFFFF;">${escapeHtml(proxy.name)}</h4>
                                 </div>
                                 <span style="font-size: 12px; opacity: 0.5; color: #E6E1E5; display: block; margin-top: 2px;">Telegram Прокси</span>
                             </div>
@@ -2373,13 +2395,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div style="display: flex; gap: 10px; position: relative; z-index: 1;">
                             <button class="action-btn bounce" 
                                     style="flex: 1; height: 48px; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border-radius: 14px; font-weight: 600; font-size: 14px;" 
-                                    onclick="handleProxyConnect('${proxy.connection_url}', '${proxy.name}')">
+                                    onclick="handleProxyConnect('${escapeJsAttr(proxy.connection_url)}', '${escapeJsAttr(proxy.name)}')">
                                 <span class="material-symbols-rounded" style="font-size: 20px;">bolt</span>
                                 Подключить
                             </button>
                             <button class="action-btn bounce" 
                                     style="width: 48px; height: 48px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; display: flex; align-items: center; justify-content: center; padding: 0;" 
-                                    onclick="copyProxyLink('${proxy.connection_url}')"
+                                    onclick="copyProxyLink('${escapeJsAttr(proxy.connection_url)}')"
                                     title="Скопировать ссылку">
                                 <span class="material-symbols-rounded" style="font-size: 20px; color: #FFFFFF; opacity: 0.7;">content_copy</span>
                             </button>
@@ -2503,7 +2525,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let connHtml = `
                     <div class="info-item">
                         <span class="label">Пользователь</span>
-                        <span class="value" id="connection-username">${username}</span>
+                        <span class="value" id="connection-username">${escapeHtml(username)}</span>
                     </div>`;
 
                 if (isActive) {
@@ -2635,13 +2657,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     nodesHtml += `
                         <div class="server-selector bounce" style="margin-top: 10px;"
-                             ${data.is_admin ? `onclick="handleSetNodeStatus('${node.id}', '${nodeJson}')"` : ''}>
+                             ${data.is_admin ? `onclick="handleSetNodeStatus('${escapeJsAttr(node.id)}', '${escapeJsAttr(nodeJson)}')"` : ''}>
                             <div class="server-info">
                                 <div class="server-icon-wrapper">
                                     ${node.countryCode ? `
-                                        <img src="${IS_DEBUG ? 'https://flagcdn.com/w80/' : 'https://gamma.careerpiter.ru/tg-flags/w80/'}${node.countryCode.toLowerCase()}.png" 
+                                        <img src="${IS_DEBUG ? 'https://flagcdn.com/w80/' : 'https://gamma.careerpiter.ru/tg-flags/w80/'}${escapeHtml(node.countryCode).toLowerCase()}.png" 
                                              class="flag-img" 
-                                             alt="${node.countryCode}">
+                                             alt="${escapeHtml(node.countryCode)}">
                                     ` : `
                                         <span class="material-symbols-rounded">
                                             ${node.isConnected ? 'lan' : 'lan_off'}
@@ -2649,9 +2671,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                     `}
                                 </div>
                                 <div class="server-details">
-                                    <span class="server-name">${node.display_name}</span>
+                                    <span class="server-name">${escapeHtml(node.display_name)}</span>
                                     <span class="server-ping">
-                                        <span style="color: ${statusColor}; font-weight: 500;">${statusText}</span>
+                                        <span style="color: ${statusColor}; font-weight: 500;">${escapeHtml(statusText)}</span>
                                     </span>
                                 </div>
                             </div>
@@ -2698,11 +2720,11 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <span class="material-symbols-rounded">${icon}</span>
                             </div>
                             <div class="device-row-info">
-                                <span class="device-row-name">${device.deviceModel || "Неизвестное устройство"}</span>
-                                <span class="device-row-meta">${device.platform || "—"} · ${device.hwid.substring(0, 14)}...</span>
+                                <span class="device-row-name">${escapeHtml(device.deviceModel) || "Неизвестное устройство"}</span>
+                                <span class="device-row-meta">${escapeHtml(device.platform) || "—"} · ${escapeHtml(device.hwid.substring(0, 14))}...</span>
                             </div>
                             <button class="device-delete-btn bounce"
-                                    onclick="handleDeleteDevice('${device.hwid}', ${idx})"
+                                    onclick="handleDeleteDevice('${escapeJsAttr(device.hwid)}', ${idx})"
                                     title="Удалить устройство">
                                 <span class="material-symbols-rounded">delete_outline</span>
                             </button>
@@ -2774,7 +2796,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div style="flex: 1;">
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
                                     <span style="font-weight: 500; font-size: 15px;">
-                                        ${isTopup ? 'Пополнение баланса' : (payment.tariff_name || "Покупка тарифа")}
+                                        ${isTopup ? 'Пополнение баланса' : (escapeHtml(payment.tariff_name) || "Покупка тарифа")}
                                     </span>
                                     <span style="font-weight: 600; font-size: 15px; color: ${isTopup ? '#4CAF50' : '#FFFFFF'};">
                                         ${isTopup ? '+' : '-'}${payment.amount.toFixed(0)} ₽

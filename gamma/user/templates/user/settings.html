@@ -87,7 +87,7 @@
                         <span class="device-row-meta">{{ device.platform|default:"—" }} · {{ device.hwid|truncatechars:14 }}</span>
                     </div>
                     <button class="device-delete-btn bounce"
-                            onclick="handleDeleteDevice('{{ device.hwid }}', {{ forloop.counter }})"
+                            onclick="handleDeleteDevice('{{ device.hwid|escapejs }}', {{ forloop.counter }})"
                             title="Удалить устройство">
                         <span class="material-symbols-rounded">delete_outline</span>
                     </button>
