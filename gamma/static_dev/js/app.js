@@ -2251,33 +2251,70 @@ document.addEventListener('DOMContentLoaded', () => {
                     const data = await response.json();
 
                     if (response.ok && data.success) {
-                        hideLoading();
-                        if (window.syncNow) window.syncNow();
-                        // Animate row out
                         const row = document.getElementById(`device-row-${rowIndex}`);
+                        const container = document.getElementById('devices-list-container');
+                        const countEl = document.getElementById('devices-count-display');
+
                         if (row) {
+                            const h = row.offsetHeight;
+                            row.style.overflow = 'hidden';
+                            row.style.maxHeight = h + 'px';
                             row.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
                             row.style.opacity = '0';
-                            row.style.transform = 'translateX(20px)';
-                            // Remove adjacent divider
-                            const next = row.nextElementSibling;
-                            const prev = row.previousElementSibling;
-                            const divider = (next && next.classList.contains('settings-divider')) ? next
-                                : (prev && prev.classList.contains('settings-divider')) ? prev : null;
-                            setTimeout(() => {
-                                row.remove();
-                                if (divider) divider.remove();
-                                // If block is now empty, show empty state
-                                const block = document.querySelector('#view-settings .settings-block');
-                                if (block && block.querySelectorAll('.device-row').length === 0) {
-                                    block.innerHTML = `
-                                        <div class="settings-empty">
-                                            <span class="material-symbols-rounded">devices_off</span>
-                                            <span>Нет подключённых устройств</span>
-                                        </div>`;
-                                }
-                            }, 350);
+                            row.style.transform = 'translateX(40px)';
+                            await new Promise(r => setTimeout(r, 300));
+                            row.style.transition = 'max-height 0.3s ease';
+                            row.style.maxHeight = '0';
+                            const divider = row.nextElementSibling?.classList.contains('settings-divider')
+                                ? row.nextElementSibling
+                                : row.previousElementSibling?.classList.contains('settings-divider')
+                                    ? row.previousElementSibling : null;
+                            if (divider) {
+                                divider.style.transition = 'opacity 0.25s ease, max-height 0.25s ease';
+                                divider.style.opacity = '0';
+                                divider.style.maxHeight = '0';
+                            }
+                            await new Promise(r => setTimeout(r, 300));
                         }
+
+                        const totalDevices = container ? container.querySelectorAll('.device-row').length : 0;
+                        const remaining = totalDevices - 1;
+                        const limit = countEl ? (countEl.textContent.match(/\/\s*(\d+)/)?.[1] || '0') : '0';
+
+                        if (countEl) {
+                            countEl.innerHTML = `
+                                <span class="material-symbols-rounded" style="font-size: 14px;">devices</span>
+                                ${Math.max(0, remaining)} / ${limit}`;
+                        }
+
+                        if (container) {
+                            container.style.transition = 'opacity 0.2s ease';
+                            container.style.opacity = '0';
+                            await new Promise(r => setTimeout(r, 200));
+
+                            if (remaining <= 0) {
+                                container.innerHTML = `
+                                    <div class="settings-empty">
+                                        <span class="material-symbols-rounded">devices_off</span>
+                                        <span>Нет подключённых устройств</span>
+                                    </div>`;
+                            } else {
+                                const toRemove = container.querySelector(`#device-row-${rowIndex}`);
+                                if (toRemove) {
+                                    const d = toRemove.nextElementSibling?.classList.contains('settings-divider')
+                                        ? toRemove.nextElementSibling
+                                        : toRemove.previousElementSibling?.classList.contains('settings-divider')
+                                            ? toRemove.previousElementSibling : null;
+                                    toRemove.remove();
+                                    if (d) d.remove();
+                                }
+                            }
+                            requestAnimationFrame(() => {
+                                container.style.opacity = '1';
+                            });
+                        }
+
+                        showSuccessAnim();
                     } else {
                         hideLoading();
                         showModal({

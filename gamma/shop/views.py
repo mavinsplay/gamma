@@ -1246,12 +1246,13 @@ def delete_hwid_device_api(request):
     except (ValueError, TypeError):
         return JsonResponse({"error": "Invalid tg_id format"}, status=400)
 
+    profile = Profile.objects.filter(
+        telegram_id=telegram_id,
+    ).first()
+
     async def do_delete():
         client = RemnawaveClient()
         try:
-            profile = Profile.objects.filter(
-                telegram_id=telegram_id,
-            ).first()
             rw_user = await client.get_user_by_tgid(telegram_id)
             rw_user = _get_main_user(rw_user, profile)
 
