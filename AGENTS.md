@@ -20,6 +20,12 @@ python gamma/manage.py init_superuser
 
 `.env` at repo root is required.  Supports SQLite (default debug) or PostgreSQL.
 
+Optional `.env` keys:
+
+- `REDIS_URL` (e.g. `redis://localhost:6379/0`) — enables Redis cache
+  (sync-data-api responses, 15 s TTL). Falls back to in-process
+  `LocMemCache` when unset.
+
 ## Commands
 
 | Action | Command |
@@ -46,7 +52,10 @@ gamma/settings/  — placeholder (empty)
 ## Important details
 
 - **No type checker** configured — do not add type annotations beyond what Django requires.
-- **No CI, no pre-commit, no Docker** — manual workflows only.
+- **No CI, no pre-commit** — manual workflows only.
+- **Docker deploy** via `docker-compose.yml` (profiles `dev`/`prod`): postgres,
+  redis, django (gunicorn), bot, nginx. Redis is wired automatically
+  (`REDIS_URL=redis://redis:6379/0` is set in compose environment).
 - **Admin URL** is custom (set via `ADMIN_URL` in `.env`), not `/admin/`.
 - **All test files are currently empty stubs** — new tests use `django.test.TestCase`.
 - **Test deps** include Flake8 + 15 plugins; formatter is Black only.

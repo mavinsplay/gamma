@@ -85,6 +85,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.gzip.GZipMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -206,3 +207,36 @@ PLATEGA_MERCHANT_ID = os.getenv("PLATEGA_MERCHANT_ID", "")
 PLATEGA_SECRET = os.getenv("PLATEGA_SECRET", "")
 
 ORDER_TIMEOUT_MINUTES = 10
+
+# Redis Cache
+# Priority: explicit REDIS_URL > REDIS_HOST parts > in-process LocMemCache.
+REDIS_URL = os.getenv("REDIS_URL", "")
+
+if not REDIS_URL:
+    REDIS_HOST = os.getenv("REDIS_HOST", "")
+    if REDIS_HOST:
+        REDIS_PORT = os.getenv("REDIS_PORT", "6379")
+        REDIS_DB = os.getenv("REDIS_DB", "0")
+        REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+        if REDIS_PASSWORD:
+            REDIS_URL = (
+                f"redis://:{REDIS_PASSWORD}"
+                f"@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+            )
+        else:
+            REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "TIMEOUT": 15,
+        },
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        },
+    }

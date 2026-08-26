@@ -20,6 +20,26 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  redis:
+    image: redis:7-alpine
+    container_name: gamma_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - ./for_docker/redis_data:/data
+    restart: always
+    networks:
+      - gamma_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   django_gamma:
     build: .
     container_name: django
@@ -28,13 +48,17 @@ services:
     environment:
       DJANGO_POSTGRESQL_HOST: postgres
       DJANGO_DATABASE_SELECT: postgresql
+      REDIS_URL: redis://redis:6379/0
     restart: always
     volumes:
       - ./for_docker/static:/gamma/static
       - ./for_docker/media:/gamma/media
       - ./for_docker/logs/django:/gamma/logs
     depends_on:
-      - postgres
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_healthy
     profiles:
       - prod
       - dev
@@ -111,10 +135,15 @@ services:
     environment:
       DJANGO_POSTGRESQL_HOST: postgres
       DJANGO_DATABASE_SELECT: postgresql
+      REDIS_URL: redis://redis:6379/0
     restart: always
     depends_on:
-      - postgres
-      - django_gamma
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      django_gamma:
+        condition: service_started
     profiles:
       - prod
       - dev

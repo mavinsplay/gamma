@@ -1407,12 +1407,15 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Attach scroll listener to sync dots automatically
-    const subSliderEl = document.getElementById('sub-slider');
-    if (subSliderEl) {
+    function initSubSlider() {
+        const el = document.getElementById('sub-slider');
+        if (!el || el._sliderInit) return;
+        el._sliderInit = true;
+
         function snapToNearestSlide() {
-            const slideWidth = subSliderEl.clientWidth;
-            const index = Math.round(subSliderEl.scrollLeft / slideWidth);
-            subSliderEl.scrollTo({
+            const slideWidth = el.clientWidth;
+            const index = Math.round(el.scrollLeft / slideWidth);
+            el.scrollTo({
                 left: slideWidth * index,
                 behavior: 'smooth'
             });
@@ -1423,8 +1426,8 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        subSliderEl.addEventListener('scroll', () => {
-            const index = Math.round(subSliderEl.scrollLeft / subSliderEl.clientWidth);
+        el.addEventListener('scroll', () => {
+            const index = Math.round(el.scrollLeft / el.clientWidth);
             const dots = document.querySelectorAll('.sub-dot');
             dots.forEach((dot, i) => {
                 if (i === index) dot.classList.add('active');
@@ -1432,47 +1435,61 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        // Drag-to-scroll for PC
-        let isDragging = false;
-        let didDrag = false;
-        let startX, scrollLeft;
+        el.addEventListener('click', (e) => {
+            if (document._subSliderDidDrag) {
+                e.preventDefault();
+                e.stopPropagation();
+                document._subSliderDidDrag = false;
+            }
+        }, true);
+    }
 
-        subSliderEl.addEventListener('mousedown', (e) => {
-            isDragging = true;
-            didDrag = false;
-            startX = e.pageX;
-            scrollLeft = subSliderEl.scrollLeft;
-            subSliderEl.classList.add('dragging');
-            e.preventDefault();
-        });
+    // Document-level drag listeners (added once, always work for current slider)
+    if (!document._subSliderDragInit) {
+        document._subSliderDragInit = true;
+        let isDragging = false;
+        let startX, scrollLeft;
 
         document.addEventListener('mousemove', (e) => {
             if (!isDragging) return;
+            const el = document.getElementById('sub-slider');
+            if (!el) return;
             const dx = e.pageX - startX;
-            if (Math.abs(dx) > 3) didDrag = true;
-            if (didDrag) {
-                subSliderEl.scrollLeft = scrollLeft - dx;
+            if (Math.abs(dx) > 3) document._subSliderDidDrag = true;
+            if (document._subSliderDidDrag) {
+                el.scrollLeft = scrollLeft - dx;
             }
         });
 
         document.addEventListener('mouseup', () => {
             if (!isDragging) return;
             isDragging = false;
-            subSliderEl.classList.remove('dragging');
-            if (didDrag) {
-                snapToNearestSlide();
+            const el = document.getElementById('sub-slider');
+            if (el) el.classList.remove('dragging');
+            if (document._subSliderDidDrag) {
+                const slideWidth = el ? el.clientWidth : 0;
+                const index = Math.round((el ? el.scrollLeft : 0) / slideWidth);
+                el && el.scrollTo({ left: slideWidth * index, behavior: 'smooth' });
+                const dots = document.querySelectorAll('.sub-dot');
+                dots.forEach((dot, i) => {
+                    if (i === index) dot.classList.add('active');
+                    else dot.classList.remove('active');
+                });
             }
         });
 
-        // Prevent click on children if we were dragging
-        subSliderEl.addEventListener('click', (e) => {
-            if (didDrag) {
-                e.preventDefault();
-                e.stopPropagation();
-                didDrag = false;
-            }
+        document.addEventListener('mousedown', (e) => {
+            const el = document.getElementById('sub-slider');
+            if (!el || !el.contains(e.target)) return;
+            isDragging = true;
+            document._subSliderDidDrag = false;
+            startX = e.pageX;
+            scrollLeft = el.scrollLeft;
+            el.classList.add('dragging');
+            e.preventDefault();
         }, true);
     }
+    initSubSlider();
 
     window.toggleExtendMenu = (subType = 'main') => {
         if (!window.CURRENT_TARIFF_PRICE || !window.CURRENT_TARIFF_DAYS) return;
@@ -2402,10 +2419,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // Update HAS_ACTIVE_SUB flag
             // Use OR with OPTIMISTIC_HAS_SUB to avoid flickering right after purchase
             // Has active sub only if both RW user exists AND DB has a real tariff (not "—")
-            window.HAS_ACTIVE_SUB = (!!data.rw_user && data.profile.tarif_price > 0) || !!window.OPTIMISTIC_HAS_SUB;
-            if (data.rw_user) {
-                window.CURRENT_TARIFF_NAME = data.profile.tarif_name;
-                window.OPTIMISTIC_HAS_SUB = false; // Reset once we have real data from Remnawave
+            // On rw_error keep previous state — transient API failure must not hide the sub
+            if (!data.rw_error) {
+                window.HAS_ACTIVE_SUB = (!!data.rw_user && data.profile.tarif_price > 0) || !!window.OPTIMISTIC_HAS_SUB;
+                if (data.rw_user) {
+                    window.CURRENT_TARIFF_NAME = data.profile.tarif_name;
+                    window.OPTIMISTIC_HAS_SUB = false; // Reset once we have real data from Remnawave
+                }
             }
 
             // Update settings toggles
@@ -2469,93 +2489,169 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update Subscription Cards in Tariffs View (Slider)
         const subContainer = document.getElementById('current-subscription-container');
         if (subContainer) {
-            if (data.rw_user && data.profile) {
+            if (data.rw_error) {
+                // Transient API error — keep existing cards, don't wipe the UI
+                console.warn('Sync rw_user error, keeping previous subscription cards');
+            } else if (data.rw_user && data.profile) {
                 const remDays = data.rw_user.remaining_days || 0;
-                
-                // Format dates in slider
-                document.querySelectorAll('.format-date').forEach(el => {
-                    if (el.dataset.date) {
-                        el.textContent = formatExpireDate(el.dataset.date);
-                    }
-                });
+                const tariffName = data.profile.tarif_name || 'Premium';
+                const devLimit = data.rw_user.hwidDeviceLimit || 0;
+                const devCount = data.hwid_devices ? data.hwid_devices.length : 0;
+                const expireAt = data.rw_user.expireAt || data.rw_user.expire_at || '';
+                const expireStr = expireAt ? formatExpireDate(expireAt) : '';
+                const statusClass = remDays > 3 ? 'status-active' : remDays > 0 ? 'status-expiring' : 'status-expired';
+                const statusText = remDays > 0
+                    ? `До <span>${expireStr}</span> &bull; ${remDays} дн.`
+                    : 'Истекла';
 
-                // Update Whitelist Slide specifically if exists
-                if (data.whitelist_user) {
-                    window.HAS_WHITELIST_SUB = true;
-                    const wlLimit = data.whitelist_user.trafficLimitBytes || 0;
-                    const wlUsed = data.whitelist_user.userTraffic?.usedTrafficBytes || 0;
-                    
-                    const trafficTextEl = document.getElementById('wl-traffic-text');
-                    const trafficProgressEl = document.getElementById('wl-traffic-progress');
-                    
-                    if (trafficTextEl) {
-                        const remaining = Math.max(0, wlLimit - wlUsed);
-                        trafficTextEl.textContent = `${formatBytes(remaining)} / ${formatBytes(wlLimit)}`;
-                    }
-                    if (trafficProgressEl && wlLimit > 0) {
-                        const percent = Math.min(100, Math.max(0, (wlUsed / wlLimit) * 100));
-                        trafficProgressEl.style.width = `${percent}%`;
-                        if (percent > 90) trafficProgressEl.style.background = '#F44336';
-                        else if (percent > 70) trafficProgressEl.style.background = '#FF9800';
-                        else trafficProgressEl.style.background = '#4CAF50';
-                    }
-                } else {
-                    // Remove whitelist slide if it exists but user no longer has one
-                    const wlSlide = document.querySelector('.wl-slide');
-                    if (wlSlide) {
-                        wlSlide.remove();
-                        // Update slider dots
-                        const dotsContainer = document.getElementById('sub-slider-dots');
-                        if (dotsContainer) {
-                            dotsContainer.style.display = 'none';
-                        }
-                    }
-                    window.HAS_WHITELIST_SUB = false;
-                }
-                
-                window.REMAINING_DAYS = remDays;
-
-                // Update status text in subscription card
+                // If card structure missing (server rendered empty), rebuild it
                 const subStatusText = document.getElementById('sub-status-text');
-                const subStatusEl = subStatusText?.closest('.sub-status-minimal');
-                if (subStatusText && data.rw_user) {
-                    if (remDays > 0) {
-                        const expireAt = data.rw_user.expireAt || data.rw_user.expire_at;
-                        const expireStr = expireAt ? formatExpireDate(expireAt) : '';
-                        subStatusText.innerHTML = `До <span>${expireStr}</span> &bull; ${remDays} дн.`;
-                    } else {
-                        subStatusText.textContent = 'Истекла';
-                    }
-                }
-                if (subStatusEl) {
-                    subStatusEl.className = 'sub-status-minimal ' + (remDays > 3 ? 'status-active' : remDays > 0 ? 'status-expiring' : 'status-expired');
-                }
+                if (!subStatusText) {
+                    let sliderHtml = `
+                        <div class="subscription-slider" id="sub-slider">
+                            <div class="sub-slide bounce">
+                                <div class="sub-header">
+                                    <div class="sub-icon"><span class="material-symbols-rounded">verified_user</span></div>
+                                    <div class="sub-info">
+                                        <span class="sub-label">Основная подписка</span>
+                                        <h3 class="sub-title" id="sub-title-display">${escapeHtml(tariffName)}</h3>
+                                    </div>
+                                </div>
+                                <div class="sub-status-minimal ${statusClass}">
+                                    <div class="status-dot"></div>
+                                    <span id="sub-status-text">${statusText}</span>
+                                </div>
+                                <div class="sub-footer">
+                                    <div class="sub-device-info">
+                                        <span class="material-symbols-rounded" style="font-size: 16px;">devices</span>
+                                        <span id="sub-device-text">${devCount} / ${devLimit} устройств</span>
+                                        <button class="action-btn icon-btn bounce" onclick="activateTabById('view-settings','Настройки')" title="Настройки" aria-label="Настройки">
+                                            <span class="material-symbols-rounded">brush</span>
+                                        </button>
+                                    </div>
+                                    <div class="sub-actions">
+                                        <button class="action-btn bounce extend-btn" onclick="toggleExtendMenu('main')">
+                                            <span class="material-symbols-rounded">update</span>Продлить подписку
+                                        </button>
+                                        <button class="action-btn bounce connect-btn" onclick="connectAndSwitch('main')">
+                                            <span class="material-symbols-rounded">vpn_key</span>Подключить
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>`;
 
-                // Update whitelist status text
-                if (data.whitelist_user) {
-                    const wlRemDays = data.whitelist_user.remaining_days || 0;
-                    const wlStatusText = document.getElementById('wl-status-text');
-                    const wlStatusEl = wlStatusText?.closest('.sub-status-minimal');
-                    if (wlStatusText) {
-                        if (wlRemDays > 0) {
-                            const wlExpire = data.whitelist_user.expireAt || data.whitelist_user.expire_at;
-                            const wlExpStr = wlExpire ? formatExpireDate(wlExpire) : '';
-                            wlStatusText.innerHTML = `До <span>${wlExpStr}</span> &bull; ${wlRemDays} дн.`;
-                        } else {
-                            wlStatusText.textContent = 'Истекла';
+                    if (data.whitelist_user) {
+                        const wlRem = data.whitelist_user.remaining_days || 0;
+                        const wlExpire = data.whitelist_user.expireAt || data.whitelist_user.expire_at || '';
+                        const wlExpStr = wlExpire ? formatExpireDate(wlExpire) : '';
+                        const wlStatusClass = wlRem > 3 ? 'status-active' : wlRem > 0 ? 'status-expiring' : 'status-expired';
+                        const wlStatusText = wlRem > 0
+                            ? `До <span>${wlExpStr}</span> &bull; ${wlRem} дн.`
+                            : 'Истекла';
+                        sliderHtml += `
+                            <div class="sub-slide bounce wl-slide">
+                                <div class="sub-header">
+                                    <div class="sub-icon wl-icon"><span class="material-symbols-rounded">shield_locked</span></div>
+                                    <div class="sub-info">
+                                        <span class="sub-label">Дополнительная подписка</span>
+                                        <h3 class="sub-title">Расширенный доступ</h3>
+                                        <span class="sub-label" style="font-size:11px; opacity:0.65; margin-top:2px; display:block;">Работает в условиях белых ограничений</span>
+                                    </div>
+                                </div>
+                                <div class="sub-status-minimal ${wlStatusClass}">
+                                    <div class="status-dot"></div>
+                                    <span id="wl-status-text">${wlStatusText}</span>
+                                </div>
+                                <div class="wl-traffic-bar">
+                                    <div class="wl-traffic-info">
+                                        <span style="opacity:0.8; font-size:12px;">Трафик:</span>
+                                        <span id="wl-traffic-text" style="font-size:12px; font-weight:500;">Загрузка...</span>
+                                    </div>
+                                    <div class="wl-progress-bg"><div class="wl-progress-fill" id="wl-traffic-progress"></div></div>
+                                </div>
+                                <div class="sub-footer">
+                                    <div class="sub-actions">
+                                        <button class="action-btn bounce extend-btn" style="background: rgba(76, 175, 80, 0.15); color: #4CAF50;" onclick="handleTopupWhitelistTraffic()">
+                                            <span class="material-symbols-rounded">add_circle</span>+5 ГБ за 150 ₽
+                                        </button>
+                                        <button class="action-btn bounce connect-btn" onclick="connectAndSwitch('whitelist')">
+                                            <span class="material-symbols-rounded">vpn_key</span>Подключить
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>`;
+                    }
+
+                    sliderHtml += `</div>`;
+                    if (data.whitelist_user) {
+                        sliderHtml += `
+                            <div class="sub-slider-dots" id="sub-slider-dots">
+                                <div class="sub-dot active" onclick="scrollToSubSlide(0)"></div>
+                                <div class="sub-dot" onclick="scrollToSubSlide(1)"></div>
+                            </div>`;
+                    }
+
+                    subContainer.innerHTML = sliderHtml;
+                    initSubSlider();
+                } else {
+                    // Card exists, update in-place
+                    const subTitleEl = document.getElementById('sub-title-display');
+                    if (subTitleEl) subTitleEl.textContent = tariffName;
+
+                    const subStatusEl = subStatusText.closest('.sub-status-minimal');
+                    subStatusText.innerHTML = statusText;
+                    if (subStatusEl) subStatusEl.className = 'sub-status-minimal ' + statusClass;
+
+                    const deviceTextEl = document.getElementById('sub-device-text');
+                    if (deviceTextEl) deviceTextEl.textContent = `${devCount} / ${devLimit} устройств`;
+
+                    // Whitelist slide
+                    if (data.whitelist_user) {
+                        window.HAS_WHITELIST_SUB = true;
+                        const wlLimit = data.whitelist_user.trafficLimitBytes || 0;
+                        const wlUsed = data.whitelist_user.userTraffic?.usedTrafficBytes || 0;
+                        const trafficTextEl = document.getElementById('wl-traffic-text');
+                        const trafficProgressEl = document.getElementById('wl-traffic-progress');
+                        if (trafficTextEl) {
+                            const remaining = Math.max(0, wlLimit - wlUsed);
+                            trafficTextEl.textContent = `${formatBytes(remaining)} / ${formatBytes(wlLimit)}`;
                         }
-                    }
-                    if (wlStatusEl) {
-                        wlStatusEl.className = 'sub-status-minimal ' + (wlRemDays > 3 ? 'status-active' : wlRemDays > 0 ? 'status-expiring' : 'status-expired');
+                        if (trafficProgressEl && wlLimit > 0) {
+                            const percent = Math.min(100, Math.max(0, (wlUsed / wlLimit) * 100));
+                            trafficProgressEl.style.width = `${percent}%`;
+                            if (percent > 90) trafficProgressEl.style.background = '#F44336';
+                            else if (percent > 70) trafficProgressEl.style.background = '#FF9800';
+                            else trafficProgressEl.style.background = '#4CAF50';
+                        }
+                        const wlRem = data.whitelist_user.remaining_days || 0;
+                        const wlExpire = data.whitelist_user.expireAt || data.whitelist_user.expire_at || '';
+                        const wlExpStr = wlExpire ? formatExpireDate(wlExpire) : '';
+                        const wlStatusText = document.getElementById('wl-status-text');
+                        const wlStatusEl = wlStatusText?.closest('.sub-status-minimal');
+                        if (wlStatusText) {
+                            wlStatusText.innerHTML = wlRem > 0
+                                ? `До <span>${wlExpStr}</span> &bull; ${wlRem} дн.`
+                                : 'Истекла';
+                        }
+                        if (wlStatusEl) {
+                            wlStatusEl.className = 'sub-status-minimal ' + (wlRem > 3 ? 'status-active' : wlRem > 0 ? 'status-expiring' : 'status-expired');
+                        }
+                    } else if (!data.wl_error) {
+                        // Whitelist sub truly absent (not a fetch error) — remove slide
+                        const wlSlide = document.querySelector('.wl-slide');
+                        if (wlSlide) wlSlide.remove();
+                        const dotsContainer = document.getElementById('sub-slider-dots');
+                        if (dotsContainer) dotsContainer.style.display = 'none';
+                        window.HAS_WHITELIST_SUB = false;
                     }
                 }
 
-                // Update device info
-                const deviceTextEl = document.getElementById('sub-device-text');
-                if (deviceTextEl && data.hwid_devices && data.rw_user) {
-                    const devLimit = data.rw_user.hwidDeviceLimit || 0;
-                    deviceTextEl.textContent = `${data.hwid_devices.length} / ${devLimit} устройств`;
-                }
+                window.REMAINING_DAYS = remDays;
+                window.CURRENT_TARIFF_NAME = tariffName;
+                window.CURRENT_TARIFF_PRICE = parseFloat(data.profile.tarif_price || 0);
+                window.CURRENT_TARIFF_DAYS = parseInt(data.profile.tarif_days || 30);
+                window.HAS_ACTIVE_SUB = data.profile.tarif_price > 0;
+                window.CURRENT_TARIFF_ID = data.profile.tariff_id || 0;
             } else {
                 subContainer.innerHTML = '';
             }
@@ -2563,7 +2659,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update Connection View Status
         const connectionSubInfo = document.querySelector('#view-connection .subscription-info');
-        if (connectionSubInfo && data.profile) {
+        if (connectionSubInfo && data.profile && !data.rw_error) {
             const daysEl = document.getElementById('connection-remaining-days');
             const resultEl = document.getElementById('connection-result');
 
@@ -2740,7 +2836,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update Devices
         const deviceCountEl = document.getElementById('devices-count-display');
-        if (deviceCountEl && data.rw_user) {
+        if (deviceCountEl && data.rw_user && !data.hwid_error) {
             deviceCountEl.innerHTML = `
                 <span class="material-symbols-rounded" style="font-size: 14px;">devices</span>
                 ${data.hwid_devices.length} / ${data.rw_user.hwidDeviceLimit || 0}
@@ -2748,7 +2844,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const devicesContainer = document.getElementById('devices-list-container');
-        if (devicesContainer && data.hwid_devices) {
+        if (devicesContainer && data.hwid_devices && !data.hwid_error) {
             if (data.hwid_devices.length === 0) {
                 devicesContainer.innerHTML = `
                     <div class="settings-empty">
@@ -2789,7 +2885,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update Slot Purchase Section
         const slotContainer = document.getElementById('slot-purchase-container');
-        if (slotContainer) {
+        if (slotContainer && !data.rw_error) {
             if (data.rw_user) {
                 slotContainer.innerHTML = `
                     <div class="settings-section">

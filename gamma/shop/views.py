@@ -4,15 +4,19 @@ from decimal import Decimal
 import json
 import logging
 import re
+import time
 
 from asgiref.sync import async_to_sync
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.csrf import csrf_exempt
 
 from connect.services.remnawave import RemnawaveClient
+
+_last_cancel_check = 0
 from shop.models import Order, PromoCode, PromoCodeUsage, Tariff
 from shop.platega import Platega, PlategaAPIError, PlategaCallback
 from shop.services.platega import (
@@ -160,157 +164,43 @@ def app_index(request):
                 profile.telegram_username = telegram_username
                 profile.save()
 
-    # JS calls sync-data-api with initData to fetch/create the profile.
+    # Payment History (fast DB query)
+    payments = []
+    if profile:
+        payments = Order.objects.filter(telegram_id=telegram_id).order_by(
+            "-created_at",
+        )[:20]
 
-    async def fetch_all():
-        client = RemnawaveClient()
-        try:
-            tasks = [asyncio.create_task(client.get_nodes())]
-            if profile:
-                tasks.append(
-                    asyncio.create_task(client.get_user_by_tgid(telegram_id)),
-                )
+    # Pending payment check (fast DB query)
+    has_pending_payment = (
+        Order.objects.filter(
+            telegram_id=telegram_id,
+            status="PENDING",
+            order_type="TOPUP",
+        ).exists()
+        if profile
+        else False
+    )
 
-            if profile and profile.whitelist_uuid:
-                tasks.append(
-                    asyncio.create_task(
-                        client.get_user(profile.whitelist_uuid),
-                    ),
-                )
-
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            raw_nodes = results[0] if results else []
-            rw_user = results[1] if len(results) > 1 else None
-            whitelist_user = results[2] if len(results) > 2 else None
-
-            if isinstance(raw_nodes, Exception):
-                raw_nodes = []
-
-            if isinstance(rw_user, Exception):
-                rw_user = None
-            elif isinstance(rw_user, list):
-                rw_user = _get_main_user(rw_user, profile)
-
-            if isinstance(whitelist_user, Exception):
-                whitelist_user = None
-
-            hwid_devices = []
-            if rw_user and rw_user.get("uuid"):
-                try:
-                    hwid_devices = await client.get_user_hwid_devices(
-                        rw_user["uuid"],
-                    )
-                except Exception:
-                    pass
-
-            return raw_nodes, rw_user, hwid_devices, whitelist_user
-        finally:
-            await client.close()
-
-    try:
-        from datetime import datetime, timezone
-
-        raw_nodes, rw_user, hwid_devices, whitelist_user = async_to_sync(
-            fetch_all,
-        )()
-        nodes_data = []
-        for node in raw_nodes:
-            flag, name = extract_flag(node.get("name", ""))
-
-            # Fallback: if no flag in name, try to convert countryCode
-            if not flag:
-                flag = country_code_to_flag(node.get("countryCode"))
-
-            node["display_flag"] = flag
-            node["display_name"] = name
-            nodes_data.append(node)
-
-        remaining_days = 0
-        if rw_user and rw_user.get("expireAt"):
-            expire_str = rw_user["expireAt"].replace("Z", "+00:00")
-            try:
-                expire_dt = datetime.fromisoformat(expire_str)
-                delta = expire_dt - datetime.now(timezone.utc)
-                remaining_days = max(0, delta.days)
-                rw_user["remaining_days"] = remaining_days
-                rw_user["expire_at"] = rw_user["expireAt"]
-            except ValueError:
-                pass
-
-        # Compute whitelist remaining days
-        if whitelist_user:
-            whitelist_user["remaining_days"] = 0
-            whitelist_user["expire_at"] = None
-            if whitelist_user.get("expireAt"):
-                try:
-                    wl_expire_str = whitelist_user["expireAt"].replace(
-                        "Z",
-                        "+00:00",
-                    )
-                    wl_expire_dt = datetime.fromisoformat(wl_expire_str)
-                    wl_delta = wl_expire_dt - datetime.now(timezone.utc)
-                    whitelist_user["remaining_days"] = max(0, wl_delta.days)
-                    whitelist_user["expire_at"] = whitelist_user["expireAt"]
-                except ValueError:
-                    pass
-
-        online_count = sum(1 for node in nodes_data if node.get("isConnected"))
-        offline_count = len(nodes_data) - online_count
-
-        # Proxy Bypass logic
-        proxies = []
-        if profile and profile.tarif:
-            proxies = profile.tarif.proxies.filter(is_active=True)
-
-        # Payment History logic
-        payments = []
-        if profile:
-            payments = Order.objects.filter(telegram_id=telegram_id).order_by(
-                "-created_at",
-            )[:20]
-
-        # Pending payment check
-        has_pending_payment = (
-            Order.objects.filter(
-                telegram_id=telegram_id,
-                status="PENDING",
-                order_type="TOPUP",
-            ).exists()
-            if profile
-            else False
-        )
-
-    except Exception as e:
-        import traceback
-
-        traceback.print_exc()
-        print(f"Exception in app_index: {e}")  # noqa: T201
-        nodes_data = []
-        rw_user = None
-        whitelist_user = None
-        hwid_devices = []
-        online_count = 0
-        offline_count = 0
-        proxies = []
-        payments = []
-        has_pending_payment = False
+    # All Remnawave data (nodes, rw_user, hwid_devices, etc.)
+    # is fetched exclusively via sync-data-api on the client side.
+    # This keeps the initial page load fast (< 100ms).
 
     return render(
         request,
         "base.html",
         {
             "tariffs": tariffs,
-            "nodes": nodes_data,
-            "online_count": online_count,
-            "offline_count": offline_count,
-            "proxies": proxies,
+            "nodes": [],
+            "online_count": 0,
+            "offline_count": 0,
+            "proxies": [],
             "payments": payments,
             "profile": profile,
             "debug": settings.DEBUG,
-            "rw_user": rw_user,
-            "whitelist_user": whitelist_user,
-            "hwid_devices": hwid_devices,
+            "rw_user": None,
+            "whitelist_user": None,
+            "hwid_devices": [],
             "is_admin": str(telegram_id) == str(settings.ADMIN_TELEGRAM_ID),
             "admin_url": settings.ADMIN_URL,
             "mock_user_data": (
@@ -644,6 +534,7 @@ def buy_tariff_api(request):
             except ValueError:
                 pass
 
+        cache.delete(f"sync_data:{telegram_id}")
         return JsonResponse(
             {
                 "success": True,
@@ -1073,6 +964,7 @@ def buy_slot_api(request):
 
         rw_data = async_to_sync(add_slot)()
 
+        cache.delete(f"sync_data:{telegram_id}")
         return JsonResponse(
             {
                 "success": True,
@@ -1265,6 +1157,7 @@ def delete_hwid_device_api(request):
 
     try:
         async_to_sync(do_delete)()
+        cache.delete(f"sync_data:{telegram_id}")
         return JsonResponse({"success": True})
     except Exception:
         return JsonResponse(
@@ -1407,6 +1300,7 @@ def promo_api(request):
             status=500,
         )
 
+    cache.delete(f"sync_data:{telegram_id}")
     return JsonResponse(
         {
             "success": True,
@@ -1580,6 +1474,7 @@ def extend_sub_api(request):
             except ValueError:
                 pass
 
+        cache.delete(f"sync_data:{telegram_id}")
         return JsonResponse(
             {
                 "success": True,
@@ -1737,7 +1632,16 @@ def sync_data_api(request):
             {"success": True, "profile": None, "rw_user": None},
         )
 
-    cancel_expired_orders()
+    global _last_cancel_check
+    now = time.time()
+    if now - _last_cancel_check > 60:
+        _last_cancel_check = now
+        cancel_expired_orders()
+
+    cache_key = f"sync_data:{telegram_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
 
     async def fetch_sync_data():
         client = RemnawaveClient()
@@ -1764,14 +1668,17 @@ def sync_data_api(request):
             if isinstance(raw_nodes, Exception):
                 raw_nodes = []
 
-            if isinstance(rw_user, Exception):
+            rw_error = isinstance(rw_user, Exception)
+            if rw_error:
                 rw_user = None
             elif isinstance(rw_user, list):
                 rw_user = _get_main_user(rw_user, profile)
 
-            if isinstance(whitelist_raw, Exception):
+            wl_error = isinstance(whitelist_raw, Exception)
+            if wl_error:
                 whitelist_raw = None
 
+            hwid_error = False
             hwid_devices = []
             if rw_user and rw_user.get("uuid"):
                 try:
@@ -1779,7 +1686,7 @@ def sync_data_api(request):
                         rw_user["uuid"],
                     )
                 except Exception:
-                    pass
+                    hwid_error = True
 
             whitelist_user_data = None
             if whitelist_raw:
@@ -1801,6 +1708,9 @@ def sync_data_api(request):
                 hwid_devices,
                 whitelist_user_data,
                 isinstance(results[0] if results else None, Exception),
+                rw_error,
+                hwid_error,
+                wl_error,
             )
         finally:
             await client.close()
@@ -1808,11 +1718,18 @@ def sync_data_api(request):
     try:
         from datetime import datetime, timezone
 
-        raw_nodes, rw_user, hwid_devices, whitelist_user_data, nodes_error = (
-            async_to_sync(
-                fetch_sync_data,
-            )()
-        )
+        (
+            raw_nodes,
+            rw_user,
+            hwid_devices,
+            whitelist_user_data,
+            nodes_error,
+            rw_error,
+            hwid_error,
+            wl_error,
+        ) = async_to_sync(
+            fetch_sync_data,
+        )()
         nodes_data = []
         for node in raw_nodes:
             flag, name = extract_flag(node.get("name", ""))
@@ -1932,53 +1849,61 @@ def sync_data_api(request):
             else:
                 offline_count += 1
 
-        return JsonResponse(
-            {
-                "success": True,
-                "is_admin": is_admin,
-                "profile": (
-                    {
-                        "balance": float(profile.balance),
-                        "tarif_name": (
-                            profile.tarif.name if profile.tarif else "—"
-                        ),
-                        "tarif_price": (
-                            float(profile.tarif.price) if profile.tarif else 0
-                        ),
-                        "tarif_days": (
-                            profile.tarif.duration_days if profile.tarif else 0
-                        ),
-                        "payment_reminder_enabled": (
-                            profile.payment_reminder_enabled
-                        ),
-                        "notifications_enabled": (
-                            profile.notifications_enabled
-                        ),
-                        "server_notifications_enabled": (
-                            profile.server_notifications_enabled
-                        ),
-                        "whitelist_uuid": (
-                            str(profile.whitelist_uuid)
-                            if profile.whitelist_uuid
-                            else None
-                        ),
-                    }
-                    if profile
-                    else None
-                ),
-                "rw_user": rw_user,
-                "whitelist_user": whitelist_user_data,
-                "hwid_devices": hwid_devices,
-                "nodes": nodes_data,
-                "nodes_error": nodes_error,
-                "online_count": online_count,
-                "offline_count": offline_count,
-                "payments": payments,
-                "proxies": proxies_data,
-                "has_pending_payment": has_pending_payment,
-                "pending_payment": pending_payment,
-            },
-        )
+        response_data = {
+            "success": True,
+            "is_admin": is_admin,
+            "profile": (
+                {
+                    "balance": float(profile.balance),
+                    "tarif_name": (
+                        profile.tarif.name if profile.tarif else "—"
+                    ),
+                    "tarif_price": (
+                        float(profile.tarif.price) if profile.tarif else 0
+                    ),
+                    "tarif_days": (
+                        profile.tarif.duration_days if profile.tarif else 0
+                    ),
+                    "tariff_id": (
+                        profile.tarif.id if profile.tarif else 0
+                    ),
+                    "payment_reminder_enabled": (
+                        profile.payment_reminder_enabled
+                    ),
+                    "notifications_enabled": (
+                        profile.notifications_enabled
+                    ),
+                    "server_notifications_enabled": (
+                        profile.server_notifications_enabled
+                    ),
+                    "whitelist_uuid": (
+                        str(profile.whitelist_uuid)
+                        if profile.whitelist_uuid
+                        else None
+                    ),
+                }
+                if profile
+                else None
+            ),
+            "rw_user": rw_user,
+            "whitelist_user": whitelist_user_data,
+            "hwid_devices": hwid_devices,
+            "nodes": nodes_data,
+            "nodes_error": nodes_error,
+            "rw_error": rw_error,
+            "hwid_error": hwid_error,
+            "wl_error": wl_error,
+            "online_count": online_count,
+            "offline_count": offline_count,
+            "payments": payments,
+            "proxies": proxies_data,
+            "has_pending_payment": has_pending_payment,
+            "pending_payment": pending_payment,
+        }
+        if not (rw_error or hwid_error or wl_error or nodes_error):
+            cache.set(cache_key, response_data, 15)
+
+        return JsonResponse(response_data)
     except Exception:
         return JsonResponse(
             {"error": "Ошибка синхронизации данных"},
@@ -2037,6 +1962,7 @@ def update_preferences_api(request):
         return JsonResponse({"error": "Invalid type"}, status=400)
 
     profile.save()
+    cache.delete(f"sync_data:{telegram_id}")
     return JsonResponse({"success": True})
 
 
@@ -2138,6 +2064,7 @@ def topup_whitelist_traffic_api(request):
         result = async_to_sync(topup_remnawave)()
 
         new_limit = result.get("trafficLimitBytes", 0)
+        cache.delete(f"sync_data:{telegram_id}")
         return JsonResponse(
             {
                 "success": True,

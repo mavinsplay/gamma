@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 from yoomoney import Client as YooClient
 from yoomoney import Quickpay
@@ -139,5 +140,7 @@ def process_successful_payment(order_id):
 
     profile.balance += order.amount
     profile.save(update_fields=["balance"])
+
+    cache.delete(f"sync_data:{order.telegram_id}")
 
     return order
