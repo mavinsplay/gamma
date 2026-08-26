@@ -280,6 +280,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (v.id === viewId) v.classList.add('active');
                 else v.classList.remove('active');
             });
+
+            if (viewId === 'view-history') window.loadPaymentHistory();
         }
     };
 
@@ -2409,6 +2411,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const balanceEl = document.getElementById('profile-balance');
             if (balanceEl) balanceEl.textContent = `${data.profile.balance.toFixed(0)} ₽`;
 
+            if (window._lastBalance !== null && window._lastBalance !== data.profile.balance) {
+                window._historyLoaded = false;
+            }
+            window._lastBalance = data.profile.balance;
+
             const tarifNameEl = document.getElementById('profile-tarif-name');
             if (tarifNameEl) tarifNameEl.textContent = data.profile.tarif_name;
 
@@ -2912,60 +2919,114 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Update Payment History
-        const historyContainer = document.getElementById('history-list-container');
-        if (historyContainer && data.payments) {
+        // Background-prefetch subscription links once data is available.
+        prefetchSubLinks();
+    }
+
+    // Lazy-load payment history
+    window._historyLoaded = false;
+    window._historyOffset = 0;
+    window._lastBalance = null;
+
+    function buildPaymentHtml(p) {
+        const isTopup = p.order_type === 'TOPUP';
+        let statusColor = '#EF5350';
+        let statusText = 'Ошибка';
+        if (p.status === 'PAID') {
+            statusColor = '#4CAF50';
+            statusText = 'Успешно';
+        } else if (p.status === 'PENDING') {
+            statusColor = '#FF9F0A';
+            statusText = 'В обработке';
+        }
+        return `
+            <div class="history-item" style="background: var(--panel-bg); border-radius: 20px; padding: 16px; display: flex; align-items: center; gap: 16px;">
+                <div style="width: 44px; height: 44px; border-radius: 14px; background: ${isTopup ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 255, 255, 0.05)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <span class="material-symbols-rounded" style="color: ${isTopup ? '#4CAF50' : '#FFFFFF'}; font-size: 24px; opacity: 0.8;">
+                        ${isTopup ? 'account_balance_wallet' : 'shopping_bag'}
+                    </span>
+                </div>
+                <div style="flex: 1;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
+                        <span style="font-weight: 500; font-size: 15px;">
+                            ${isTopup ? 'Пополнение баланса' : (escapeHtml(p.tariff_name) || "Покупка тарифа")}
+                        </span>
+                        <span style="font-weight: 600; font-size: 15px; color: ${isTopup ? '#4CAF50' : '#FFFFFF'};">
+                            ${isTopup ? '+' : '-'}${p.amount.toFixed(0)} ₽
+                        </span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; opacity: 0.5;">
+                        <span>${p.created_at}</span>
+                        <span style="color: ${statusColor}; opacity: 0.8;">
+                            ${statusText}
+                        </span>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    async function fetchPayments(offset) {
+        const tg = window.Telegram?.WebApp;
+        const formData = new FormData();
+        formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+        formData.append('offset', offset);
+        if (tg?.initData) formData.append('init_data', tg.initData);
+        const resp = await fetch('/shop/payments-api/', { method: 'POST', body: formData });
+        return await resp.json();
+    }
+
+    window.loadPaymentHistory = async (force) => {
+        if (window._historyLoaded && !force) return;
+        const container = document.getElementById('history-list-container');
+        const loadMore = document.getElementById('history-load-more');
+        if (!container) return;
+
+        window._historyOffset = 0;
+        container.innerHTML = `<div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; opacity: 0.4; text-align: center;"><div class="spinner"></div><span>Загрузка...</span></div>`;
+
+        try {
+            const data = await fetchPayments(0);
+            if (!data.success) throw new Error(data.error);
+
             if (data.payments.length === 0) {
-                historyContainer.innerHTML = `
+                container.innerHTML = `
                     <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; opacity: 0.4; text-align: center;">
                         <span class="material-symbols-rounded" style="font-size: 48px;">receipt_long</span>
                         <span>История платежей пока пуста</span>
                     </div>`;
+                if (loadMore) loadMore.style.display = 'none';
             } else {
-                let historyHtml = '';
-                data.payments.forEach(payment => {
-                    const isTopup = payment.order_type === 'TOPUP';
-                    let statusColor = '#EF5350';
-                    let statusText = 'Ошибка';
-                    if (payment.status === 'PAID') {
-                        statusColor = '#4CAF50';
-                        statusText = 'Успешно';
-                    } else if (payment.status === 'PENDING') {
-                        statusColor = '#FF9F0A';
-                        statusText = 'В обработке';
-                    }
-                    historyHtml += `
-                        <div class="history-item" style="background: var(--panel-bg); border-radius: 20px; padding: 16px; display: flex; align-items: center; gap: 16px;">
-                            <div style="width: 44px; height: 44px; border-radius: 14px; background: ${isTopup ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 255, 255, 0.05)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                                <span class="material-symbols-rounded" style="color: ${isTopup ? '#4CAF50' : '#FFFFFF'}; font-size: 24px; opacity: 0.8;">
-                                    ${isTopup ? 'account_balance_wallet' : 'shopping_bag'}
-                                </span>
-                            </div>
-                            <div style="flex: 1;">
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
-                                    <span style="font-weight: 500; font-size: 15px;">
-                                        ${isTopup ? 'Пополнение баланса' : (escapeHtml(payment.tariff_name) || "Покупка тарифа")}
-                                    </span>
-                                    <span style="font-weight: 600; font-size: 15px; color: ${isTopup ? '#4CAF50' : '#FFFFFF'};">
-                                        ${isTopup ? '+' : '-'}${payment.amount.toFixed(0)} ₽
-                                    </span>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; opacity: 0.5;">
-                                    <span>${payment.created_at}</span>
-                                    <span style="color: ${statusColor}; opacity: 0.8;">
-                                        ${statusText}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>`;
-                });
-                historyContainer.innerHTML = historyHtml;
+                container.innerHTML = data.payments.map(buildPaymentHtml).join('');
+                window._historyOffset = data.payments.length;
+                if (loadMore) loadMore.style.display = data.has_more ? '' : 'none';
             }
+            window._historyLoaded = true;
+        } catch (e) {
+            console.error('Failed to load payments', e);
+            container.innerHTML = `
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; opacity: 0.4; text-align: center;">
+                    <span class="material-symbols-rounded" style="font-size: 48px;">error</span>
+                    <span>Ошибка загрузки истории</span>
+                </div>`;
         }
+    };
 
-        // Background-prefetch subscription links once data is available.
-        prefetchSubLinks();
-    }
+    window.loadMorePayments = async () => {
+        const container = document.getElementById('history-list-container');
+        const loadMore = document.getElementById('history-load-more');
+        if (!container) return;
+
+        try {
+            const data = await fetchPayments(window._historyOffset);
+            if (!data.success) throw new Error(data.error);
+
+            container.insertAdjacentHTML('beforeend', data.payments.map(buildPaymentHtml).join(''));
+            window._historyOffset += data.payments.length;
+            if (loadMore) loadMore.style.display = data.has_more ? '' : 'none';
+        } catch (e) {
+            console.error('Failed to load more payments', e);
+        }
+    };
 
     window.handleTogglePreference = async (prefType, value) => {
         const tg = window.Telegram?.WebApp;

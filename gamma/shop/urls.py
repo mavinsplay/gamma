@@ -25,6 +25,7 @@ urlpatterns = [
     path("success/<int:sub_id>/", views.success_view, name="payment_success"),
     path("fail/<int:sub_id>/", views.fail_view, name="payment_fail"),
     path("sync-data-api/", views.sync_data_api, name="sync_data_api"),
+    path("payments-api/", views.payments_api, name="payments_api"),
     path(
         "update-preferences-api/",
         views.update_preferences_api,

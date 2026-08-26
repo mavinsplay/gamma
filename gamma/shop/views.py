@@ -15,8 +15,6 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.csrf import csrf_exempt
 
 from connect.services.remnawave import RemnawaveClient
-
-_last_cancel_check = 0
 from shop.models import Order, PromoCode, PromoCodeUsage, Tariff
 from shop.platega import Platega, PlategaAPIError, PlategaCallback
 from shop.services.platega import (
@@ -33,6 +31,8 @@ from shop.services.yoomoney import (
 )
 from shop.utils import verify_telegram_init_data
 from user.models import Profile
+
+_last_cancel_check = 0
 
 logger = logging.getLogger(__name__)
 
@@ -1752,24 +1752,6 @@ def sync_data_api(request):
             except ValueError:
                 pass
 
-        # Payment History
-        payments = []
-        if profile:
-            qs = Order.objects.filter(telegram_id=telegram_id).order_by(
-                "-created_at",
-            )[:20]
-            for p in qs:
-                payments.append(
-                    {
-                        "id": p.id,
-                        "amount": float(p.amount),
-                        "order_type": p.order_type,
-                        "status": p.status,
-                        "created_at": p.created_at.strftime("%d.%m.%Y %H:%M"),
-                        "tariff_name": p.tariff.name if p.tariff else None,
-                    },
-                )
-
         # Proxy Bypass logic
         proxies_data = []
         if profile and profile.tarif:
@@ -1864,15 +1846,11 @@ def sync_data_api(request):
                     "tarif_days": (
                         profile.tarif.duration_days if profile.tarif else 0
                     ),
-                    "tariff_id": (
-                        profile.tarif.id if profile.tarif else 0
-                    ),
+                    "tariff_id": (profile.tarif.id if profile.tarif else 0),
                     "payment_reminder_enabled": (
                         profile.payment_reminder_enabled
                     ),
-                    "notifications_enabled": (
-                        profile.notifications_enabled
-                    ),
+                    "notifications_enabled": (profile.notifications_enabled),
                     "server_notifications_enabled": (
                         profile.server_notifications_enabled
                     ),
@@ -1895,7 +1873,6 @@ def sync_data_api(request):
             "wl_error": wl_error,
             "online_count": online_count,
             "offline_count": offline_count,
-            "payments": payments,
             "proxies": proxies_data,
             "has_pending_payment": has_pending_payment,
             "pending_payment": pending_payment,
@@ -1911,28 +1888,73 @@ def sync_data_api(request):
         )
 
 
+def payments_api(request):
+    if request.method != "POST":
+        return JsonResponse(
+            {"error": "Only POST allowed"},
+            status=405,
+        )
+
+    uid = _get_authorized_telegram_id(request)
+    if uid is None:
+        return JsonResponse(
+            {"error": "Invalid auth"},
+            status=403,
+        )
+
+    try:
+        telegram_id = int(uid)
+        offset = max(0, int(request.POST.get("offset", 0)))
+    except (ValueError, TypeError):
+        return JsonResponse(
+            {"error": "Invalid params"},
+            status=400,
+        )
+
+    limit = 20
+    qs = Order.objects.filter(
+        telegram_id=telegram_id,
+    ).order_by("-created_at")
+    total = qs.count()
+    payments = []
+    for p in qs[offset : offset + limit]:
+        payments.append(
+            {
+                "id": p.id,
+                "amount": float(p.amount),
+                "order_type": p.order_type,
+                "status": p.status,
+                "created_at": p.created_at.strftime(
+                    "%d.%m.%Y %H:%M",
+                ),
+                "tariff_name": (p.tariff.name if p.tariff else None),
+            },
+        )
+
+    return JsonResponse(
+        {
+            "success": True,
+            "payments": payments,
+            "has_more": offset + limit < total,
+        },
+    )
+
+
 def update_preferences_api(request):
     if request.method != "POST":
-        return JsonResponse({"error": "Only POST allowed"}, status=405)
+        return JsonResponse(
+            {"error": "Only POST allowed"},
+            status=405,
+        )
 
-    init_data = request.POST.get("init_data")
-    is_valid, tg_user = verify_telegram_init_data(init_data)
+    uid = _get_authorized_telegram_id(request)
+    if uid is None:
+        return JsonResponse(
+            {"error": "Invalid auth"},
+            status=403,
+        )
 
-    if is_valid:
-        telegram_id = tg_user.get("id")
-    elif "tg_user" in request.session:
-        telegram_id = request.session["tg_user"]["id"]
-    elif settings.DEBUG:
-        mock = settings.MOCK_TELEGRAM_USER_DATA
-        if not mock:
-            return JsonResponse(
-                {"error": "No mock data configured"},
-                status=400,
-            )
-
-        telegram_id = mock.get("id")
-    else:
-        return JsonResponse({"error": "Invalid auth"}, status=403)
+    telegram_id = uid
 
     if not telegram_id:
         return JsonResponse({"error": "Missing tg_id"}, status=400)
