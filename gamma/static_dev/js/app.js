@@ -1724,7 +1724,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.hasActiveSubscription = () => {
         if (window.OPTIMISTIC_HAS_SUB) return true;
         if (window.HAS_ACTIVE_SUB) return true;
-        if (document.getElementById('connection-remaining-days')) return true;
         return !!(window.REMAINING_DAYS && window.REMAINING_DAYS > 0);
     };
 
@@ -2425,10 +2424,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Update HAS_ACTIVE_SUB flag
             // Use OR with OPTIMISTIC_HAS_SUB to avoid flickering right after purchase
-            // Has active sub only if both RW user exists AND DB has a real tariff (not "—")
+            // An RW record is not enough: expired users remain in the panel.
             // On rw_error keep previous state — transient API failure must not hide the sub
             if (!data.rw_error) {
-                window.HAS_ACTIVE_SUB = (!!data.rw_user && data.profile.tarif_price > 0) || !!window.OPTIMISTIC_HAS_SUB;
+                const expireAt = data.rw_user?.expireAt || data.rw_user?.expire_at;
+                const hasValidExpiry = expireAt && Date.parse(expireAt) > Date.now();
+                window.HAS_ACTIVE_SUB = (!!data.rw_user && hasValidExpiry) || !!window.OPTIMISTIC_HAS_SUB;
                 if (data.rw_user) {
                     window.CURRENT_TARIFF_NAME = data.profile.tarif_name;
                     window.OPTIMISTIC_HAS_SUB = false; // Reset once we have real data from Remnawave
@@ -2657,7 +2658,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.CURRENT_TARIFF_NAME = tariffName;
                 window.CURRENT_TARIFF_PRICE = parseFloat(data.profile.tarif_price || 0);
                 window.CURRENT_TARIFF_DAYS = parseInt(data.profile.tarif_days || 30);
-                window.HAS_ACTIVE_SUB = data.profile.tarif_price > 0;
+                window.HAS_ACTIVE_SUB = remDays > 0;
                 window.CURRENT_TARIFF_ID = data.profile.tariff_id || 0;
             } else {
                 subContainer.innerHTML = '';
@@ -2671,28 +2672,42 @@ document.addEventListener('DOMContentLoaded', () => {
             const resultEl = document.getElementById('connection-result');
 
             const wasActive = !!daysEl;
-            const isActive = !!data.rw_user;
-            const needsRebuild = !resultEl && isActive;
+            const expireAt = data.rw_user?.expireAt || data.rw_user?.expire_at;
+            const expireMs = expireAt ? Date.parse(expireAt) : NaN;
+            const remainingDays = Number.isNaN(expireMs)
+                ? 0
+                : Math.max(0, Math.floor((expireMs - Date.now()) / 86400000));
+            const isActive = !!data.rw_user && remainingDays > 0;
+            const needsRebuild = !resultEl && !!data.rw_user;
 
             if (wasActive !== isActive || needsRebuild) {
                 // Redraw everything only if status changed or result block missing
                 const username = document.getElementById('connection-username')?.textContent || `@${tg?.initDataUnsafe?.user?.username || SAFE_MOCK_USER_DATA?.username || 'user'}`;
                 let connHtml = `
-                    <div class="info-item">
-                        <span class="label">Пользователь</span>
+                    <div class="info-item connection-info-item">
+                        <span class="material-symbols-rounded">person</span>
+                        <div class="connection-info-label">
+                            <span class="label">Пользователь</span>
+                        </div>
                         <span class="value" id="connection-username">${escapeHtml(username)}</span>
                     </div>`;
 
                 if (isActive) {
                     const hasWl = !!data.whitelist_user;
                     connHtml += `
-                        <div class="info-item">
-                            <span class="label">Статус</span>
-                            <span class="value" style="color: #4CAF50;">Активен</span>
+                        <div class="info-item connection-info-item">
+                            <span class="material-symbols-rounded">verified_user</span>
+                            <div class="connection-info-label">
+                                <span class="label">Статус</span>
+                            </div>
+                            <span class="value connection-status is-active">Активна</span>
                         </div>
-                        <div class="info-item">
-                            <span class="label">Осталось времени</span>
-                            <span class="value" id="connection-remaining-days">${data.rw_user.remaining_days} дней</span>
+                        <div class="info-item connection-info-item">
+                            <span class="material-symbols-rounded">schedule</span>
+                            <div class="connection-info-label">
+                                <span class="label">Осталось времени</span>
+                            </div>
+                            <span class="value" id="connection-remaining-days">${remainingDays} дн.</span>
                         </div>`;
 
                     if (hasWl) {
@@ -2732,10 +2747,27 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>`;
                 } else {
                     connHtml += `
-                        <button class="action-btn bounce" style="margin-top: 16px; opacity: 0.5;" disabled>
-                            <span class="material-symbols-rounded">link_off</span>
-                            Нет активной подписки
-                        </button>`;
+                        <div class="info-item connection-info-item">
+                            <span class="material-symbols-rounded">verified_user</span>
+                            <div class="connection-info-label">
+                                <span class="label">Статус</span>
+                            </div>
+                            <span class="value connection-status is-expired">Истекла</span>
+                        </div>
+                        <div class="info-item connection-info-item">
+                            <span class="material-symbols-rounded">schedule</span>
+                            <div class="connection-info-label">
+                                <span class="label">Осталось времени</span>
+                            </div>
+                            <span class="value connection-status is-expired no-dot">0 дней</span>
+                        </div>
+                        <div class="connection-expired-card">
+                            <span class="material-symbols-rounded">event_busy</span>
+                            <div>
+                                <strong>Подписка истекла</strong>
+                                <span>Продлите подписку, чтобы подключиться</span>
+                            </div>
+                        </div>`;
                 }
                 connectionSubInfo.innerHTML = connHtml;
                 // Re-render QR code from cache if already fetched this session

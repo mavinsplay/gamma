@@ -1,18 +1,35 @@
 <div id="view-connection" class="view">
     <div class="view-content-wrapper">
         <div class="subscription-info">
-            <div class="info-item">
-                <span class="label">Пользователь</span>
+            <div class="info-item connection-info-item">
+                <span class="material-symbols-rounded">person</span>
+                <div class="connection-info-label">
+                    <span class="label">Пользователь</span>
+                </div>
                 <span class="value" id="connection-username">@username</span>
             </div>
             {% if rw_user %}
-            <div class="info-item">
+            <div class="info-item connection-info-item">
+                <span class="material-symbols-rounded">verified_user</span>
+                <div class="connection-info-label">
                 <span class="label">Статус</span>
-                <span class="value" style="color: #4CAF50;">Активен</span>
+                </div>
+                {% if rw_user.remaining_days > 0 %}
+                <span class="value connection-status is-active">Активна</span>
+                {% else %}
+                <span class="value connection-status is-expired">Истекла</span>
+                {% endif %}
             </div>
-            <div class="info-item">
+            <div class="info-item connection-info-item">
+                <span class="material-symbols-rounded">schedule</span>
+                <div class="connection-info-label">
                 <span class="label">Осталось времени</span>
-                <span class="value" id="connection-remaining-days">{{ rw_user.remaining_days }} дней</span>
+                </div>
+                {% if rw_user.remaining_days > 0 %}
+                <span class="value" id="connection-remaining-days">{{ rw_user.remaining_days }} дн.</span>
+                {% else %}
+                <span class="value connection-status is-expired no-dot">0 дней</span>
+                {% endif %}
             </div>
 
             {% if whitelist_user %}

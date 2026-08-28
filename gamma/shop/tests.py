@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 import time
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -348,6 +348,58 @@ class PaymentTests(TestCase):
         response = self.client.get(reverse("get_subscription_link_api"))
 
         self.assertEqual(response.status_code, 405)
+
+    @patch("shop.views.RemnawaveClient")
+    @patch("shop.views.verify_telegram_init_data")
+    def test_extend_sub_api_reactivates_expired_users(
+        self,
+        mock_verify,
+        mock_client_class,
+    ):
+        mock_verify.return_value = (True, {"id": 12345})
+        self.profile.balance = Decimal("200.00")
+        self.profile.tarif = self.tariff
+        self.profile.whitelist_uuid = "whitelist-uuid"
+        self.profile.save(update_fields=["balance", "tarif", "whitelist_uuid"])
+
+        mock_client = mock_client_class.return_value
+        mock_client.get_user_by_tgid = AsyncMock(
+            return_value=[
+                {
+                    "uuid": "whitelist-uuid",
+                    "username": "testuser_wl",
+                    "status": "EXPIRED",
+                    "expireAt": "2020-01-01T00:00:00.000Z",
+                },
+                {
+                    "uuid": "main-uuid",
+                    "username": "testuser",
+                    "status": "EXPIRED",
+                    "expireAt": "2020-01-01T00:00:00.000Z",
+                },
+            ],
+        )
+        mock_client.get_user = AsyncMock(
+            return_value={
+                "uuid": "whitelist-uuid",
+                "expireAt": "2020-01-01T00:00:00.000Z",
+            },
+        )
+        mock_client.update_user = AsyncMock()
+        mock_client.close = AsyncMock()
+
+        response = self.client.post(
+            reverse("extend_sub_api"),
+            {"init_data": "mock_data", "months": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+        update_calls = mock_client.update_user.await_args_list
+        self.assertEqual(len(update_calls), 2)
+        self.assertTrue(
+            all(call.kwargs["status"] == "ACTIVE" for call in update_calls),
+        )
 
     @patch("shop.views.verify_telegram_init_data")
     @patch("shop.views.create_platega_payment")

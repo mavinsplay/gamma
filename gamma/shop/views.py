@@ -1426,6 +1426,9 @@ def extend_sub_api(request):
                     await client.update_user(
                         uuid=rw_user["uuid"],
                         expire_at=new_expire_at,
+                        # Remnawave marks expired users as EXPIRED, but that
+                        # system status cannot be sent back in an update.
+                        status="ACTIVE",
                     )
 
                 # Also extend whitelist user if it exists
@@ -1453,6 +1456,7 @@ def extend_sub_api(request):
                         await client.update_user(
                             uuid=cur_whitelist_uuid,
                             expire_at=wl_new_expire,
+                            status="ACTIVE",
                         )
                     except Exception:
                         pass
