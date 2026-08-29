@@ -12,6 +12,12 @@ class Profile(models.Model):
         null=True,
         default=None,
     )
+    telegram_avatar_url = models.URLField(
+        max_length=500,
+        null=True,
+        blank=True,
+        verbose_name="Аватар Telegram",
+    )
     balance = models.DecimalField(
         max_digits=10,
         decimal_places=2,

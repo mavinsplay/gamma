@@ -1603,16 +1603,26 @@ def sync_data_api(request):
             telegram_id=telegram_id,
             defaults={
                 "telegram_username": telegram_username,
+                "telegram_avatar_url": tg_user.get("photo_url"),
                 "balance": 0.00,
             },
         )
+        profile_updates = []
         if (
             not created
             and telegram_username
             and profile.telegram_username != telegram_username
         ):
             profile.telegram_username = telegram_username
-            profile.save()
+            profile_updates.append("telegram_username")
+
+        avatar_url = tg_user.get("photo_url")
+        if not created and avatar_url != profile.telegram_avatar_url:
+            profile.telegram_avatar_url = avatar_url
+            profile_updates.append("telegram_avatar_url")
+
+        if profile_updates:
+            profile.save(update_fields=profile_updates)
 
     elif "tg_user" in request.session:
         telegram_id = request.session["tg_user"]["id"]
