@@ -661,10 +661,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 50);
     }
 
-    window.handleTopup = (initialAmount = '') => {
-        const message = initialAmount
+    window.handleTopup = (initialAmount = '', pendingPurchase = null) => {
+        // Покупка, которую пользователь хотел совершить, но не хватило
+        // средств. После успешной оплаты она выполнится автоматически.
+        // Ручное пополнение (без pendingPurchase) сбрасывает отложенную.
+        pendingPurchaseAfterTopup = pendingPurchase || null;
+        let message = initialAmount
             ? `На вашем счёте недостаточно ${initialAmount} ₽. Введите сумму для пополнения:`
             : 'Введите сумму, на которую вы хотите пополнить счёт:';
+        if (pendingPurchaseAfterTopup) {
+            message += ' После пополнения покупка завершится автоматически.';
+        }
         showModal({
             title: 'Пополнение баланса',
             message: message,
@@ -684,6 +691,63 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     };
+
+    // Отложенная покупка после пополнения баланса.
+    // Формат: {kind: 'buy'|'extend'|'slot'|'wl', ...params}.
+    let pendingPurchaseAfterTopup = null;
+
+    async function runPendingPurchase() {
+        const pending = pendingPurchaseAfterTopup;
+        pendingPurchaseAfterTopup = null;
+        if (!pending) return false;
+        try {
+            if (pending.kind === 'buy') {
+                await performBuy(
+                    pending.tariffId,
+                    pending.price,
+                    pending.userId,
+                    pending.username,
+                    pending.replace
+                );
+            } else if (pending.kind === 'extend') {
+                await performExtend(pending.months, pending.subType);
+            } else if (pending.kind === 'slot') {
+                await performBuySlot();
+            } else if (pending.kind === 'wl') {
+                await performWhitelistTopup();
+            }
+        } catch (e) {
+            // Ошибки уже показаны модалками внутри perform-функций
+        }
+        return true;
+    }
+
+    // Общий обработчик успешной оплаты: обновить баланс и либо
+    // автоматически завершить отложенную покупку, либо показать
+    // стандартное окно «Баланс пополнен».
+    async function onTopupPaid(newBalance) {
+        const balanceAmount = document.getElementById('profile-balance');
+        if (balanceAmount && newBalance !== undefined) {
+            balanceAmount.textContent = `${newBalance.toFixed(0)} ₽`;
+        }
+        if (pendingPurchaseAfterTopup) {
+            if (window.syncNow) window.syncNow();
+            await runPendingPurchase();
+            return;
+        }
+        showModal({
+            title: 'Готово!',
+            message: `Баланс пополнен.`,
+            icon: 'check_circle',
+            actionText: 'Отлично',
+            onAction: () => {
+                modalKeepOpen = false;
+                hideModal();
+                if (window.syncNow) window.syncNow();
+            }
+        });
+        if (window.syncNow) window.syncNow();
+    }
 
     const PENDING_PAYMENT_KEY = 'gamma_pending_payment';
     let paymentTimerInterval = null;
@@ -739,25 +803,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     clearInterval(paymentPollInterval);
                     paymentPollInterval = null;
                     clearPaymentState();
-                    const balanceAmount = document.getElementById('profile-balance');
-                    if (balanceAmount && data.new_balance !== undefined) {
-                        balanceAmount.textContent = `${data.new_balance.toFixed(0)} ₽`;
-                    }
-                    showModal({
-                        title: 'Готово!',
-                        message: `Баланс пополнен.`,
-                        icon: 'check_circle',
-                        actionText: 'Отлично',
-                        onAction: () => {
-                            modalKeepOpen = false;
-                            hideModal();
-                            if (window.syncNow) window.syncNow();
-                        }
-                    });
-                    if (window.syncNow) window.syncNow();
+                    await onTopupPaid(data.new_balance);
                 } else if (data.status === 'failed') {
                     clearInterval(paymentPollInterval);
                     paymentPollInterval = null;
+                    pendingPurchaseAfterTopup = null;
                     clearPaymentState();
                     showModal({
                         title: 'Платёж не прошёл',
@@ -1304,7 +1354,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             } else if (data.error === 'insufficient_funds') {
                 hideLoading();
-                handleTopup(Math.ceil(data.missing_amount));
+                handleTopup(Math.ceil(data.missing_amount), {
+                    kind: 'buy',
+                    tariffId: tariffId,
+                    price: price,
+                    userId: userId,
+                    username: username,
+                    replace: replace
+                });
             } else if (data.error === 'tariff_change_locked') {
                 hideLoading();
                 showModal({
@@ -1569,16 +1626,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    window.handleExtend = (months, price, subType = 'main') => {
-        showModal({
-            title: 'Подтверждение',
-            message: `Продлить подписку на ${months} мес. за ${price} ₽? Сумма будет списана с вашего баланса.`,
-            icon: 'update',
-            actionText: 'Продлить',
-            onAction: async () => {
-                hideModal();
-                const tg = window.Telegram?.WebApp;
-                const userId = window.authenticatedUserId;
+    async function performExtend(months, subType = 'main') {
+        const tg = window.Telegram?.WebApp;
+        const userId = window.authenticatedUserId;
 
                 if (!userId || userId === 'undefined') {
                     showModal({
@@ -1660,7 +1710,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         });
                     } else if (data.error === 'insufficient_funds') {
                         hideLoading();
-                        handleTopup(Math.ceil(data.missing_amount));
+                        handleTopup(Math.ceil(data.missing_amount), {
+                            kind: 'extend',
+                            months: months,
+                            subType: subType
+                        });
                     } else {
                         hideLoading();
                         showModal({
@@ -1681,22 +1735,25 @@ document.addEventListener('DOMContentLoaded', () => {
                         onAction: hideModal
                     });
                 }
+    }
+
+    window.handleExtend = (months, price, subType = 'main') => {
+        showModal({
+            title: 'Подтверждение',
+            message: `Продлить подписку на ${months} мес. за ${price} ₽? Сумма будет списана с вашего баланса.`,
+            icon: 'update',
+            actionText: 'Продлить',
+            onAction: async () => {
+                hideModal();
+                await performExtend(months, subType);
             }
         });
     };
 
-    window.handleTopupWhitelistTraffic = () => {
+    async function performWhitelistTopup() {
         const gbAmount = 5;
         const price = 150; // 150 RUB for 5GB
-        
-        showModal({
-            title: 'Докупка трафика',
-            message: `Купить ${gbAmount} ГБ трафика для дополнительной подписки за ${price} ₽?`,
-            icon: 'add_circle',
-            actionText: 'Купить',
-            onAction: async () => {
-                hideModal();
-                const tg = window.Telegram?.WebApp;
+        const tg = window.Telegram?.WebApp;
                 
                 showLoading('Покупка трафика...');
                 try {
@@ -1724,7 +1781,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         });
                     } else if (data.error === 'insufficient_funds') {
                         hideLoading();
-                        handleTopup(Math.ceil(data.missing_amount));
+                        handleTopup(Math.ceil(data.missing_amount), {kind: 'wl'});
                     } else {
                         hideLoading();
                         showModal({
@@ -1745,6 +1802,19 @@ document.addEventListener('DOMContentLoaded', () => {
                         onAction: hideModal
                     });
                 }
+    }
+
+    window.handleTopupWhitelistTraffic = () => {
+        const gbAmount = 5;
+        const price = 150; // 150 RUB for 5GB
+        showModal({
+            title: 'Докупка трафика',
+            message: `Купить ${gbAmount} ГБ трафика для дополнительной подписки за ${price} ₽?`,
+            icon: 'add_circle',
+            actionText: 'Купить',
+            onAction: async () => {
+                hideModal();
+                await performWhitelistTopup();
             }
         });
     };
@@ -2187,28 +2257,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    window.handleBuySlot = async () => {
+    async function performBuySlot() {
         const tg = window.Telegram?.WebApp;
-        const userId = window.authenticatedUserId;
 
-        if (!userId || userId === 'undefined') {
-            showModal({
-                title: 'Ошибка',
-                message: 'Ваш профиль еще не загружен.',
-                icon: 'error',
-                actionText: 'Ок',
-                onAction: hideModal
-            });
-            return;
-        }
-
-        showModal({
-            title: 'Купить доп. слот',
-            message: 'Вы уверены, что хотите купить дополнительный слот для устройства за 100 ₽?',
-            icon: 'person_add',
-            actionText: 'Подтвердить',
-            onAction: async () => {
-                showLoading('Покупка слота...');
+        showLoading('Покупка слота...');
                 try {
                     const formData = new FormData();
                     formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
@@ -2235,7 +2287,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         });
                     } else if (data.error === 'insufficient_funds') {
                         hideLoading();
-                        handleTopup(Math.ceil(data.missing_amount));
+                        handleTopup(Math.ceil(data.missing_amount), {kind: 'slot'});
                     } else {
                         hideLoading();
                         showModal({
@@ -2256,6 +2308,29 @@ document.addEventListener('DOMContentLoaded', () => {
                         onAction: hideModal
                     });
                 }
+    }
+
+    window.handleBuySlot = async () => {
+        const userId = window.authenticatedUserId;
+
+        if (!userId || userId === 'undefined') {
+            showModal({
+                title: 'Ошибка',
+                message: 'Ваш профиль еще не загружен.',
+                icon: 'error',
+                actionText: 'Ок',
+                onAction: hideModal
+            });
+            return;
+        }
+
+        showModal({
+            title: 'Купить доп. слот',
+            message: 'Вы уверены, что хотите купить дополнительный слот для устройства за 100 ₽?',
+            icon: 'person_add',
+            actionText: 'Подтвердить',
+            onAction: async () => {
+                await performBuySlot();
             }
         });
     };
@@ -3002,6 +3077,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function buildPaymentHtml(p) {
         const isTopup = p.order_type === 'TOPUP';
+        const isSlot = p.order_type === 'SLOT';
         let statusColor = '#EF5350';
         let statusText = 'Ошибка';
         if (p.status === 'PAID') {
@@ -3021,7 +3097,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div style="flex: 1;">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
                         <span style="font-weight: 500; font-size: 15px;">
-                            ${isTopup ? 'Пополнение баланса' : (escapeHtml(p.tariff_name) || "Покупка тарифа")}
+                            ${isTopup ? 'Пополнение баланса' : (isSlot ? 'Доп. слот' : (escapeHtml(p.tariff_name) || "Покупка тарифа"))}
                         </span>
                         <span style="font-weight: 600; font-size: 15px; color: ${isTopup ? '#4CAF50' : '#FFFFFF'};">
                             ${isTopup ? '+' : '-'}${p.amount.toFixed(0)} ₽
@@ -3629,20 +3705,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (checkId) {
                 fetch('/shop/check-payment-api/' + checkId + '/')
                     .then(function(r) { return r.json(); })
-                    .then(function(result) {
+                    .then(async function(result) {
                         if (result.status === 'paid') {
-                            showModal({
-                                title: 'Готово!',
-                                message: 'Баланс пополнен.',
-                                icon: 'check_circle',
-                                actionText: 'Отлично',
-                                onAction: function() {
-                                    hideModal();
-                                    if (window.syncNow) window.syncNow();
-                                }
-                            });
-                            if (window.syncNow) window.syncNow();
+                            await onTopupPaid(result.new_balance);
                         } else {
+                            pendingPurchaseAfterTopup = null;
                             showModal({
                                 title: 'Платёж не прошёл',
                                 message: 'Время оплаты истекло или платёж отклонён.',

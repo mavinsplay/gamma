@@ -68,6 +68,7 @@ class Order(models.Model):
         ("PURCHASE", "Purchase"),
         ("TOPUP", "Top-up"),
         ("WHITELIST_TOPUP", "Whitelist Traffic Top-up"),
+        ("SLOT", "Slot"),
     )
     PROVIDER_CHOICES = (
         ("yoomoney", "YooMoney"),

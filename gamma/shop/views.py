@@ -927,6 +927,7 @@ def buy_slot_api(request):
         return JsonResponse({"error": "Invalid tg_id format"}, status=400)
 
     slot_price = Decimal("100.00")
+    slot_order = None
 
     with transaction.atomic():
         profile, created = Profile.objects.select_for_update().get_or_create(
@@ -952,6 +953,14 @@ def buy_slot_api(request):
 
         profile.balance -= slot_price
         profile.save(update_fields=["balance"])
+
+        slot_order = Order.objects.create(
+            tariff=profile.tarif,
+            telegram_id=telegram_id,
+            amount=slot_price,
+            order_type="SLOT",
+            status="PAID",
+        )
 
     try:
 
@@ -991,6 +1000,10 @@ def buy_slot_api(request):
             )
             profile.balance += slot_price
             profile.save(update_fields=["balance"])
+            if slot_order:
+                Order.objects.filter(pk=slot_order.pk).update(
+                    status="FAILED",
+                )
 
         return JsonResponse({"error": "Ошибка при покупке слота"}, status=500)
 

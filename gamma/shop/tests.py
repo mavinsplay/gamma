@@ -517,6 +517,76 @@ class PaymentTests(TestCase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.balance, Decimal("250.00"))
 
+    @patch("shop.views.verify_telegram_init_data")
+    @patch("shop.views.RemnawaveClient")
+    def test_buy_slot_creates_order(
+        self,
+        mock_client_class,
+        mock_verify,
+    ):
+        mock_verify.return_value = (
+            True,
+            {"id": 12345, "username": "testuser"},
+        )
+        mock_client = mock_client_class.return_value
+        mock_client.get_user_by_tgid = AsyncMock(
+            return_value={
+                "uuid": "main-uuid",
+                "hwidDeviceLimit": 1,
+            },
+        )
+        mock_client.update_user = AsyncMock(
+            return_value={"hwidDeviceLimit": 2},
+        )
+        mock_client.close = AsyncMock()
+
+        response = self.client.post(
+            reverse("buy_slot_api"),
+            {"init_data": "mock_data"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["new_limit"], 2)
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.balance, Decimal("0.00"))
+
+        order = Order.objects.get(telegram_id=12345, order_type="SLOT")
+        self.assertEqual(order.status, "PAID")
+        self.assertEqual(order.amount, Decimal("100.00"))
+
+    @patch("shop.views.verify_telegram_init_data")
+    @patch("shop.views.RemnawaveClient")
+    def test_buy_slot_failure_marks_order_failed(
+        self,
+        mock_client_class,
+        mock_verify,
+    ):
+        mock_verify.return_value = (
+            True,
+            {"id": 12345, "username": "testuser"},
+        )
+        mock_client = mock_client_class.return_value
+        mock_client.get_user_by_tgid = AsyncMock(
+            side_effect=ValueError("RW down"),
+        )
+        mock_client.close = AsyncMock()
+
+        response = self.client.post(
+            reverse("buy_slot_api"),
+            {"init_data": "mock_data"},
+        )
+
+        self.assertEqual(response.status_code, 500)
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.balance, Decimal("100.00"))
+
+        order = Order.objects.get(telegram_id=12345, order_type="SLOT")
+        self.assertEqual(order.status, "FAILED")
+
 
 class TariffChangeLockTests(TestCase):
     def setUp(self):
