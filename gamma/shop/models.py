@@ -18,6 +18,14 @@ class Tariff(models.Model):
     )  # 0 means unlimited
     device_limit = models.IntegerField(default=1)
     is_active = models.BooleanField(default=True)
+    change_locked = models.BooleanField(
+        default=False,
+        verbose_name="Блокировка смены тарифа",
+        help_text=(
+            "Если включено — пользователь с этим тарифом "
+            "не сможет сменить его на другой."
+        ),
+    )
     squad_uuid = models.CharField(
         max_length=100,
         null=True,

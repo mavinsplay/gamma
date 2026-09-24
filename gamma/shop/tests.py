@@ -20,7 +20,7 @@ from shop.services.yoomoney import (
 from shop.utils import verify_telegram_init_data
 from user.models import Profile
 
-__all__ = ("PaymentTests",)
+__all__ = ("PaymentTests", "TariffChangeLockTests")
 
 
 class TelegramInitDataTests(TestCase):
@@ -516,3 +516,126 @@ class PaymentTests(TestCase):
         self.assertEqual(order.status, "PAID")
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.balance, Decimal("250.00"))
+
+
+class TariffChangeLockTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.locked_tariff = Tariff.objects.create(
+            name="Locked Tariff",
+            description="locked",
+            price=Decimal("100.00"),
+            duration_days=30,
+            traffic_limit_bytes=0,
+            device_limit=1,
+            change_locked=True,
+        )
+        self.plain_tariff = Tariff.objects.create(
+            name="Plain Tariff",
+            description="plain",
+            price=Decimal("100.00"),
+            duration_days=30,
+            traffic_limit_bytes=0,
+            device_limit=1,
+        )
+        self.other_tariff = Tariff.objects.create(
+            name="Other Tariff",
+            description="other",
+            price=Decimal("100.00"),
+            duration_days=30,
+            traffic_limit_bytes=0,
+            device_limit=1,
+        )
+        self.profile = Profile.objects.create(
+            telegram_id=54321,
+            balance=Decimal("500.00"),
+        )
+        settings.DEBUG = False
+
+    def _buy(self, tariff):
+        with patch(
+            "shop.views.verify_telegram_init_data",
+        ) as mock_verify:
+            mock_verify.return_value = (
+                True,
+                {"id": 54321, "username": "lockuser"},
+            )
+            return self.client.post(
+                reverse("buy_tariff_api"),
+                {"tariff_id": tariff.id, "init_data": "mock_data"},
+            )
+
+    def _buy_with_mocked_rw(self, tariff):
+        with patch(
+            "shop.views.RemnawaveClient",
+        ) as mock_client_class:
+            mock_client = mock_client_class.return_value
+            mock_client.get_user_by_tgid = AsyncMock(
+                return_value=[],
+            )
+            mock_client.create_user = AsyncMock(
+                return_value={
+                    "uuid": "new-uuid",
+                    "expireAt": "2030-01-01T00:00:00.000Z",
+                },
+            )
+            mock_client.close = AsyncMock()
+            return self._buy(tariff)
+
+    def test_change_from_locked_tariff_blocked(self):
+        self.profile.tarif = self.locked_tariff
+        self.profile.save(update_fields=["tarif"])
+
+        response = self._buy(self.plain_tariff)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["error"],
+            "tariff_change_locked",
+        )
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.tarif.id, self.locked_tariff.id)
+        self.assertEqual(self.profile.balance, Decimal("500.00"))
+        self.assertFalse(
+            Order.objects.filter(
+                telegram_id=54321,
+                tariff=self.plain_tariff,
+            ).exists(),
+        )
+
+    def test_rebuy_same_locked_tariff_allowed(self):
+        self.profile.tarif = self.locked_tariff
+        self.profile.save(update_fields=["tarif"])
+
+        response = self._buy_with_mocked_rw(self.locked_tariff)
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertTrue(data["tariff_change_locked"])
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.tarif.id, self.locked_tariff.id)
+        self.assertEqual(self.profile.balance, Decimal("400.00"))
+
+    def test_buy_locked_tariff_without_current_allowed(self):
+        response = self._buy_with_mocked_rw(self.locked_tariff)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.tarif.id, self.locked_tariff.id)
+
+    def test_change_from_unlocked_tariff_allowed(self):
+        self.profile.tarif = self.plain_tariff
+        self.profile.save(update_fields=["tarif"])
+
+        response = self._buy_with_mocked_rw(self.other_tariff)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.tarif.id, self.other_tariff.id)

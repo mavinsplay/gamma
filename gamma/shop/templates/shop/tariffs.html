@@ -163,6 +163,8 @@
                         <div class="v2-price">{{ tariff.price|floatformat:0 }} ₽ <span style="font-size: 12px; color: var(--md-sys-color-on-surface-variant);">/ {{ tariff.duration_days }} дней</span></div>
                         {% if profile.tarif.id == tariff.id %}
                         <button class="v2-buy-btn owned" disabled onclick="handleBuy({{ tariff.id }}, {{ tariff.price|floatformat:0 }}, '{{ tariff.name|escapejs }}', {{ tariff.duration_days }})">Уже активен</button>
+                        {% elif profile.tarif.change_locked %}
+                        <button class="v2-buy-btn owned" disabled title="Ваш текущий тариф нельзя сменить">Недоступно</button>
                         {% else %}
                         <button class="v2-buy-btn bounce" onclick="handleBuy({{ tariff.id }}, {{ tariff.price|floatformat:0 }}, '{{ tariff.name|escapejs }}', {{ tariff.duration_days }})">Купить</button>
                         {% endif %}

@@ -260,6 +260,17 @@ def buy_tariff_api(request):
             profile.telegram_username = telegram_username
             profile.save(update_fields=["telegram_username"])
 
+        current_tariff = profile.tarif
+        if (
+            current_tariff
+            and current_tariff.id != tariff.id
+            and current_tariff.change_locked
+        ):
+            return JsonResponse(
+                {"error": "tariff_change_locked"},
+                status=403,
+            )
+
         from decimal import Decimal
 
         balance_dec = Decimal(str(profile.balance))
@@ -546,6 +557,7 @@ def buy_tariff_api(request):
                 "tariff_name": tariff.name,
                 "tariff_price": float(tariff.price),
                 "tariff_days": tariff.duration_days,
+                "tariff_change_locked": tariff.change_locked,
             },
         )
     except Exception:
@@ -1861,6 +1873,9 @@ def sync_data_api(request):
                         profile.tarif.duration_days if profile.tarif else 0
                     ),
                     "tariff_id": (profile.tarif.id if profile.tarif else 0),
+                    "tariff_change_locked": (
+                        profile.tarif.change_locked if profile.tarif else False
+                    ),
                     "payment_reminder_enabled": (
                         profile.payment_reminder_enabled
                     ),

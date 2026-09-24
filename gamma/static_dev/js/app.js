@@ -1150,6 +1150,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.CURRENT_TARIFF_PRICE = data.tariff_price || 0;
                 window.CURRENT_TARIFF_DAYS = data.tariff_days || 0;
                 window.CURRENT_TARIFF_ID = data.sub?.uuid ? 0 : window.CURRENT_TARIFF_ID;
+                window.TARIFF_CHANGE_LOCKED = !!data.tariff_change_locked;
 
                 // Update subscription card instantly
                 const statusText = document.getElementById('sub-status-text');
@@ -1178,10 +1179,17 @@ document.addEventListener('DOMContentLoaded', () => {
                             btn.textContent = 'Уже активен';
                             btn.disabled = true;
                             btn.style.opacity = '0.5';
+                            btn.title = '';
+                        } else if (window.TARIFF_CHANGE_LOCKED) {
+                            btn.textContent = 'Недоступно';
+                            btn.disabled = true;
+                            btn.style.opacity = '0.5';
+                            btn.title = 'Ваш текущий тариф нельзя сменить';
                         } else {
                             btn.textContent = 'Заменить';
                             btn.disabled = false;
                             btn.style.opacity = '1';
+                            btn.title = '';
                         }
                     }
                 });
@@ -1297,6 +1305,15 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (data.error === 'insufficient_funds') {
                 hideLoading();
                 handleTopup(Math.ceil(data.missing_amount));
+            } else if (data.error === 'tariff_change_locked') {
+                hideLoading();
+                showModal({
+                    title: 'Смена недоступна',
+                    message: 'Ваш текущий тариф нельзя сменить на другой.',
+                    icon: 'lock',
+                    actionText: 'Ок',
+                    onAction: hideModal
+                });
             } else {
                 hideLoading();
                 showModal({
@@ -1337,6 +1354,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // If user already has an active subscription — show replacement confirmation
         if (window.HAS_ACTIVE_SUB) {
+            const currentId = Number(window.CURRENT_TARIFF_ID || 0);
+            const sameTariff = (currentId && Number(tariffId) === currentId)
+                || (tariffName && window.CURRENT_TARIFF_NAME
+                    && tariffName === window.CURRENT_TARIFF_NAME);
+            if (window.TARIFF_CHANGE_LOCKED && !sameTariff) {
+                showModal({
+                    title: 'Смена недоступна',
+                    message: 'Ваш текущий тариф нельзя сменить на другой. Продлить его можно кнопкой «Продлить подписку».',
+                    icon: 'lock',
+                    actionText: 'Ок',
+                    onAction: hideModal
+                });
+                return;
+            }
+
             const remainingDays = window.REMAINING_DAYS || 0;
             const currentName = window.CURRENT_TARIFF_NAME || 'Текущий тариф';
 
@@ -2660,6 +2692,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.CURRENT_TARIFF_DAYS = parseInt(data.profile.tarif_days || 30);
                 window.HAS_ACTIVE_SUB = remDays > 0;
                 window.CURRENT_TARIFF_ID = data.profile.tariff_id || 0;
+                window.TARIFF_CHANGE_LOCKED = !!data.profile.tariff_change_locked;
             } else {
                 subContainer.innerHTML = '';
             }
@@ -2793,10 +2826,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         btn.textContent = 'Уже активен';
                         btn.classList.add('owned');
                         btn.disabled = true;
+                        btn.title = '';
+                    } else if (data.profile.tariff_change_locked) {
+                        btn.textContent = 'Недоступно';
+                        btn.classList.add('owned');
+                        btn.disabled = true;
+                        btn.title = 'Ваш текущий тариф нельзя сменить';
                     } else {
                         btn.textContent = 'Купить';
                         btn.classList.remove('owned');
                         btn.disabled = false;
+                        btn.title = '';
                     }
                 }
             });

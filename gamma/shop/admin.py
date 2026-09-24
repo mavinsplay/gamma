@@ -13,11 +13,12 @@ class TariffAdmin(admin.ModelAdmin):
         "duration_days",
         "device_limit",
         "has_whitelist",
+        "change_locked",
         "is_active",
     )
-    list_filter = ("is_active", "has_whitelist")
+    list_filter = ("is_active", "has_whitelist", "change_locked")
     search_fields = ("name", "description")
-    list_editable = ("price", "is_active", "has_whitelist")
+    list_editable = ("price", "is_active", "has_whitelist", "change_locked")
     filter_horizontal = ("proxies",)
     fieldsets = (
         (
@@ -31,6 +32,7 @@ class TariffAdmin(admin.ModelAdmin):
                     "traffic_limit_bytes",
                     "device_limit",
                     "is_active",
+                    "change_locked",
                 ),
             },
         ),
