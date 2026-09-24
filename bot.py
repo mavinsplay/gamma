@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 import logging
 import os
+from pathlib import Path
 import sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "gamma"))
@@ -13,6 +14,7 @@ from aiogram.filters import Command, CommandStart  # noqa: E402
 from aiogram.fsm.context import FSMContext  # noqa: E402
 from aiogram.fsm.state import State, StatesGroup  # noqa: E402
 from aiogram.types import (  # noqa: E402
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     WebAppInfo,
@@ -59,74 +61,117 @@ SUPPORT_USERNAME = os.getenv(
     "@o3o20",
 ).lstrip("@")
 
+# Иконки кнопок (custom emoji id). Пустое значение — без иконки.
+ICON_PERSONAL_CABINET = os.getenv("ICON_PERSONAL_CABINET") or None
+ICON_SERVER_STATUS = os.getenv("ICON_SERVER_STATUS") or None
+ICON_SUPPORT = os.getenv("ICON_SUPPORT") or None
+ICON_CHANNEL = os.getenv("ICON_CHANNEL") or None
+
+
+WELCOME_PHOTO_PATH = (
+    Path(__file__).resolve().parent
+    / "gamma"
+    / "static_dev"
+    / "favicons"
+    / "web-app-manifest-512x512.png"
+)
+
+
+def _button(
+    text: str,
+    icon_custom_emoji_id: str | None = None,
+    **kwargs,
+) -> InlineKeyboardButton:
+    """Собирает InlineKeyboardButton, подставляя icon_custom_emoji_id
+    только если он реально задан (чтобы не слать пустое поле)."""
+    if icon_custom_emoji_id:
+        kwargs["icon_custom_emoji_id"] = icon_custom_emoji_id
+
+    return InlineKeyboardButton(text=text, **kwargs)
+
 
 def build_welcome_markup() -> InlineKeyboardMarkup:
     status_url = f"{WEBAPP_URL}?tab=connection"
     support_url = f"https://t.me/{SUPPORT_USERNAME}"
 
+    bottom_row = [
+        _button(
+            "Поддержка",
+            icon_custom_emoji_id=ICON_SUPPORT,
+            url=support_url,
+        ),
+    ]
+    if REQUIRED_CHANNEL_URL:
+        bottom_row.append(
+            _button(
+                "Канал",
+                icon_custom_emoji_id=ICON_CHANNEL,
+                url=REQUIRED_CHANNEL_URL,
+            ),
+        )
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="👤 Личный кабинет",
+                _button(
+                    "Личный кабинет",
+                    icon_custom_emoji_id=ICON_PERSONAL_CABINET,
+                    style="primary",  # синяя
                     web_app=WebAppInfo(url=WEBAPP_URL),
                 ),
             ],
             [
-                InlineKeyboardButton(
-                    text="📡 Статус серверов",
+                _button(
+                    "Статус серверов",
+                    icon_custom_emoji_id=ICON_SERVER_STATUS,
+                    style="success",  # зелёная
                     web_app=WebAppInfo(url=status_url),
                 ),
             ],
-            [
-                InlineKeyboardButton(
-                    text="🆘 Чат с поддержкой",
-                    url=support_url,
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📜 Политика конфиденциальности",
-                    url=(
-                        "https://telegra.ph/"
-                        "Politika-konfidencialnosti-"
-                        "06-21-31"
-                    ),
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📜 Пользовательское соглашение",
-                    url=(
-                        "https://telegra.ph/"
-                        "Polzovatelskoe-soglashenie-"
-                        "04-01-19"
-                    ),
-                ),
-            ],
+            bottom_row,  # Поддержка | Канал — обычного цвета
         ],
     )
 
 
 def build_welcome_text(first_name: str) -> str:
     return (
-        f"✨ <b>Добро пожаловать в Gamma</b>\n\n"
-        f"Привет, {first_name}! 👋\n"
-        f"Быстрый и надёжный сервис для ежедневного использования.\n\n"
-        f"• 🚀 <b>Скорость</b> без ограничений\n"
-        f"• 🌍 <b>Серверы</b> в разных странах\n"
-        f"• 🔒 <b>Защита</b> ваших данных\n\n"
-        f"Выберите действие:"
+        "<b>Ɣ Gamma</b>\n"
+        "<b>Безопасность. Скорость. Качество.</b>\n\n"
+        "<b>Как подключиться?</b>\n"
+        "• Нажми кнопку «Личный кабинет»\n"
+        "• Выбери тариф\n"
+        "• Следуй короткой инструкции\n\n"
+    )
+
+
+async def send_welcome(
+    message: types.Message,
+    first_name: str,
+) -> None:
+    text = build_welcome_text(first_name)
+    markup = build_welcome_markup()
+    if WELCOME_PHOTO_PATH.is_file():
+        try:
+            await message.answer_photo(
+                photo=FSInputFile(WELCOME_PHOTO_PATH),
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+            return
+        except Exception as e:
+            logging.warning(f"Failed to send welcome photo: {e}")
+
+    await message.answer(
+        text,
+        parse_mode="HTML",
+        reply_markup=markup,
     )
 
 
 @dp.message(CommandStart())
 async def command_start_handler(message: types.Message) -> None:
-    await message.answer(
-        build_welcome_text(message.from_user.first_name),
-        parse_mode="HTML",
-        reply_markup=build_welcome_markup(),
-    )
+    await send_welcome(message, message.from_user.first_name)
 
 
 @dp.message(Command("broadcast"), F.from_user.id == ADMIN_ID)
@@ -210,7 +255,7 @@ class SubscriptionMiddleware(BaseMiddleware):
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        text="📢 Подписаться",
+                        text="Подписаться",
                         url=REQUIRED_CHANNEL_URL,
                     ),
                 ],
@@ -219,7 +264,7 @@ class SubscriptionMiddleware(BaseMiddleware):
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text="✅ Проверить подписку",
+                    text="Проверить подписку",
                     callback_data="check_subscription",
                 ),
             ],
@@ -242,10 +287,9 @@ async def check_subscription_callback(
     if await is_subscribed(user_id):
         await callback.answer("Подписка подтверждена!")
         await callback.message.delete()
-        await callback.message.answer(
-            build_welcome_text(callback.from_user.first_name),
-            parse_mode="HTML",
-            reply_markup=build_welcome_markup(),
+        await send_welcome(
+            callback.message,
+            callback.from_user.first_name,
         )
     else:
         await callback.answer("Вы ещё не подписаны на канал.", show_alert=True)
