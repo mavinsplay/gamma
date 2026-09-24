@@ -2848,7 +2848,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="server-info">
                                 <div class="server-icon-wrapper">
                                     ${node.countryCode ? `
-                                        <img src="${IS_DEBUG ? 'https://flagcdn.com/w80/' : 'https://gamma.careerpiter.ru/tg-flags/w80/'}${escapeHtml(node.countryCode).toLowerCase()}.png" 
+                                        <img src="${IS_DEBUG ? 'https://flagcdn.com/w80/' : 'https://gamma-net.ru/tg-flags/w80/'}${escapeHtml(node.countryCode).toLowerCase()}.png" 
                                              class="flag-img" 
                                              alt="${escapeHtml(node.countryCode)}">
                                     ` : `

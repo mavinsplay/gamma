@@ -102,7 +102,7 @@ services:
       - NGINX_MAX_BODY_SIZE=50G
       - STAGING=${CERTBOT_STAGING}
       - CERTBOT_EMAIL=${CERTBOT_EMAIL}
-      - SSL_DOMAIN=gamma.careerpiter.ru
+      - SSL_DOMAIN=gamma-net.ru
     ports:
       - "80:80"
       - "443:443"

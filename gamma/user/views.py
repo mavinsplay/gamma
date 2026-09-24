@@ -55,9 +55,7 @@ def login_view(request):
     }
 
     oauth_host = (
-        "oauth.telegram.org"
-        if settings.DEBUG
-        else "oauth-tg.gamma.careerpiter.ru"
+        "oauth.telegram.org" if settings.DEBUG else "oauth-tg.gamma-net.ru"
     )
     auth_url = f"https://{oauth_host}/auth?{urlencode(params)}"
     return render(
