@@ -341,17 +341,43 @@ async def subscription_reminder_task():
             if users:
                 client = RemnawaveClient()
                 try:
+                    # Один bulk-запрос вместо N персональных, чтобы не
+                    # перегружать панель. _wl-заглушки пропускаем.
+                    try:
+                        rw_all = await client.get_all_users_stream(size=250)
+                    except Exception as e:
+                        logging.error(f"Reminder bulk fetch failed: {e}")
+                        rw_all = []
+
+                    rw_by_tgid = {}
+                    for u in rw_all:
+                        if not isinstance(u, dict):
+                            continue
+
+                        if (u.get("username") or "").endswith("_wl"):
+                            continue
+
+                        if u.get("telegramId") is None:
+                            continue
+
+                        key = str(u["telegramId"])
+                        if key not in rw_by_tgid:
+                            rw_by_tgid[key] = u
+
+                    logging.info(
+                        "Reminder: %d panel users for %d profiles",
+                        len(rw_by_tgid),
+                        len(users),
+                    )
+
                     for profile in users:
                         try:
-                            rw_user = await client.get_user_by_tgid(
-                                profile.telegram_id,
-                            )
-                            if isinstance(rw_user, list):
-                                rw_user = (
-                                    rw_user[0] if len(rw_user) > 0 else None
-                                )
+                            rw_user = rw_by_tgid.get(str(profile.telegram_id))
 
-                            if not (rw_user and rw_user.get("expireAt")):
+                            if not (
+                                isinstance(rw_user, dict)
+                                and rw_user.get("expireAt")
+                            ):
                                 continue
 
                             expire_str = rw_user["expireAt"].replace(

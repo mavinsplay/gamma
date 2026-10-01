@@ -169,6 +169,50 @@ class RemnawaveClient:
         data = response.json()
         return data.get("response", {})
 
+    async def get_users_stream(self, size: int = 250, cursor=None, **filters):
+        """Одна страница cursor-пагинации users/stream.
+
+        Возвращает словарь {users, nextCursor, hasMore}.
+        """
+        params = {"size": size}
+        if cursor is not None:
+            params["cursor"] = cursor
+
+        for key, value in filters.items():
+            if value is not None:
+                params[key] = value
+
+        response = await self.http_client.get("users/stream", params=params)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("response", data)
+
+    async def get_all_users_stream(self, size: int = 250, **filters):
+        """Все пользователи панели одним проходом по курсору."""
+        users = []
+        cursor = None
+        while True:
+            page = await self.get_users_stream(
+                size=size,
+                cursor=cursor,
+                **filters,
+            )
+            if not isinstance(page, dict):
+                if isinstance(page, list):
+                    users.extend(page)
+
+                break
+
+            users.extend(page.get("users", []) or [])
+            if not page.get("hasMore"):
+                break
+
+            cursor = page.get("nextCursor")
+            if cursor is None:
+                break
+
+        return users
+
     async def get_user(self, uuid: str):
         response = await self.http_client.get(f"users/{uuid}")
         response.raise_for_status()
