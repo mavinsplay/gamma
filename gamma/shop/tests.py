@@ -20,7 +20,7 @@ from shop.services.yoomoney import (
 from shop.utils import verify_telegram_init_data
 from user.models import Profile
 
-__all__ = ("PaymentTests", "TariffChangeLockTests")
+__all__ = ("PaymentTests", "TariffChangeLockTests", "ReferralTests")
 
 
 class TelegramInitDataTests(TestCase):
@@ -586,6 +586,304 @@ class PaymentTests(TestCase):
 
         order = Order.objects.get(telegram_id=12345, order_type="SLOT")
         self.assertEqual(order.status, "FAILED")
+
+
+class ReferralTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.referrer = Profile.objects.create(
+            telegram_id=111,
+            telegram_username="referrer",
+            referral_code="REFCODE1",
+        )
+        self.invited = Profile.objects.create(
+            telegram_id=222,
+            telegram_username="invited",
+            balance=Decimal("500.00"),
+        )
+        self.tariff = Tariff.objects.create(
+            name="Ref Tariff",
+            description="ref",
+            price=Decimal("100.00"),
+            duration_days=30,
+            traffic_limit_bytes=0,
+            device_limit=1,
+        )
+        self.tariff2 = Tariff.objects.create(
+            name="Ref Tariff 2",
+            description="ref2",
+            price=Decimal("100.00"),
+            duration_days=30,
+            traffic_limit_bytes=0,
+            device_limit=1,
+        )
+        settings.DEBUG = False
+
+    def _post(self, name, tg_id, data):
+        with patch(
+            "shop.views.verify_telegram_init_data",
+        ) as mock_verify:
+            mock_verify.return_value = (True, {"id": tg_id, "username": "u"})
+            payload = dict(data)
+            payload["init_data"] = "mock_data"
+            return self.client.post(reverse(name), payload)
+
+    def _buy(self, tg_id, tariff):
+        with (
+            patch(
+                "shop.views.RemnawaveClient",
+            ) as mock_client_class,
+            patch(
+                "shop.views.verify_telegram_init_data",
+            ) as mock_verify,
+            patch(
+                "shop.views.requests.post",
+            ),
+        ):
+            mock_verify.return_value = (True, {"id": tg_id, "username": "u"})
+            mock_client = mock_client_class.return_value
+            mock_client.get_user_by_tgid = AsyncMock(
+                return_value=[],
+            )
+            mock_client.create_user = AsyncMock(
+                return_value={
+                    "uuid": "new-uuid",
+                    "expireAt": "2030-01-01T00:00:00.000Z",
+                },
+            )
+            mock_client.close = AsyncMock()
+            return self.client.post(
+                reverse("buy_tariff_api"),
+                {"tariff_id": tariff.id, "init_data": "mock_data"},
+            )
+
+    def test_bind_success(self):
+        response = self._post(
+            "bind_referral_api",
+            222,
+            {"ref_code": "refcode1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertTrue(data["bound"])
+
+        self.invited.refresh_from_db()
+        self.assertEqual(self.invited.referred_by_id, self.referrer.pk)
+
+    def test_bind_self_rejected(self):
+        self.invited.referral_code = "OWNCODE1"
+        self.invited.save(update_fields=["referral_code"])
+
+        response = self._post(
+            "bind_referral_api",
+            222,
+            {"ref_code": "OWNCODE1"},
+        )
+
+        data = response.json()
+        self.assertFalse(data["bound"])
+        self.assertEqual(data["reason"], "invalid")
+
+    def test_bind_twice_rejected(self):
+        self._post("bind_referral_api", 222, {"ref_code": "REFCODE1"})
+
+        Profile.objects.create(
+            telegram_id=333,
+            referral_code="REFCODE2",
+        )
+        response = self._post(
+            "bind_referral_api",
+            222,
+            {"ref_code": "REFCODE2"},
+        )
+
+        data = response.json()
+        self.assertFalse(data["bound"])
+        self.assertEqual(data["reason"], "already_bound")
+
+        self.invited.refresh_from_db()
+        self.assertEqual(self.invited.referred_by_id, self.referrer.pk)
+
+    def test_bind_after_purchase_rejected(self):
+        Order.objects.create(
+            tariff=self.tariff,
+            telegram_id=222,
+            amount=Decimal("100.00"),
+            order_type="PURCHASE",
+            status="PAID",
+        )
+
+        response = self._post(
+            "bind_referral_api",
+            222,
+            {"ref_code": "REFCODE1"},
+        )
+
+        data = response.json()
+        self.assertFalse(data["bound"])
+        self.assertEqual(data["reason"], "already_customer")
+
+    def test_referral_info(self):
+        response = self._post("referral_info_api", 111, {})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["code"], "REFCODE1")
+        self.assertIn("start=ref_REFCODE1", data["link"])
+        self.assertEqual(data["invited"], 0)
+        self.assertEqual(data["earned"], 0)
+        self.assertEqual(data["reward"], 100)
+
+    def test_sync_data_includes_referral(self):
+        with (
+            patch(
+                "shop.views.RemnawaveClient",
+            ) as mock_client_class,
+            patch(
+                "shop.views.verify_telegram_init_data",
+            ) as mock_verify,
+        ):
+            mock_verify.return_value = (
+                True,
+                {"id": 111, "username": "referrer"},
+            )
+            mock_client = mock_client_class.return_value
+            mock_client.get_nodes = AsyncMock(return_value=[])
+            mock_client.get_user_by_tgid = AsyncMock(return_value=[])
+            mock_client.close = AsyncMock()
+            response = self.client.post(
+                reverse("sync_data_api"),
+                {"init_data": "mock_data"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertIn("referral", data)
+        self.assertEqual(data["referral"]["code"], "REFCODE1")
+        self.assertIn("start=ref_REFCODE1", data["referral"]["link"])
+        self.assertEqual(data["referral"]["invited"], 0)
+        self.assertEqual(data["referral"]["earned"], 0)
+
+    def test_referrer_gets_telegram_notification(self):
+        self._post("bind_referral_api", 222, {"ref_code": "REFCODE1"})
+
+        with (
+            patch(
+                "shop.views.RemnawaveClient",
+            ) as mock_client_class,
+            patch(
+                "shop.views.verify_telegram_init_data",
+            ) as mock_verify,
+            patch(
+                "shop.views.requests.post",
+            ) as mock_post,
+        ):
+            mock_verify.return_value = (True, {"id": 222, "username": "u"})
+            mock_client = mock_client_class.return_value
+            mock_client.get_user_by_tgid = AsyncMock(
+                return_value=[],
+            )
+            mock_client.create_user = AsyncMock(
+                return_value={
+                    "uuid": "new-uuid",
+                    "expireAt": "2030-01-01T00:00:00.000Z",
+                },
+            )
+            mock_client.close = AsyncMock()
+            response = self.client.post(
+                reverse("buy_tariff_api"),
+                {"tariff_id": self.tariff.id, "init_data": "mock_data"},
+            )
+
+        self.assertTrue(response.json()["success"])
+        mock_post.assert_called_once()
+        url, kwargs = mock_post.call_args[0][0], mock_post.call_args[1]
+        self.assertIn("sendMessage", url)
+        self.assertEqual(kwargs["json"]["chat_id"], 111)
+        self.assertIn("100", kwargs["json"]["text"])
+        self.assertIn("реферала", kwargs["json"]["text"])
+
+    def test_no_notification_on_second_purchase(self):
+        self._post("bind_referral_api", 222, {"ref_code": "REFCODE1"})
+        self._buy(222, self.tariff)
+
+        with (
+            patch(
+                "shop.views.RemnawaveClient",
+            ) as mock_client_class,
+            patch(
+                "shop.views.verify_telegram_init_data",
+            ) as mock_verify,
+            patch(
+                "shop.views.requests.post",
+            ) as mock_post,
+        ):
+            mock_verify.return_value = (True, {"id": 222, "username": "u"})
+            mock_client = mock_client_class.return_value
+            mock_client.get_user_by_tgid = AsyncMock(
+                return_value=[],
+            )
+            mock_client.create_user = AsyncMock(
+                return_value={
+                    "uuid": "new-uuid",
+                    "expireAt": "2030-01-01T00:00:00.000Z",
+                },
+            )
+            mock_client.close = AsyncMock()
+            self.client.post(
+                reverse("buy_tariff_api"),
+                {"tariff_id": self.tariff2.id, "init_data": "mock_data"},
+            )
+
+        mock_post.assert_not_called()
+
+    def test_reward_on_first_purchase(self):
+        self._post("bind_referral_api", 222, {"ref_code": "REFCODE1"})
+
+        response = self._buy(222, self.tariff)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+
+        self.referrer.refresh_from_db()
+        self.assertEqual(self.referrer.balance, Decimal("100.00"))
+        self.assertEqual(self.referrer.referral_earned, Decimal("100.00"))
+
+        reward_order = Order.objects.get(
+            telegram_id=111,
+            order_type="REFERRAL",
+        )
+        self.assertEqual(reward_order.status, "PAID")
+        self.assertEqual(reward_order.amount, Decimal("100.00"))
+
+        self.invited.refresh_from_db()
+        self.assertTrue(self.invited.referral_reward_paid)
+
+    def test_no_double_reward(self):
+        self._post("bind_referral_api", 222, {"ref_code": "REFCODE1"})
+        self._buy(222, self.tariff)
+        self._buy(222, self.tariff2)
+
+        self.referrer.refresh_from_db()
+        self.assertEqual(self.referrer.balance, Decimal("100.00"))
+        self.assertEqual(
+            Order.objects.filter(
+                telegram_id=111,
+                order_type="REFERRAL",
+            ).count(),
+            1,
+        )
+
+    def test_no_reward_without_referrer(self):
+        self._buy(222, self.tariff)
+
+        self.assertFalse(
+            Order.objects.filter(order_type="REFERRAL").exists(),
+        )
 
 
 class TariffChangeLockTests(TestCase):

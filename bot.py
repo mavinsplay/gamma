@@ -9,7 +9,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "gamma"))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "gamma.settings")
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, types  # noqa: E402
-from aiogram.exceptions import TelegramNetworkError  # noqa: E402
+from aiogram.exceptions import (  # noqa: E402
+    TelegramAPIError,
+    TelegramNetworkError,
+)
 from aiogram.filters import Command, CommandStart  # noqa: E402
 from aiogram.fsm.context import FSMContext  # noqa: E402
 from aiogram.fsm.state import State, StatesGroup  # noqa: E402
@@ -90,9 +93,10 @@ def _button(
     return InlineKeyboardButton(text=text, **kwargs)
 
 
-def build_welcome_markup() -> InlineKeyboardMarkup:
+def build_welcome_markup(ref_code=None) -> InlineKeyboardMarkup:
     status_url = f"{WEBAPP_URL}?tab=connection"
     support_url = f"https://t.me/{SUPPORT_USERNAME}"
+    cabinet_url = f"{WEBAPP_URL}?ref={ref_code}" if ref_code else WEBAPP_URL
 
     bottom_row = [
         _button(
@@ -117,7 +121,7 @@ def build_welcome_markup() -> InlineKeyboardMarkup:
                     "Личный кабинет",
                     icon_custom_emoji_id=ICON_PERSONAL_CABINET,
                     style="primary",  # синяя
-                    web_app=WebAppInfo(url=WEBAPP_URL),
+                    web_app=WebAppInfo(url=cabinet_url),
                 ),
             ],
             [
@@ -147,9 +151,10 @@ def build_welcome_text(first_name: str) -> str:
 async def send_welcome(
     message: types.Message,
     first_name: str,
+    ref_code=None,
 ) -> None:
     text = build_welcome_text(first_name)
-    markup = build_welcome_markup()
+    markup = build_welcome_markup(ref_code=ref_code)
     if WELCOME_PHOTO_PATH.is_file():
         try:
             await message.answer_photo(
@@ -169,9 +174,35 @@ async def send_welcome(
     )
 
 
+@sync_to_async
+def _find_referrer_code(payload):
+    """Проверить deep-link payload вида ref_CODE, вернуть код или None."""
+    if not payload or not payload.startswith("ref_"):
+        return None
+
+    code = payload[4:].strip().upper()
+    if not code:
+        return None
+
+    exists = Profile.objects.filter(referral_code=code).exists()
+    return code if exists else None
+
+
 @dp.message(CommandStart())
 async def command_start_handler(message: types.Message) -> None:
-    await send_welcome(message, message.from_user.first_name)
+    ref_code = None
+    try:
+        parts = (message.text or "").split()
+        payload = parts[1] if len(parts) > 1 else ""
+        ref_code = await _find_referrer_code(payload)
+    except Exception as e:
+        logging.warning(f"Failed to parse start payload: {e}")
+
+    await send_welcome(
+        message,
+        message.from_user.first_name,
+        ref_code=ref_code,
+    )
 
 
 @dp.message(Command("broadcast"), F.from_user.id == ADMIN_ID)
@@ -311,75 +342,125 @@ async def subscription_reminder_task():
                 client = RemnawaveClient()
                 try:
                     for profile in users:
-                        rw_user = await client.get_user_by_tgid(
-                            profile.telegram_id,
-                        )
-                        if isinstance(rw_user, list):
-                            rw_user = rw_user[0] if len(rw_user) > 0 else None
+                        try:
+                            rw_user = await client.get_user_by_tgid(
+                                profile.telegram_id,
+                            )
+                            if isinstance(rw_user, list):
+                                rw_user = (
+                                    rw_user[0] if len(rw_user) > 0 else None
+                                )
 
-                        if rw_user and rw_user.get("expireAt"):
+                            if not (rw_user and rw_user.get("expireAt")):
+                                continue
+
                             expire_str = rw_user["expireAt"].replace(
                                 "Z",
                                 "+00:00",
                             )
                             try:
                                 expire_dt = datetime.fromisoformat(expire_str)
-                                delta = expire_dt - datetime.now(timezone.utc)
-                                # noqa: T201
+                            except ValueError:
+                                continue
 
-                                # Подписка активна — сбрасываем флаг
-                                if delta.days > 0:
-                                    if (
-                                        profile.subscription_expired_notification_sent  # noqa: E501
-                                    ):
-                                        profile.subscription_expired_notification_sent = (  # noqa: E501
-                                            False
-                                        )
-                                        await sync_to_async(profile.save)()
+                            delta = expire_dt - datetime.now(timezone.utc)
+                            # noqa: T201
 
-                                # 1-2 дня до конца — напоминание
-                                elif 1 <= delta.days < 3:
-                                    ds = "день" if delta.days == 1 else "дня"
-                                    text = (
-                                        "🔔 <b>Напоминание</b>\n\n"
-                                        f"Ваша подписка на тариф "
-                                        f"<b>{profile.tarif.name}</b> "
-                                        f"истекает примерно через "
-                                        f"{delta.days} {ds}!\n\n"
-                                        "Пожалуйста, продлите подписку "
-                                        "в панели управления."
-                                    )
-                                    await bot.send_message(
-                                        profile.telegram_id,
-                                        text,
-                                        parse_mode="HTML",
-                                    )
-
-                                # Подписка истекла — отправляем один раз
-                                elif (
-                                    delta.days <= 0
-                                    and not profile.subscription_expired_notification_sent  # noqa: E501
+                            # Подписка истекла — отправляем один раз
+                            if delta.total_seconds() <= 0:
+                                if (
+                                    not profile.subscription_expired_notification_sent  # noqa: E501
                                 ):
                                     text = (
                                         "🔔 <b>Напоминание</b>\n\n"
                                         f"Ваша подписка на тариф "
                                         f"<b>{profile.tarif.name}</b> "
-                                        f"истекла!\n\n"
+                                        "истекла!\n\n"
                                         "Пожалуйста, продлите подписку "
                                         "в панели управления."
                                     )
-                                    await bot.send_message(
-                                        profile.telegram_id,
-                                        text,
-                                        parse_mode="HTML",
-                                    )
+                                    try:
+                                        await bot.send_message(
+                                            profile.telegram_id,
+                                            text,
+                                            parse_mode="HTML",
+                                        )
+                                    except TelegramAPIError as e:
+                                        logging.warning(
+                                            "Reminder skip tg=%s: %s",
+                                            profile.telegram_id,
+                                            e,
+                                        )
+                                        continue
+
                                     # Отмечаем что уведомление отправлено
                                     profile.subscription_expired_notification_sent = (  # noqa: E501
                                         True
                                     )
                                     await sync_to_async(profile.save)()
-                            except ValueError:
-                                pass
+
+                                continue
+
+                            # delta.days — полные сутки (floor).
+                            # Остаток <1 суток считаем за 1 день,
+                            # чтобы не слать «истекла» за пару часов
+                            # до конца и не пропускать напоминание.
+                            days_left = max(1, delta.days)
+
+                            # Подписка активна (>3 дней) —
+                            # сбрасываем флаг
+                            if days_left > 3:
+                                if (
+                                    profile.subscription_expired_notification_sent  # noqa: E501
+                                ):
+                                    profile.subscription_expired_notification_sent = (  # noqa: E501
+                                        False
+                                    )
+                                    await sync_to_async(profile.save)()
+
+                                continue
+
+                            # 1-3 дня до конца — напоминание
+                            if 1 <= days_left <= 3:
+                                ds = "день" if days_left == 1 else "дня"
+                                text = (
+                                    "🔔 <b>Напоминание</b>\n\n"
+                                    "Ваша подписка на тариф "
+                                    f"<b>{profile.tarif.name}</b> "
+                                    "истекает примерно через "
+                                    f"{days_left} {ds}!\n\n"
+                                    "Пожалуйста, продлите подписку "
+                                    "в панели управления."
+                                )
+                                try:
+                                    await bot.send_message(
+                                        profile.telegram_id,
+                                        text,
+                                        parse_mode="HTML",
+                                    )
+                                except TelegramAPIError as e:
+                                    logging.warning(
+                                        "Reminder skip tg=%s: %s",
+                                        profile.telegram_id,
+                                        e,
+                                    )
+                                    continue
+
+                                await asyncio.sleep(0.05)
+                        except TelegramAPIError as e:
+                            logging.warning(
+                                "Reminder skip tg=%s: %s",
+                                profile.telegram_id,
+                                e,
+                            )
+                            continue
+                        except Exception as e:
+                            logging.error(
+                                "Reminder failed tg=%s: %s",
+                                profile.telegram_id,
+                                e,
+                            )
+                            continue
                 finally:
                     await client.close()
         except Exception as e:

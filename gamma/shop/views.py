@@ -10,12 +10,20 @@ from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import F
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.csrf import csrf_exempt
+import requests
 
 from connect.services.remnawave import RemnawaveClient
-from shop.models import Order, PromoCode, PromoCodeUsage, Tariff
+from shop.models import (
+    Order,
+    PromoCode,
+    PromoCodeUsage,
+    REFERRAL_REWARD,
+    Tariff,
+)
 from shop.platega import Platega, PlategaAPIError, PlategaCallback
 from shop.services.platega import (
     create_platega_payment,
@@ -30,7 +38,7 @@ from shop.services.yoomoney import (
     verify_payment_api,
 )
 from shop.utils import verify_telegram_init_data
-from user.models import Profile
+from user.models import ensure_referral_code, Profile
 
 _last_cancel_check = 0
 
@@ -56,6 +64,82 @@ __all__ = [
     "topup_whitelist_traffic_api",
     "platega_callback",
 ]
+
+
+def _notify_referrer_about_reward(referrer_telegram_id):
+    """Сообщить пригласившему о зачислении реферальной награды.
+
+    Прямой вызов Bot API: вьюха работает в Django-процессе, отдельного
+    доступа к инстансу aiogram-бота тут нет. Ошибки только логируются.
+    """
+    token = getattr(settings, "BOT_TOKEN", "")
+    if not token:
+        return
+
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={
+                "chat_id": referrer_telegram_id,
+                "text": (
+                    "🎉 <b>Реферальная награда!</b>\n\n"
+                    "По вашей ссылке купили подписку — "
+                    f"вам зачислено <b>{int(REFERRAL_REWARD)} ₽</b> "
+                    "за реферала."
+                ),
+                "parse_mode": "HTML",
+            },
+            timeout=10,
+        )
+    except Exception:
+        logger.exception("Failed to notify referrer %s", referrer_telegram_id)
+
+
+def _pay_referral_reward(profile):
+    """Начислить пригласившему награду за первую покупку подписки.
+
+    Вызывается только после успешного оформления подписки.
+    Никогда не роняет покупку: все ошибки гасятся и логируются.
+    """
+    try:
+        if not profile.referred_by_id or profile.referral_reward_paid:
+            return
+
+        claimed = Profile.objects.filter(
+            pk=profile.pk,
+            referral_reward_paid=False,
+        ).update(referral_reward_paid=True)
+        if not claimed:
+            return
+
+        referrer = Profile.objects.filter(
+            pk=profile.referred_by_id,
+        ).first()
+        if not referrer:
+            return
+
+        Profile.objects.filter(pk=referrer.pk).update(
+            balance=F("balance") + REFERRAL_REWARD,
+            referral_earned=F("referral_earned") + REFERRAL_REWARD,
+        )
+        Order.objects.create(
+            tariff=None,
+            telegram_id=referrer.telegram_id,
+            amount=REFERRAL_REWARD,
+            order_type="REFERRAL",
+            status="PAID",
+        )
+        # Сбросить sync-кэш обеих сторон, чтобы invited/earned
+        # в referral-блоке обновились без ожидания TTL.
+        try:
+            cache.delete(f"sync_data:{profile.telegram_id}")
+            cache.delete(f"sync_data:{referrer.telegram_id}")
+        except Exception:
+            pass
+
+        _notify_referrer_about_reward(referrer.telegram_id)
+    except Exception:
+        logger.exception("Failed to pay referral reward")
 
 
 def _get_main_user(rw_users, profile=None):
@@ -531,6 +615,9 @@ def buy_tariff_api(request):
             Profile.objects.filter(telegram_id=telegram_id).update(
                 whitelist_uuid=None,
             )
+
+        # Награда пригласившему за первую покупку подписки
+        _pay_referral_reward(profile)
 
         # Compute remaining days for instant UI update
         remaining_days = 0
@@ -1677,9 +1764,33 @@ def sync_data_api(request):
         _last_cancel_check = now
         cancel_expired_orders()
 
+    def _build_referral_data(prof):
+        try:
+            code = ensure_referral_code(prof)
+            invited = Profile.objects.filter(referred_by=prof).count()
+            link = (
+                f"https://t.me/{settings.TELEGRAM_BOT_USERNAME}"
+                f"?start=ref_{code}"
+            )
+            return {
+                "code": code,
+                "link": link,
+                "invited": invited,
+                "earned": float(prof.referral_earned),
+                "reward": float(REFERRAL_REWARD),
+            }
+        except Exception:
+            return None
+
     cache_key = f"sync_data:{telegram_id}"
     cached = cache.get(cache_key)
     if cached is not None:
+        # referral-блок свежий при каждом запросе, остальное — из кэша.
+        try:
+            cached["referral"] = _build_referral_data(profile)
+        except Exception:
+            pass
+
         return JsonResponse(cached)
 
     async def fetch_sync_data():
@@ -1918,6 +2029,7 @@ def sync_data_api(request):
             "proxies": proxies_data,
             "has_pending_payment": has_pending_payment,
             "pending_payment": pending_payment,
+            "referral": _build_referral_data(profile),
         }
         if not (rw_error or hwid_error or wl_error or nodes_error):
             cache.set(cache_key, response_data, 15)

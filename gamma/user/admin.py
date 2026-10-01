@@ -109,13 +109,15 @@ class ProfileAdmin(admin.ModelAdmin):
         "remnawave_subscription",
         "created_at",
     )
-    search_fields = ("telegram_id", "telegram_username")
+    search_fields = ("telegram_id", "telegram_username", "referral_code")
     list_filter = (SubscriptionStatusFilter, "tarif", "created_at")
     ordering = ("-created_at",)
     readonly_fields = (
         "created_at",
         "updated_at",
         "whitelist_uuid",
+        "referral_code",
+        "referral_earned",
         "remnawave_subscription_info",
         "whitelist_sync_check",
     )
@@ -150,6 +152,17 @@ class ProfileAdmin(admin.ModelAdmin):
                     "notifications_enabled",
                     "server_notifications_enabled",
                     "subscription_expired_notification_sent",
+                ),
+            },
+        ),
+        (
+            "Рефералы",
+            {
+                "fields": (
+                    "referral_code",
+                    "referred_by",
+                    "referral_reward_paid",
+                    "referral_earned",
                 ),
             },
         ),

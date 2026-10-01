@@ -490,6 +490,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             */
         }
+
+        // Привязка реферала из ?ref= (если пришли по реферальной ссылке)
+        bindReferralFromUrl();
     }
 
     initTelegram();
@@ -510,11 +513,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function showModal({ title, message, icon = 'info', actionText = 'Пополнить', onAction = null, showInput = false, inputValue = '', inputPlaceholder = 'Введите данные...', inputType = 'text', customHtml = '', closeBtnText = 'Закрыть' }) {
         showModalCount++;
 
-        // Re-trigger animation when replacing an already-open modal
-        if (modalOverlay.classList.contains('active')) {
-            modalOverlay.classList.remove('active');
-            void modalOverlay.offsetHeight; // force reflow
-        }
+        // Если модалка уже открыта — оверлей не трогаем (иначе будет
+        // резкое мигание opacity 1 -> 0 -> 1). Анимируем только бокс
+        // лёгким pop, как при обычном открытии.
+        const wasOpen = modalOverlay.classList.contains('active');
+        const modalBox = document.getElementById('modal-content');
 
         modalTitle.textContent = title;
         modalMessage.textContent = message;
@@ -551,13 +554,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (onAction) {
             modalAction.style.display = 'block';
+            modalAction.classList.remove('copied');
             modalAction.onclick = () => {
                 modalKeepOpen = false;
                 const prevCount = showModalCount;
-                onAction();
-                // Only hide if no other modal was opened during onAction
-                // and the action didn't request to stay open (e.g. debug mode).
-                if (!modalKeepOpen && showModalCount === prevCount) {
+                const result = onAction();
+                // Only hide if no other modal was opened during onAction,
+                // the action didn't request to stay open (e.g. debug mode)
+                // and didn't return false (inline feedback, modal stays).
+                if (
+                    !modalKeepOpen
+                    && showModalCount === prevCount
+                    && result !== false
+                ) {
                     hideModal();
                 }
             };
@@ -565,7 +574,16 @@ document.addEventListener('DOMContentLoaded', () => {
             modalAction.style.display = 'none';
         }
 
-        modalOverlay.classList.add('active');
+        if (!wasOpen) {
+            modalOverlay.classList.add('active');
+        } else if (modalBox && modalBox.animate) {
+            modalBox.animate(
+                [{ transform: 'scale(0.96)' }, { transform: 'scale(1)' }],
+                { duration: 180, easing: 'cubic-bezier(0.175, 0.885, 0.32, 1.275)' }
+            );
+        } else {
+            modalOverlay.classList.add('active');
+        }
     }
 
     function hideModal() {
@@ -2558,6 +2576,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // Кэш рефералки из sync-data: модалка открывается мгновенно,
+        // цифры обновляются каждым поллингом без отдельных запросов.
+        if (data.referral && data.referral.link) {
+            window._referralData = data.referral;
+            window._referralLink = data.referral.link;
+        }
+
         // Update Proxy
         const proxyContainer = document.getElementById('proxy-container');
         if (proxyContainer) {
@@ -3070,6 +3095,188 @@ document.addEventListener('DOMContentLoaded', () => {
         prefetchSubLinks();
     }
 
+    // Referral system.
+    // Данные прилетают вместе с sync-data (каждые 10 сек) и кэшируются,
+    // поэтому открытие модалки мгновенное — без экрана «Загрузка…».
+    // Отдельный referral-info-api оставлен как fallback на случай,
+    // если кэш sync ещё пуст (первые секунды после запуска).
+    window._referralLink = '';
+    window._referralData = null;
+
+    async function fetchReferralInfo() {
+        const tg = window.Telegram?.WebApp;
+        const formData = new FormData();
+        formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+        if (tg?.initData) formData.append('init_data', tg.initData);
+        const resp = await fetch('/user/referral-info-api/', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await resp.json();
+        if (data.success && data.link) {
+            window._referralLink = data.link;
+            window._referralData = data;
+            return data;
+        }
+        return null;
+    }
+
+    function renderReferralModal(data) {
+        const reward = `${Number(data.reward || 100).toFixed(0)} ₽`;
+        const earned = `${Number(data.earned || 0).toFixed(0)} ₽`;
+        const customHtml = `
+            <div style="width:100%;text-align:left;display:flex;flex-direction:column;gap:12px;">
+                <div style="display:flex;gap:10px;">
+                    <div style="flex:1;background:rgba(255,255,255,0.04);border-radius:14px;padding:10px 12px;text-align:center;">
+                        <div style="font-size:11px;opacity:0.55;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Приглашено</div>
+                        <div style="font-size:20px;font-weight:600;">${data.invited}</div>
+                    </div>
+                    <div style="flex:1;background:rgba(76,175,80,0.08);border-radius:14px;padding:10px 12px;text-align:center;">
+                        <div style="font-size:11px;opacity:0.55;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Заработано</div>
+                        <div style="font-size:20px;font-weight:600;color:#4CAF50;">${earned}</div>
+                    </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;opacity:0.75;">
+                    <div style="display:flex;gap:10px;align-items:flex-start;">
+                        <span class="material-symbols-rounded" style="color:var(--md-sys-color-primary);font-size:18px;flex-shrink:0;">share</span>
+                        <span>Поделись своей ссылкой с другом</span>
+                    </div>
+                    <div style="display:flex;gap:10px;align-items:flex-start;">
+                        <span class="material-symbols-rounded" style="color:var(--md-sys-color-primary);font-size:18px;flex-shrink:0;">shopping_bag</span>
+                        <span>Друг покупает подписку</span>
+                    </div>
+                    <div style="display:flex;gap:10px;align-items:flex-start;">
+                        <span class="material-symbols-rounded" style="color:#4CAF50;font-size:18px;flex-shrink:0;">payments</span>
+                        <span>Ты получаешь <b>${reward}</b> на баланс автоматически</span>
+                    </div>
+                </div>
+            </div>`;
+        showModal({
+            title: 'Реферальная система',
+            message: `Приглашай друзей и получай ${reward} за каждого, кто купит подписку.`,
+            icon: 'group_add',
+            customHtml: customHtml,
+            actionText: 'Скопировать',
+            onAction: () => {
+                // Инлайн-подтверждение в той же модалке (без второй
+                // модалки «Ссылка скопирована»). false = не закрывать.
+                copyReferralLink();
+                return false;
+            },
+            closeBtnText: 'Закрыть'
+        });
+    }
+
+    window.openReferralModal = () => {
+        // Мгновенно из кэша sync-data — без «Загрузки…».
+        if (window._referralData && window._referralData.link) {
+            renderReferralModal(window._referralData);
+            return;
+        }
+        // Fallback только если sync ещё не прилетел.
+        showModal({
+            title: 'Реферальная система',
+            message: 'Загрузка…',
+            icon: 'group_add',
+            actionText: 'Закрыть',
+            onAction: null,
+            closeBtnText: 'Закрыть'
+        });
+        fetchReferralInfo().then((data) => {
+            if (!data) {
+                showModal({
+                    title: 'Ошибка',
+                    message: 'Не удалось загрузить реферальные данные.',
+                    icon: 'error',
+                    actionText: 'Ок',
+                    onAction: hideModal
+                });
+                return;
+            }
+            renderReferralModal(data);
+        }).catch(() => {
+            showModal({
+                title: 'Ошибка',
+                message: 'Не удалось загрузить реферальные данные.',
+                icon: 'error',
+                actionText: 'Ок',
+                onAction: hideModal
+            });
+        });
+    };
+
+    window.copyReferralLink = async () => {
+        const link = window._referralLink || '';
+        if (!link) return;
+        const btn = document.getElementById('modal-action');
+        const prevText = btn ? btn.textContent : '';
+        const flashOk = () => {
+            if (!btn) return;
+            btn.textContent = 'Скопировано';
+            btn.classList.add('copied');
+            if (btn.animate) {
+                btn.animate(
+                    [{ transform: 'scale(0.96)' }, { transform: 'scale(1)' }],
+                    { duration: 200, easing: 'ease-out' }
+                );
+            }
+            setTimeout(() => {
+                // Модалку могли уже закрыть — проверяем, что кнопка та же.
+                if (document.getElementById('modal-action') === btn) {
+                    btn.textContent = prevText || 'Скопировать';
+                    btn.classList.remove('copied');
+                }
+            }, 1600);
+        };
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(link);
+            } else {
+                const ta = document.createElement('textarea');
+                ta.value = link;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                ta.remove();
+            }
+            if (window.Telegram?.WebApp?.HapticFeedback) {
+                window.Telegram.WebApp.HapticFeedback.notificationOccurred(
+                    'success'
+                );
+            }
+            flashOk();
+        } catch (e) {
+            showModal({
+                title: 'Ошибка',
+                message: 'Не удалось скопировать ссылку.',
+                icon: 'error',
+                actionText: 'Ок',
+                onAction: hideModal
+            });
+        }
+    };
+
+    async function bindReferralFromUrl() {
+        try {
+            const ref = new URLSearchParams(window.location.search).get('ref');
+            if (!ref) return;
+            if (sessionStorage.getItem('ref_bind_attempted_' + ref)) return;
+            sessionStorage.setItem('ref_bind_attempted_' + ref, '1');
+            const tg = window.Telegram?.WebApp;
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+            formData.append('ref_code', ref);
+            if (tg?.initData) formData.append('init_data', tg.initData);
+            const resp = await fetch('/user/bind-referral-api/', {
+                method: 'POST',
+                body: formData
+            });
+            await resp.json();
+        } catch (e) {
+            // silent — referral bind is best-effort
+        }
+    }
+
     // Lazy-load payment history
     window._historyLoaded = false;
     window._historyOffset = 0;
@@ -3077,6 +3284,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function buildPaymentHtml(p) {
         const isTopup = p.order_type === 'TOPUP';
+        const isReferral = p.order_type === 'REFERRAL';
+        const isIncome = isTopup || isReferral;
         const isSlot = p.order_type === 'SLOT';
         let statusColor = '#EF5350';
         let statusText = 'Ошибка';
@@ -3089,18 +3298,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         return `
             <div class="history-item" style="background: var(--panel-bg); border-radius: 20px; padding: 16px; display: flex; align-items: center; gap: 16px;">
-                <div style="width: 44px; height: 44px; border-radius: 14px; background: ${isTopup ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 255, 255, 0.05)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                    <span class="material-symbols-rounded" style="color: ${isTopup ? '#4CAF50' : '#FFFFFF'}; font-size: 24px; opacity: 0.8;">
-                        ${isTopup ? 'account_balance_wallet' : 'shopping_bag'}
+                <div style="width: 44px; height: 44px; border-radius: 14px; background: ${isIncome ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 255, 255, 0.05)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <span class="material-symbols-rounded" style="color: ${isIncome ? '#4CAF50' : '#FFFFFF'}; font-size: 24px; opacity: 0.8;">
+                        ${isTopup ? 'account_balance_wallet' : (isReferral ? 'group_add' : 'shopping_bag')}
                     </span>
                 </div>
                 <div style="flex: 1;">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
                         <span style="font-weight: 500; font-size: 15px;">
-                            ${isTopup ? 'Пополнение баланса' : (isSlot ? 'Доп. слот' : (escapeHtml(p.tariff_name) || "Покупка тарифа"))}
+                            ${isTopup ? 'Пополнение баланса' : (isReferral ? 'Реферальный бонус' : (isSlot ? 'Доп. слот' : (escapeHtml(p.tariff_name) || "Покупка тарифа")))}
                         </span>
-                        <span style="font-weight: 600; font-size: 15px; color: ${isTopup ? '#4CAF50' : '#FFFFFF'};">
-                            ${isTopup ? '+' : '-'}${p.amount.toFixed(0)} ₽
+                        <span style="font-weight: 600; font-size: 15px; color: ${isIncome ? '#4CAF50' : '#FFFFFF'};">
+                            ${isIncome ? '+' : '-'}${p.amount.toFixed(0)} ₽
                         </span>
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; opacity: 0.5;">

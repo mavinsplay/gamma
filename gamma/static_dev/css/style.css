@@ -1287,11 +1287,17 @@ body {
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.2s ease;
 }
 
 .modal-btn.primary {
     background-color: var(--md-sys-color-primary);
     color: var(--md-sys-color-on-primary);
+}
+
+.modal-btn.primary.copied {
+    background-color: #4CAF50;
+    color: #fff;
 }
 
 .modal-btn.secondary {

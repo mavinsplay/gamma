@@ -12,9 +12,102 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 import requests
 
-from user.models import Profile
+from shop.models import Order, REFERRAL_REWARD
+from shop.views import _get_authorized_telegram_id
+from user.models import ensure_referral_code, Profile
 
 __all__ = ()
+
+
+def referral_info_api(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    uid = _get_authorized_telegram_id(request)
+    if uid is None:
+        return JsonResponse({"error": "Invalid auth"}, status=403)
+
+    profile, _ = Profile.objects.get_or_create(
+        telegram_id=int(uid),
+    )
+    code = ensure_referral_code(profile)
+    invited = Profile.objects.filter(referred_by=profile).count()
+    link = (
+        f"https://t.me/{settings.TELEGRAM_BOT_USERNAME}" f"?start=ref_{code}"
+    )
+    return JsonResponse(
+        {
+            "success": True,
+            "code": code,
+            "link": link,
+            "invited": invited,
+            "earned": float(profile.referral_earned),
+            "reward": float(REFERRAL_REWARD),
+        },
+    )
+
+
+def bind_referral_api(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    uid = _get_authorized_telegram_id(request)
+    if uid is None:
+        return JsonResponse({"error": "Invalid auth"}, status=403)
+
+    ref_code = request.POST.get("ref_code", "").strip().upper()
+    if not ref_code:
+        return JsonResponse(
+            {"success": True, "bound": False, "reason": "empty"},
+        )
+
+    profile, _ = Profile.objects.get_or_create(
+        telegram_id=int(uid),
+    )
+    if profile.referred_by_id:
+        return JsonResponse(
+            {"success": True, "bound": False, "reason": "already_bound"},
+        )
+
+    referrer = Profile.objects.filter(referral_code=ref_code).first()
+    if not referrer or referrer.pk == profile.pk:
+        return JsonResponse(
+            {"success": True, "bound": False, "reason": "invalid"},
+        )
+
+    # Привязка только для новичков: без купленных подписок и тарифа.
+    already_customer = (
+        profile.tarif_id is not None
+        or Order.objects.filter(
+            telegram_id=profile.telegram_id,
+            order_type="PURCHASE",
+            status="PAID",
+        ).exists()
+    )
+    if already_customer:
+        return JsonResponse(
+            {
+                "success": True,
+                "bound": False,
+                "reason": "already_customer",
+            },
+        )
+
+    profile.referred_by = referrer
+    profile.save(update_fields=["referred_by"])
+    try:
+        cache.delete(f"sync_data:{profile.telegram_id}")
+        cache.delete(f"sync_data:{referrer.telegram_id}")
+    except Exception:
+        pass
+
+    return JsonResponse(
+        {
+            "success": True,
+            "bound": True,
+            "reward": float(REFERRAL_REWARD),
+        },
+    )
 
 
 def _get_redirect_uri(request):

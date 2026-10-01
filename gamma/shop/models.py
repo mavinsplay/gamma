@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 
 __all__ = [
@@ -6,6 +8,9 @@ __all__ = [
     "PromoCode",
     "PromoCodeUsage",
 ]
+
+# Награда пригласившему за первую покупку подписки рефералом (₽).
+REFERRAL_REWARD = Decimal("100.00")
 
 
 class Tariff(models.Model):
@@ -69,6 +74,7 @@ class Order(models.Model):
         ("TOPUP", "Top-up"),
         ("WHITELIST_TOPUP", "Whitelist Traffic Top-up"),
         ("SLOT", "Slot"),
+        ("REFERRAL", "Referral"),
     )
     PROVIDER_CHOICES = (
         ("yoomoney", "YooMoney"),
