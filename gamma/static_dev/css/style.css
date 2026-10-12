@@ -1694,9 +1694,14 @@ body {
 @media (min-width: 768px) {
     .pending-payment-banner {
         top: 8px;
-        left: auto;
-        right: auto;
-        width: calc(100% - 40px);
+        /* left/right: auto не центрирует absolute-блок — он лип к левому
+        краю и залезал под боковую навигацию (100px, тот же z-index).
+        left+right заданы явно: auto-margin центрирует баннер в зоне
+        правее навигации. transform не трогаем — его использует
+        анимация slideDown. */
+        left: 116px;
+        right: 16px;
+        width: auto;
         max-width: 600px;
         margin: 0 auto;
     }

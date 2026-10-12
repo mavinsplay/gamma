@@ -1601,7 +1601,23 @@ document.addEventListener('DOMContentLoaded', () => {
     initSubSlider();
 
     window.toggleExtendMenu = (subType = 'main') => {
-        if (!window.CURRENT_TARIFF_PRICE || !window.CURRENT_TARIFF_DAYS) return;
+        if (!window.CURRENT_TARIFF_PRICE || !window.CURRENT_TARIFF_DAYS) {
+            // Раньше тут был молчаливый return — кнопка «умирала» без
+            // объяснений (например, когда profile.tarif пуст в БД).
+            showModal({
+                title: 'Не получилось открыть продление',
+                message: 'Данные тарифа ещё загружаются или недоступны. '
+                    + 'Обновите данные и попробуйте снова.',
+                icon: 'hourglass_empty',
+                actionText: 'Обновить',
+                onAction: () => {
+                    hideModal();
+                    if (window.syncNow) window.syncNow();
+                },
+                closeBtnText: 'Закрыть'
+            });
+            return;
+        }
 
         let basePrice = window.CURRENT_TARIFF_PRICE;
         let baseDays = window.CURRENT_TARIFF_DAYS;
@@ -2543,9 +2559,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const tarifNameEl = document.getElementById('profile-tarif-name');
             if (tarifNameEl) tarifNameEl.textContent = data.profile.tarif_name;
 
-            // Update global tariff variables for Extension menu
-            if (data.profile.tarif_price) window.CURRENT_TARIFF_PRICE = data.profile.tarif_price;
-            if (data.profile.tarif_days) window.CURRENT_TARIFF_DAYS = data.profile.tarif_days;
+            // Update global tariff variables for Extension menu.
+            // Без тарифа в БД — сбрасываем в 0, чтобы меню продления
+            // показывало ошибку, а не считало по протухшей цене.
+            if (data.profile.tariff_id) {
+                if (data.profile.tarif_price) window.CURRENT_TARIFF_PRICE = data.profile.tarif_price;
+                if (data.profile.tarif_days) window.CURRENT_TARIFF_DAYS = data.profile.tarif_days;
+            } else {
+                window.CURRENT_TARIFF_PRICE = 0;
+                window.CURRENT_TARIFF_DAYS = 0;
+            }
 
             // Update HAS_ACTIVE_SUB flag
             // Use OR with OPTIMISTIC_HAS_SUB to avoid flickering right after purchase
@@ -2558,6 +2581,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.rw_user) {
                     window.CURRENT_TARIFF_NAME = data.profile.tarif_name;
                     window.OPTIMISTIC_HAS_SUB = false; // Reset once we have real data from Remnawave
+                }
+
+                // Кнопка своего тарифа: сервер рендерит disabled «Уже активен»
+                // без учёта expiry. Истёкшую подписку можно купить снова —
+                // включаем кнопку как «Продлить», активную — гасим обратно.
+                const ownedId = Number(data.profile.tariff_id || 0);
+                const ownedBtn = ownedId
+                    ? document.querySelector(`.tariff-card-v2[data-tariff-id="${ownedId}"] .v2-buy-btn`)
+                    : null;
+                if (ownedBtn && (ownedBtn.getAttribute('onclick') || '').includes('handleBuy')) {
+                    if (hasValidExpiry) {
+                        ownedBtn.disabled = true;
+                        ownedBtn.textContent = 'Уже активен';
+                    } else {
+                        ownedBtn.disabled = false;
+                        ownedBtn.textContent = 'Продлить';
+                    }
                 }
             }
 
