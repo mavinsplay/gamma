@@ -1383,6 +1383,29 @@ class BillingTests(TestCase):
         # График продлён в будущее ровно до предстоящего списания
         self.assertEqual(stats["timeline"][-1]["date"], iso)
 
+    def test_period_profit_with_expenses(self):
+        from django.utils import timezone
+
+        from shop.models import LedgerEntry, ServerExpense
+        from shop.services.billing import get_billing_stats
+
+        today = timezone.now().date()
+        self._make_topup("1000.00", "yoomoney", "card")
+        ServerExpense.objects.create(
+            name="srv",
+            monthly_cost=Decimal("500"),
+            pay_day=today.day,
+        )
+        LedgerEntry.objects.create(
+            name="Бонус",
+            amount=Decimal("232.00"),
+            entry_date=today,
+        )
+        stats = get_billing_stats(days=7)
+        # 970 чистыми − 500 сервер + 232 внеплановые
+        self.assertEqual(stats["period"]["net"], 970.00)
+        self.assertEqual(stats["period"]["profit"], 702.00)
+
     def test_timeline_includes_ledger(self):
         from django.utils import timezone
 

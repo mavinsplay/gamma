@@ -402,8 +402,9 @@ def get_billing_stats(days=30, date_from=None, date_to=None):
             tz,
         )
         # Итоги периода дальше сегодня не считаем.
+        period_end_day = min(date_to, today)
         period_end = timezone.make_aware(
-            datetime.combine(min(date_to, today), dt_time.max),
+            datetime.combine(period_end_day, dt_time.max),
             tz,
         )
         days = 0
@@ -417,6 +418,7 @@ def get_billing_stats(days=30, date_from=None, date_to=None):
         since = now - timedelta(days=days)
         start_date = since.date()
         end_date = today
+        period_end_day = today
         period_end = now
 
     # Предстоящие списания за сервера: диапазон включает сегодня —
@@ -555,6 +557,15 @@ def get_billing_stats(days=30, date_from=None, date_to=None):
 
     period = aggregate(period_qs)
     period["refunds"] = refunds_total
+    # Прибыль за интервал: чистые минус расходы (серверы + внеплановые).
+    # Будущие точки прогноза (продление графика) не считаем.
+    fact_end = period_end_day.isoformat()
+    period["profit"] = round(
+        period["net"]
+        + sum(p["servers"] for p in timeline if p["date"] <= fact_end)
+        + sum(p["ledger"] for p in timeline if p["date"] <= fact_end),
+        2,
+    )
     period["ledger"] = round(sum(p["ledger"] for p in timeline), 2)
 
     if custom:

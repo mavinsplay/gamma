@@ -3881,10 +3881,15 @@ document.addEventListener('DOMContentLoaded', () => {
             <button class="bounce" onclick="billingRangeModal()" title="Свой диапазон" style="${pillStyle(!!range)} display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap;">
                 <span class="material-symbols-rounded" style="font-size: 16px;">date_range</span>${range ? `${billingFmtDate(range.from)}–${billingFmtDate(range.to)}` : ''}
             </button>`;
+        const profit = Number(period.profit ?? period.net);
         return `
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                     <div style="font-size: 12px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.5px;">Доходы · чистыми</div>
                     <div style="font-size: 20px; font-weight: 700; color: #4CAF50;">${fmtRub(period.net)}</div>
+                </div>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div style="font-size: 12px; opacity: 0.55;">Прибыль с расходами</div>
+                    <div style="font-size: 16px; font-weight: 700; color: ${profit >= 0 ? '#4CAF50' : '#EF5350'};">${fmtRub(profit)}</div>
                 </div>
                 <div id="billing-period-pills" style="display: flex; gap: 8px;">${pills}</div>
                 <div class="billing-channels">
