@@ -3,6 +3,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const navIndicator = document.querySelector('.nav-indicator');
     const SAFE_MOCK_USER_DATA = (typeof MOCK_USER_DATA !== 'undefined') ? MOCK_USER_DATA : null;
     const views = document.querySelectorAll('.view');
+    // Слайдер не должен зависеть от числа вьюх: сообщаем CSS реальное
+    // количество, иначе новая вьюха (билинг) сдвигает вёрстку на телефоне.
+    try {
+        document.getElementById('view-wrapper').style.setProperty(
+            '--view-count', String(views.length)
+        );
+    } catch (e) {}
     const pageTitle = document.getElementById('page-title');
     const pillNavItems = document.querySelectorAll('.nav-pill .nav-item');
     window.authenticatedUserId = null;
@@ -3424,6 +3431,1147 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Failed to load more payments', e);
         }
     };
+
+    // ---- Admin Billing Panel ----
+    window._billingDays = 30;
+    window._billingRange = null;
+    window._billingData = null;
+
+    function billingFormData(extra) {
+        const tg = window.Telegram?.WebApp;
+        const formData = new FormData();
+        formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+        if (tg?.initData) formData.append('init_data', tg.initData);
+        if (extra) {
+            Object.keys(extra).forEach(k => formData.append(k, extra[k]));
+        }
+        return formData;
+    }
+
+    function billingHaptic(kind) {
+        try {
+            const h = window.Telegram?.WebApp?.HapticFeedback;
+            if (!h) return;
+            if (kind === 'success') h.notificationOccurred('success');
+            else h.impactOccurred('light');
+        } catch (e) {}
+    }
+
+    window.openBilling = () => {
+        billingHaptic();
+        window._billingPayersPage = 1;
+        activateTabById('view-billing', 'Билинг');
+        fetchBilling();
+    };
+
+    // Перезагрузка только доходов и графика — остальная страница не мигает.
+    function billingReloadStats(params) {
+        const sec = document.querySelector('.billing-sec-income');
+        if (!sec) {
+            fetchBilling();
+            return;
+        }
+        sec.classList.add('billing-updating');
+        fetch('/shop/billing-api/', {
+            method: 'POST',
+            body: billingFormData(params)
+        })
+            .then(resp => resp.json())
+            .then(d => {
+                if (!d.success) throw new Error(d.error);
+                if (window._billingData) window._billingData.stats = d.stats;
+                else window._billingData = d;
+                sec.innerHTML = billingIncomeHtml(window._billingData);
+                renderBillingChart(window._billingData);
+            })
+            .catch(e => console.error('Billing stats refresh failed', e))
+            .finally(() => sec.classList.remove('billing-updating'));
+    }
+
+    window.setBillingDays = (days) => {
+        days = Number(days) || 30;
+        window._billingDays = days;
+        window._billingRange = null;
+        billingHaptic();
+        billingReloadStats({ days });
+    };
+
+    window.setBillingRange = (from, to) => {
+        window._billingRange = { from, to };
+        billingHaptic();
+        billingReloadStats({ date_from: from, date_to: to });
+    };
+
+    window.billingRangeModal = () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const r = window._billingRange || {};
+        const customHtml = `
+            <div style="display: flex; flex-direction: column; gap: 10px; width: 100%; text-align: left;">
+                <label style="font-size: 12px; opacity: 0.6;">С
+                    <input id="billing-range-from" class="modal-input" style="text-align: left; margin-top: 4px;" type="date" max="${today}" value="${r.from || ''}">
+                </label>
+                <label style="font-size: 12px; opacity: 0.6;">По (можно в будущее — видно предстоящие списания)
+                    <input id="billing-range-to" class="modal-input" style="text-align: left; margin-top: 4px;" type="date" value="${r.to || ''}">
+                </label>
+            </div>`;
+        showModal({
+            title: 'Диапазон доходов',
+            message: '',
+            icon: 'date_range',
+            customHtml: customHtml,
+            actionText: 'Показать',
+            onAction: billingApplyRange,
+            closeBtnText: 'Отмена'
+        });
+    };
+
+    window.billingApplyRange = () => {
+        const from = (document.getElementById('billing-range-from') || {}).value || '';
+        const to = (document.getElementById('billing-range-to') || {}).value || '';
+        if (!from || !to || from > to) {
+            showModal({ title: 'Ошибка', message: 'Проверьте даты: «с» должна быть не позже «по».', icon: 'error', actionText: 'Ок', onAction: hideModal });
+            return;
+        }
+        setBillingRange(from, to);
+    };
+
+    async function fetchBilling() {
+        const container = document.getElementById('billing-content');
+        if (!container) return;
+        container.innerHTML = `<div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; opacity: 0.4; text-align: center;"><div class="spinner"></div><span>Загрузка...</span></div>`;
+        try {
+            const range = window._billingRange;
+            const params = range
+                ? { date_from: range.from, date_to: range.to }
+                : { days: window._billingDays };
+            const resp = await fetch('/shop/billing-api/', {
+                method: 'POST',
+                body: billingFormData(params)
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error || 'forbidden');
+            window._billingData = data;
+            renderBilling(data);
+        } catch (e) {
+            console.error('Billing load failed', e);
+            container.innerHTML = `
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; opacity: 0.4; text-align: center;">
+                    <span class="material-symbols-rounded" style="font-size: 48px;">error</span>
+                    <span>Нет доступа или ошибка загрузки</span>
+                </div>`;
+        }
+    }
+
+    function fmtRub(n) {
+        return `${Number(n || 0).toFixed(0)} ₽`;
+    }
+
+    // ---- Интерактивный график: линии/столбцы, тултип, легенда ----
+    window._billingChartMode = 'lines';
+    window._billingHidden = { profit: false, turnover: false, refund: false, servers: false, ledger: false, wallet: false };
+
+    window.billingToggleSeries = (key) => {
+        window._billingHidden[key] = !window._billingHidden[key];
+        const data = window._billingData;
+        if (data) renderBillingChart(data);
+    };
+
+    window.billingChartMode = (mode) => {
+        window._billingChartMode = mode;
+        const data = window._billingData;
+        if (data) renderBillingChart(data);
+    };
+
+    function billingFmtDate(iso) {
+        const d = new Date(iso + 'T00:00:00');
+        return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    function billingFmtDateLong(iso) {
+        if (!iso) return '';
+        const months = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+        const d = new Date(iso + 'T00:00:00');
+        if (isNaN(d)) return iso;
+        return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    }
+
+    function billingSeries(timeline) {
+        return [
+            { key: 'profit', label: 'Прибыль', color: '#8B7CF6', get: (p) => p.total || 0 },
+            { key: 'turnover', label: 'Оборот', color: '#4C8DFF', get: (p) => p.gross || 0 },
+            { key: 'refund', label: 'Возвраты', color: '#FF9F0A', get: (p) => p.refund || 0 },
+            { key: 'servers', label: 'Серверы', color: '#EF5350', get: (p) => p.servers || 0 },
+            { key: 'ledger', label: 'Внеплановые', color: '#4CAF50', get: (p) => p.ledger || 0 },
+            { key: 'wallet', label: 'Кошелёк', color: '#2DD4BF', dashed: true, get: (p) => p.wallet || 0 },
+        ];
+    }
+
+    function renderBillingChart(data) {
+        const host = document.getElementById('billing-chart-host');
+        if (!host) return;
+        const stats = data.stats || {};
+        const period = stats.period || { net: 0, gross: 0 };
+        const timeline = stats.timeline || [];
+        const hidden = window._billingHidden;
+        const mode = window._billingChartMode;
+        const series = billingSeries(timeline);
+        const serversTotal = timeline.reduce((sum, p) => sum + (Number(p.servers) || 0), 0);
+        const ledgerTotal = timeline.reduce((sum, p) => sum + (Number(p.ledger) || 0), 0);
+
+        const legend = (key, label, color, value) => `
+            <button class="bounce billing-legend ${hidden[key] ? 'off' : ''}" onclick="billingToggleSeries('${key}')" style="flex: 1 1 40%; min-width: 0; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; padding: 10px 12px; text-align: left; color: #fff;">
+                <div style="font-size: 16px; font-weight: 700;">${fmtRub(value)}</div>
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.75; margin-top: 2px;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></span>${label}
+                </div>
+            </button>`;
+
+        host.innerHTML = `
+            <div class="billing-legend-row" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                ${legend('profit', 'Прибыль', '#8B7CF6', period.net)}
+                ${legend('turnover', 'Оборот', '#4C8DFF', period.gross)}
+                ${legend('refund', 'Возвраты', '#FF9F0A', period.refunds || 0)}
+                ${legend('servers', 'Серверы', '#EF5350', serversTotal)}
+                ${legend('ledger', 'Внеплановые', '#4CAF50', ledgerTotal)}
+                ${legend('wallet', 'Кошелёк', '#2DD4BF', (stats.yoomoney && stats.yoomoney.total) || 0)}
+            </div>
+            <div id="billing-chart-wrap" style="position: relative; margin-top: 4px;">
+                ${billingChartSvg(timeline, series, hidden, mode)}
+                <div id="billing-chart-tip" class="billing-chart-tip" style="display: none;"></div>
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                <button class="bounce billing-mode-btn ${mode === 'lines' ? 'on' : ''}" onclick="billingChartMode('lines')">
+                    <span class="material-symbols-rounded" style="font-size: 16px;">show_chart</span>Линии
+                </button>
+                <button class="bounce billing-mode-btn ${mode === 'bars' ? 'on' : ''}" onclick="billingChartMode('bars')">
+                    <span class="material-symbols-rounded" style="font-size: 16px;">bar_chart</span>Столбцы
+                </button>
+            </div>`;
+        bindBillingChart(timeline, series, hidden, mode);
+    }
+
+    function billingChartSvg(timeline, series, hidden, mode) {
+        const W = 320, H = 132, PADL = 34, PADR = 8, PADT = 8, PADB = 20;
+        const vis = series.filter(s => !hidden[s.key]);
+        const all = timeline.flatMap(p => vis.map(s => s.get(p)));
+        // Шкала умеет минусы (внеплановые расходы): низ — минимум,
+        // верх — максимум +15%. Без минусов как раньше: [0, max * 1.15].
+        const rawLo = all.length ? Math.min(0, ...all) : 0;
+        const rawHi = all.length ? Math.max(0, ...all) : 0;
+        const span = (rawHi - rawLo) || 1;
+        const lo = rawLo < 0 ? rawLo - span * 0.05 : 0;
+        const hi = rawHi + span * 0.15;
+        const n = timeline.length;
+        const stepX = n > 1 ? (W - PADL - PADR) / (n - 1) : 0;
+        const x = (i) => PADL + i * stepX;
+        const y = (v) => PADT + ((hi - v) / (hi - lo)) * (H - PADT - PADB);
+        const zeroY = y(0);
+
+        const fmtTick = (v) => Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`;
+        let grid = '';
+        for (let g = 0; g <= 3; g++) {
+            const gy = PADT + ((H - PADT - PADB) * g) / 3;
+            const gv = hi - ((hi - lo) * g) / 3;
+            grid += `<line x1="${PADL}" y1="${gy}" x2="${W - PADR}" y2="${gy}" stroke="rgba(255,255,255,0.07)"/>`
+                + `<text x="${PADL - 4}" y="${gy + 3}" font-size="8" fill="rgba(255,255,255,0.4)" text-anchor="end">${fmtTick(gv)}</text>`;
+        }
+        // Ноль подчёркиваем ярче, когда есть минусы.
+        const zeroLine = rawLo < 0
+            ? `<line x1="${PADL}" y1="${zeroY.toFixed(1)}" x2="${W - PADR}" y2="${zeroY.toFixed(1)}" stroke="rgba(255,255,255,0.22)"/>`
+            : '';
+
+        const idx = [];
+        const count = Math.min(7, n);
+        for (let k = 0; k < count; k++) {
+            idx.push(Math.round((k * (n - 1)) / Math.max(1, count - 1)));
+        }
+        const labels = [...new Set(idx)].map(i =>
+            `<text x="${x(i)}" y="${H - 6}" font-size="8" fill="rgba(255,255,255,0.4)" text-anchor="middle">${billingFmtDate(timeline[i].date)}</text>`
+        ).join('');
+
+        const fmtAxis = (v) => Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`;
+        let body = '';
+        if (mode === 'bars') {
+            // Столбец = сумма всех видимых серий от нулевой линии;
+            // цвет — по доминирующей (по модулю), как в легенде.
+            const barGrad = { profit: 'billing-bar-purple', turnover: 'billing-bar-blue', refund: 'billing-bar-orange', servers: 'billing-bar-red', ledger: 'billing-bar-green', wallet: 'billing-bar-teal' };
+            const bw = Math.max(3, Math.min(26, stepX * 0.7));
+            body = timeline.map((p, i) => {
+                const v = vis.reduce((s, sv) => s + sv.get(p), 0);
+                const yv = y(v);
+                const top = Math.min(zeroY, yv);
+                let h = Math.abs(yv - zeroY);
+                if (v !== 0) h = Math.max(3, h);
+                const bx = x(i) - bw / 2;
+                let dom = 'profit';
+                let best = -1;
+                vis.forEach(sv => {
+                    const svv = Math.abs(sv.get(p));
+                    if (svv > best) {
+                        best = svv;
+                        dom = sv.key;
+                    }
+                });
+                const ty = v >= 0 ? top - 4 : top + h + 10;
+                const tag = v !== 0
+                    ? `<text x="${x(i).toFixed(1)}" y="${ty.toFixed(1)}" font-size="8" font-weight="600" fill="rgba(255,255,255,0.75)" text-anchor="middle">${fmtAxis(v)}</text>`
+                    : '';
+                return `<rect x="${bx.toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="url(#${barGrad[dom] || 'billing-bar-purple'})"/>${tag}`;
+            }).join('');
+        } else {
+            body = vis.map(s => {
+                const d = timeline.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(s.get(p)).toFixed(1)}`).join(' ');
+                const dash = s.dashed ? ' stroke-dasharray="5,4"' : '';
+                const draw = s.dashed ? '' : ' class="billing-draw"';
+                return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linecap="round"${dash} pathLength="1"${draw}/>`
+                    + timeline.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(s.get(p)).toFixed(1)}" r="${n > 45 ? 0 : 2}" fill="${s.color}"/>`).join('');
+            }).join('');
+            const areaS = vis.find(s => s.key === 'profit');
+            if (areaS && n > 1) {
+                const d = timeline.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(areaS.get(p)).toFixed(1)}`).join(' ');
+                body += `<path d="${d} L${x(n - 1).toFixed(1)},${zeroY.toFixed(1)} L${x(0).toFixed(1)},${zeroY.toFixed(1)} Z" fill="url(#billing-area)" opacity="0.5"/>`;
+            }
+        }
+
+        // Маркер «сегодня»: когда график продлён в будущее (предстоящие
+        // списания за сервера), пунктиром отделяем прошлое от прогноза.
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const todayIdx = timeline.findIndex(p => p.date === todayIso);
+        let todayMark = '';
+        if (todayIdx >= 0 && timeline[n - 1].date > todayIso) {
+            const tx = x(todayIdx);
+            todayMark = `<line x1="${tx.toFixed(1)}" y1="${PADT}" x2="${tx.toFixed(1)}" y2="${H - PADB}" stroke="rgba(255,255,255,0.3)" stroke-dasharray="2,3"/>`
+                + `<text x="${(tx + 4).toFixed(1)}" y="${PADT + 8}" font-size="8" fill="rgba(255,255,255,0.5)">сегодня</text>`;
+        }
+
+        return `
+            <svg id="billing-chart-svg" viewBox="0 0 ${W} ${H}" style="width: 100%; display: block; touch-action: pan-y;">
+                <defs>
+                    <linearGradient id="billing-area" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#8B7CF6" stop-opacity="0.4"/>
+                        <stop offset="1" stop-color="#8B7CF6" stop-opacity="0.02"/>
+                    </linearGradient>
+                    <linearGradient id="billing-bar" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#A78BFA" stop-opacity="0.95"/>
+                        <stop offset="1" stop-color="#7C6CF0" stop-opacity="0.55"/>
+                    </linearGradient>
+                    <linearGradient id="billing-bar-purple" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#A78BFA" stop-opacity="0.95"/>
+                        <stop offset="1" stop-color="#7C6CF0" stop-opacity="0.55"/>
+                    </linearGradient>
+                    <linearGradient id="billing-bar-blue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#6FA8FF" stop-opacity="0.95"/>
+                        <stop offset="1" stop-color="#3B78E0" stop-opacity="0.55"/>
+                    </linearGradient>
+                    <linearGradient id="billing-bar-orange" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#FFB84D" stop-opacity="0.95"/>
+                        <stop offset="1" stop-color="#E08A1E" stop-opacity="0.55"/>
+                    </linearGradient>
+                    <linearGradient id="billing-bar-red" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#FF8A80" stop-opacity="0.95"/>
+                        <stop offset="1" stop-color="#D32F2F" stop-opacity="0.55"/>
+                    </linearGradient>
+                    <linearGradient id="billing-bar-green" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#81C784" stop-opacity="0.95"/>
+                        <stop offset="1" stop-color="#388E3C" stop-opacity="0.55"/>
+                    </linearGradient>
+                    <linearGradient id="billing-bar-teal" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#5EEAD4" stop-opacity="0.95"/>
+                        <stop offset="1" stop-color="#14B8A6" stop-opacity="0.55"/>
+                    </linearGradient>
+                    <clipPath id="billing-clip">
+                        <rect x="${PADL}" y="${PADT}" width="${W - PADL - PADR}" height="${H - PADT - PADB}" rx="4"/>
+                    </clipPath>
+                </defs>
+                ${grid}
+                <g clip-path="url(#billing-clip)">${body}</g>
+                ${zeroLine}
+                ${labels}
+                ${todayMark}
+                <line id="billing-cross" y1="${PADT}" y2="${H - PADB}" stroke="rgba(255,255,255,0.35)" stroke-dasharray="3,3" style="display: none;"/>
+                <rect id="billing-hit" x="${PADL}" y="${PADT}" width="${W - PADL - PADR}" height="${H - PADT - PADB}" fill="transparent"/>
+            </svg>`;
+    }
+
+    function bindBillingChart(timeline, series, hidden, mode) {
+        const svg = document.getElementById('billing-chart-svg');
+        const hit = document.getElementById('billing-hit');
+        const cross = document.getElementById('billing-cross');
+        const tip = document.getElementById('billing-chart-tip');
+        const wrap = document.getElementById('billing-chart-wrap');
+        if (!svg || !hit || !tip || !wrap || !timeline.length) return;
+        const W = 320, PADL = 34, PADR = 8;
+        const n = timeline.length;
+        const stepX = n > 1 ? (W - PADL - PADR) / (n - 1) : 0;
+
+        const showAt = (clientX) => {
+            const rect = svg.getBoundingClientRect();
+            const scale = W / rect.width;
+            const sx = (clientX - rect.left) * scale;
+            let i = Math.round((sx - PADL) / (stepX || 1));
+            i = Math.max(0, Math.min(n - 1, i));
+            const p = timeline[i];
+            const cx = PADL + i * stepX;
+            cross.setAttribute('x1', cx);
+            cross.setAttribute('x2', cx);
+            cross.style.display = '';
+            const rows = series.filter(s => !hidden[s.key]).map(s =>
+                `<div style="display: flex; align-items: center; gap: 6px; font-size: 12px; margin-top: 2px;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${s.color};"></span>
+                    <span style="opacity: 0.7;">${s.label}</span>
+                    <b style="margin-left: auto;">${fmtRub(s.get(p))}</b>
+                </div>`
+            ).join('');
+            tip.innerHTML = `<div style="font-size: 11px; opacity: 0.6;">${billingFmtDate(p.date)}</div>${rows}`;
+            tip.style.display = 'block';
+            const tipX = Math.min(Math.max(cx / scale + 12, 4), Math.max(4, rect.width - 148));
+            tip.style.left = `${tipX}px`;
+            tip.style.top = '0px';
+        };
+        const hide = () => {
+            cross.style.display = 'none';
+            tip.style.display = 'none';
+        };
+        hit.addEventListener('mousemove', (e) => showAt(e.clientX));
+        hit.addEventListener('mouseleave', hide);
+        hit.addEventListener('touchstart', (e) => {
+            if (e.touches[0]) showAt(e.touches[0].clientX);
+        }, { passive: true });
+        hit.addEventListener('touchmove', (e) => {
+            if (e.touches[0]) showAt(e.touches[0].clientX);
+        }, { passive: true });
+        hit.addEventListener('touchend', hide);
+    }
+
+    window.openPayerChat = (telegramId, username) => {
+        billingHaptic();
+        const url = username
+            ? `https://t.me/${username}`
+            : `tg://user?id=${telegramId}`;
+        try {
+            const tg = window.Telegram?.WebApp;
+            if (tg && tg.openTelegramLink) {
+                tg.openTelegramLink(url);
+                return;
+            }
+        } catch (e) {}
+        window.open(url, '_blank');
+    };
+
+    window.billingAvatarFallback = (img) => {
+        const el = img.parentElement;
+        const initial = (el && el.dataset && el.dataset.initial) || 'U';
+        if (el) el.innerHTML = `<span style="font-size: 18px; font-weight: 600;">${escapeHtml(initial)}</span>`;
+    };
+
+    function billingIncomeHtml(data) {
+        const stats = data.stats || {};
+        const period = stats.period || { channels: {}, gross: 0, net: 0, count: 0 };
+        const ch = period.channels || {};
+        const card = ch.card || { gross: 0, net: 0, count: 0 };
+        const sbp = ch.sbp || { gross: 0, net: 0, count: 0 };
+        const crypto = ch.crypto || { gross: 0, net: 0, count: 0 };
+        const other = ch.platega_other || { gross: 0, net: 0, count: 0 };
+        const days = stats.days || 30;
+        const range = window._billingRange;
+        const pillStyle = (on) => `flex: 1; border: ${on ? '1px solid var(--md-sys-color-primary)' : '1px solid rgba(255,255,255,0.1)'}; background: ${on ? 'rgba(208,188,255,0.12)' : 'rgba(255,255,255,0.04)'}; color: #fff; border-radius: 12px; padding: 8px; font-size: 13px;`;
+        const pills = [7, 30, 90].map(d => `
+            <button class="bounce" data-days="${d}" onclick="setBillingDays(${d})" style="${pillStyle(!range && d === days)}">${d} дн.</button>
+        `).join('') + `
+            <button class="bounce" onclick="billingRangeModal()" title="Свой диапазон" style="${pillStyle(!!range)} display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap;">
+                <span class="material-symbols-rounded" style="font-size: 16px;">date_range</span>${range ? `${billingFmtDate(range.from)}–${billingFmtDate(range.to)}` : ''}
+            </button>`;
+        return `
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div style="font-size: 12px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.5px;">Доходы · чистыми</div>
+                    <div style="font-size: 20px; font-weight: 700; color: #4CAF50;">${fmtRub(period.net)}</div>
+                </div>
+                <div id="billing-period-pills" style="display: flex; gap: 8px;">${pills}</div>
+                <div class="billing-channels">
+                    <div class="billing-channel" style="background: rgba(208,188,255,0.07);">
+                        <div class="billing-channel-head"><span class="material-symbols-rounded">credit_card</span>Карты · −3%</div>
+                        <div class="billing-channel-sum">${fmtRub(card.net)}</div>
+                        <div class="billing-channel-sub">${card.count} пл. · ${fmtRub(card.gross)}</div>
+                    </div>
+                    <div class="billing-channel" style="background: rgba(76,175,80,0.08);">
+                        <div class="billing-channel-head"><span class="material-symbols-rounded">bolt</span>СБП · −4%</div>
+                        <div class="billing-channel-sum">${fmtRub(sbp.net)}</div>
+                        <div class="billing-channel-sub">${sbp.count} пл. · ${fmtRub(sbp.gross)}</div>
+                    </div>
+                    <div class="billing-channel" style="background: rgba(255,159,10,0.08);">
+                        <div class="billing-channel-head"><span class="material-symbols-rounded">savings</span>Крипто · −4%</div>
+                        <div class="billing-channel-sum">${fmtRub(crypto.net)}</div>
+                        <div class="billing-channel-sub">${crypto.count} пл. · ${fmtRub(crypto.gross)}</div>
+                    </div>
+                </div>
+                ${other.count ? `<div style="font-size: 12px; opacity: 0.5; text-align: center;">Platega без метода (стар.): ${fmtRub(other.net)} · ${other.count} пл.</div>` : ''}
+                <div id="billing-chart-host" style="display: flex; flex-direction: column; gap: 10px;"></div>
+                <div style="font-size: 12px; opacity: 0.5; text-align: center;">Всего платежей: ${period.count} · брутто ${fmtRub(period.gross)}</div>`;
+    }
+
+    function renderBilling(data) {
+        const container = document.getElementById('billing-content');
+        if (!container) return;
+        const stats = data.stats || {};
+
+        const balances = Array.isArray(data.balances) ? data.balances : [];
+        const rub = balances.find(b => (b.currency || '').toUpperCase() === 'RUB');
+        const usdt = balances.find(b => (b.currency || '').toUpperCase() === 'USDT');
+        const yo = (data.stats && data.stats.yoomoney) || {};
+        const yoBalance = (yo.error || yo.balance == null) ? null : Number(yo.balance);
+        // Доступно = USDT после холда (× живой курс) + кошелёк.
+        // RUB-баланс — деньги НА холде, в итог не входит.
+        const usdRate = Number(data.usd_rub_rate || 0);
+        const usdtRub = Math.floor((usdt ? Number(usdt.amount || 0) : 0) * usdRate);
+        const combinedTotal = usdtRub + (yoBalance || 0);
+        const yoRow = `
+            ${yo.error
+                ? `<div style="font-size: 12px; opacity: 0.55; text-align: center; background: rgba(255,255,255,0.04); border-radius: 14px; padding: 12px;">Кошелёк ЮMoney недоступен</div>`
+                : `<div style="display: flex; align-items: center; gap: 10px; background: rgba(208,188,255,0.07); border-radius: 14px; padding: 12px;">
+                    <span class="material-symbols-rounded" style="font-size: 20px; color: var(--md-sys-color-primary);">account_balance</span>
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-size: 14px; font-weight: 600;">ЮMoney · ${escapeHtml(yo.account_masked || '')}</div>
+                        <div style="font-size: 11px; opacity: 0.55;">кошелёк</div>
+                    </div>
+                    <div style="font-size: 17px; font-weight: 700; white-space: nowrap;">${fmtRub(yoBalance)}</div>
+                </div>`}
+            <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(76,175,80,0.08); border-radius: 14px; padding: 12px;">
+                <div style="font-size: 12px; opacity: 0.65; text-transform: uppercase; letter-spacing: 0.5px;">Итого доступно</div>
+                <div style="font-size: 19px; font-weight: 700; color: #4CAF50;">${fmtRub(combinedTotal)}</div>
+            </div>`;
+        const balanceCard = (title, avail, availLabel, hold, holdNote, subLine) => `
+            <div style="flex: 1; min-width: 0; background: rgba(255,255,255,0.04); border-radius: 14px; padding: 12px; text-align: center;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.5px;">
+                    <span class="material-symbols-rounded" style="font-size: 15px;">account_balance_wallet</span>${title}
+                </div>
+                <div style="font-size: 19px; font-weight: 700; margin-top: 2px;">${avail}</div>
+                <div style="font-size: 11px; opacity: 0.55; margin-top: 2px;">${availLabel}</div>
+                ${subLine ? `<div style="font-size: 11px; opacity: 0.45; margin-top: 2px;">${subLine}</div>` : ''}
+                ${hold == null ? '' : `<div style="display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 11px; opacity: 0.55; margin-top: 4px;">
+                    <span class="material-symbols-rounded" style="font-size: 13px;">hourglass_top</span>Холд: ${hold}
+                </div>`}
+                ${holdNote ? `<div style="font-size: 10px; opacity: 0.4;">${holdNote}</div>` : ''}
+            </div>`;
+        const balancesHtml = data.balances_error
+            ? `<div style="font-size: 13px; opacity: 0.6;">Балансы Platega недоступны</div>`
+            : `
+            <div class="billing-balances" style="display: flex; gap: 10px;">
+                ${balanceCard('Platega RUB', rub ? fmtRub(rub.amount) : '—', 'На холде', rub ? fmtRub(rub.frozenBalance || 0) : '—', 'холд 3 дня')}
+                ${balanceCard('Platega USDT', usdt ? Number(usdt.amount || 0).toFixed(2) : '—', 'Доступно', null, '', usdt ? `≈ ${fmtRub(usdtRub)}` : '')}
+            </div>
+            ${yoRow}`;
+
+        const servers = (data.servers && data.servers.servers) || [];
+        const serversHtml = servers.length ? servers.map(s => `
+            <div class="billing-server-row" style="background: rgba(255,255,255,0.04);">
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 14px; font-weight: 500;">${escapeHtml(s.name)}</div>
+                    <div style="font-size: 12px; opacity: 0.55;">${fmtRub(s.monthly_cost)} · до ${s.pay_day} числа</div>
+                    <div style="display: flex; align-items: center; gap: 4px; font-size: 12px; margin-top: 2px; color: ${(s.paid_this_month || s.auto_paid) ? '#4CAF50' : (s.overdue ? '#EF5350' : 'rgba(255,255,255,0.55)')};">
+                        <span class="material-symbols-rounded" style="font-size: 15px;">${s.paid_this_month ? 'check_circle' : (s.auto_paid ? 'autorenew' : (s.overdue ? 'warning' : 'schedule'))}</span>
+                        ${s.paid_this_month ? 'Оплачен в этом месяце' : (s.auto_paid ? 'Оплачен автоматически' : (s.overdue ? 'Просрочен' : (s.last_paid ? `Оплачен: ${s.last_paid}` : 'Ещё не оплачивался')))}
+                    </div>
+                </div>
+                <div class="billing-server-actions">
+                    ${(s.paid_this_month || s.auto_paid) ? '' : `<button class="action-btn bounce" onclick="billingServerPaid(${s.id})" title="Отметить оплаченным" style="background: rgba(76,175,80,0.15); color: #4CAF50; border-radius: 12px; padding: 8px 12px; font-size: 13px; white-space: nowrap;">Оплачен</button>`}
+                    <button class="action-btn bounce" onclick="billingServerModal(${s.id})" title="Изменить" style="background: rgba(255,255,255,0.06); border-radius: 12px; padding: 8px; color: #fff;"><span class="material-symbols-rounded" style="font-size: 18px;">edit</span></button>
+                    <button class="action-btn bounce" onclick="billingServerDelete(${s.id})" title="Удалить" style="background: rgba(239,83,80,0.12); border-radius: 12px; padding: 8px; color: #EF5350;"><span class="material-symbols-rounded" style="font-size: 18px;">delete</span></button>
+                </div>
+            </div>
+        `).join('') : `<div style="font-size: 13px; opacity: 0.55; text-align: center; padding: 8px;">Сервера не добавлены</div>`;
+
+        const ledger = (data.ledger && data.ledger.entries) || [];
+        const ledgerTotal = data.ledger ? Number(data.ledger.total || 0) : 0;
+        const ledgerHtml = ledger.length ? ledger.map(e => {
+            const positive = Number(e.amount) >= 0;
+            return `
+            <div class="billing-server-row" style="background: rgba(255,255,255,0.04);">
+                <span class="material-symbols-rounded" style="font-size: 20px; color: ${positive ? '#4CAF50' : '#EF5350'}; flex-shrink: 0;">${positive ? 'trending_up' : 'trending_down'}</span>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(e.name)}</div>
+                    <div style="font-size: 12px; opacity: 0.55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(billingFmtDateLong(e.entry_date))}</div>
+                </div>
+                <div style="font-size: 15px; font-weight: 700; color: ${positive ? '#4CAF50' : '#EF5350'}; white-space: nowrap; flex-shrink: 0;">${positive ? '+' : ''}${fmtRub(e.amount)}</div>
+                <button class="action-btn bounce" onclick="billingLedgerDelete(${e.id})" title="Удалить" style="flex: 0 0 auto; width: auto; background: rgba(239,83,80,0.12); border-radius: 12px; padding: 8px; color: #EF5350;"><span class="material-symbols-rounded" style="font-size: 18px;">delete</span></button>
+            </div>`;
+        }).join('') : `<div style="font-size: 13px; opacity: 0.55; text-align: center; padding: 4px;">Нет записей за месяц</div>`;
+
+        window._billingPayers = (stats && stats.top_payers) || [];
+        if (!window._billingPayersQuery) window._billingPayersQuery = '';
+        if (!window._billingPayersPage) window._billingPayersPage = 1;
+        const payersHtml = `<input id="billing-payer-search" class="modal-input" style="text-align: left;" placeholder="Поиск по имени или ID…" value="${escapeHtml(window._billingPayersQuery)}" oninput="billingPayerSearch(this.value)">
+            <div id="billing-payer-rows"></div>
+            <div id="billing-payer-hidden"></div>`;
+
+        const payoutHtml = data.payout_configured
+            ? `<button class="action-btn bounce" onclick="billingPayoutModal()" style="width: 100%; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border-radius: 14px; padding: 14px; font-weight: 600; font-size: 15px;">
+                <span class="material-symbols-rounded" style="font-size: 20px;">payments</span> Вывести деньги
+            </button>`
+            : `<div style="font-size: 13px; opacity: 0.6; text-align: center; background: rgba(255,255,255,0.04); border-radius: 14px; padding: 12px;">Вывод не подключён: нет Payout-секрета Platega</div>`;
+
+        const ap = data.autopayout || {};
+        const autopayoutHtml = data.payout_configured ? `
+            <button class="action-btn bounce" onclick="billingAutopayoutModal()" style="display: flex; align-items: center; gap: 10px; width: 100%; background: rgba(255,255,255,0.04); border-radius: 14px; padding: 12px; color: #fff; text-align: left;">
+                <span class="material-symbols-rounded" style="font-size: 20px; color: ${ap.enabled ? '#4CAF50' : 'rgba(255,255,255,0.5)'};">autorenew</span>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 14px; font-weight: 600;">Автовывод · ${ap.enabled ? 'вкл' : 'выкл'}</div>
+                    <div style="font-size: 11px; opacity: 0.55;">порог ${fmtRub(ap.threshold || 0)}${ap.last_amount ? ` · последний: ${fmtRub(ap.last_amount)}` : ''}</div>
+                </div>
+                <span class="material-symbols-rounded" style="font-size: 18px; opacity: 0.5;">chevron_right</span>
+            </button>` : '';
+
+        container.innerHTML = `
+            <div class="billing-section billing-sec-balances" style="background: var(--panel-bg); border-radius: 24px; padding: 18px; display: flex; flex-direction: column; gap: 12px;">
+                <div style="font-size: 12px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.5px;">Балансы</div>
+                ${balancesHtml}
+                <div style="font-size: 12px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Вывод</div>
+                ${payoutHtml}
+                ${autopayoutHtml}
+            </div>
+
+            <div class="billing-section billing-sec-servers" style="background: var(--panel-bg); border-radius: 24px; padding: 18px; display: flex; flex-direction: column; gap: 12px;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div style="font-size: 12px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.5px;">Прибыль за месяц</div>
+                    <div style="font-size: 20px; font-weight: 700; color: ${(data.month_profit || 0) >= 0 ? '#4CAF50' : '#EF5350'};">${fmtRub(data.month_profit)}</div>
+                </div>
+                <div style="font-size: 12px; opacity: 0.55;">Сервера: ${fmtRub(data.servers ? data.servers.monthly_total : 0)}/мес</div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">${serversHtml}</div>
+                <button class="action-btn bounce" onclick="billingServerModal()" style="background: rgba(255,255,255,0.06); border-radius: 14px; padding: 12px; color: #fff; font-size: 14px;">
+                    <span class="material-symbols-rounded" style="font-size: 18px;">add</span> Добавить сервер
+                </button>
+                <div style="font-size: 12px; opacity: 0.55; margin-top: 4px;">Внеплановые${ledgerTotal ? ` · ${ledgerTotal > 0 ? '+' : ''}${fmtRub(ledgerTotal)}` : ''}</div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">${ledgerHtml}</div>
+                <button class="action-btn bounce" onclick="billingLedgerModal()" style="background: rgba(255,255,255,0.06); border-radius: 14px; padding: 12px; color: #fff; font-size: 14px;">
+                    <span class="material-symbols-rounded" style="font-size: 18px;">edit_note</span> Добавить запись
+                </button>
+            </div>
+
+            <!-- Доходы идут третьими: в двухколоночной masonry-раскладке
+                 колонки собираются как {Балансы, Прибыль} | {Доходы, Плательщики},
+                 поэтому Балансы и Доходы оказываются на одном уровне сверху. -->
+            <div class="billing-section billing-sec-income" style="background: var(--panel-bg); border-radius: 24px; padding: 18px; display: flex; flex-direction: column; gap: 12px;">${billingIncomeHtml(data)}</div>
+
+            <div class="billing-section billing-sec-payers" style="background: var(--panel-bg); border-radius: 24px; padding: 18px; display: flex; flex-direction: column; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.5px;">
+                    <span class="material-symbols-rounded" style="font-size: 15px;">group</span>Плательщики · топ
+                </div>
+                <div class="billing-payers" style="display: flex; flex-direction: column; gap: 8px;">${payersHtml}</div>
+            </div>
+
+            `;
+        renderBillingChart(data);
+        renderBillingPayers();
+    }
+
+    function billingPayerRow(p) {
+        const label = p.username ? `@${p.username}` : `ID ${p.telegram_id}`;
+        const initial = ((p.username || 'U')[0] || 'U').toUpperCase();
+        const avatar = p.avatar_url
+            ? `<img src="/user/avatar-url-proxy/?url=${escapeHtml(encodeURIComponent(p.avatar_url))}" alt="" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;" onerror="billingAvatarFallback(this)">`
+            : `<span style="font-size: 18px; font-weight: 600;">${escapeHtml(initial)}</span>`;
+            return `
+            <div class="billing-payer-row">
+                <button class="bounce billing-avatar-btn" data-initial="${escapeHtml(initial)}" onclick="openPayerChat(${p.telegram_id}, '${escapeJsAttr(p.username || '')}')" title="Открыть чат">${avatar}</button>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(label)}</div>
+                    <div style="font-size: 12px; opacity: 0.55;">ID ${p.telegram_id} · ${p.count} пл.</div>
+                </div>
+                <div style="font-size: 15px; font-weight: 700; color: #4CAF50; white-space: nowrap;">+${fmtRub(p.total)}</div>
+                <button class="bounce" onclick="billingPayerHide(${p.telegram_id})" title="Скрыть из статистики" style="background: transparent; border: none; border-radius: 8px; padding: 4px; color: rgba(255,255,255,0.35); display: flex;"><span class="material-symbols-rounded" style="font-size: 15px;">visibility_off</span></button>
+            </div>`;
+    }
+
+    function renderBillingPayers() {
+        const rows = document.getElementById('billing-payer-rows');
+        const hiddenBox = document.getElementById('billing-payer-hidden');
+        if (!rows || !hiddenBox) return;
+        const data = window._billingData || {};
+        const blacklisted = new Set(data.blacklisted || []);
+        const q = (window._billingPayersQuery || '').toLowerCase();
+        const all = (window._billingPayers || []).filter(p =>
+            !q || (p.username && p.username.toLowerCase().includes(q)) || String(p.telegram_id).includes(q)
+        );
+        const page = Math.max(1, window._billingPayersPage || 1);
+        const shown = all.slice(0, page * 10);
+        rows.innerHTML = shown.length ? shown.map(billingPayerRow).join('')
+            : `<div style="font-size: 13px; opacity: 0.55; text-align: center; padding: 8px;">${q ? 'Ничего не найдено' : 'Пока никто не платил'}</div>`;
+        let extra = '';
+        if (all.length > page * 10) {
+            const left = all.length - page * 10;
+            extra += `<button class="action-btn bounce" onclick="billingPayersMore()" style="width: 100%; grid-column: 1 / -1; background: rgba(255,255,255,0.06); border-radius: 12px; padding: 10px; color: #fff; font-size: 13px;">Загрузить ещё (${left})</button>`;
+        } else if (page > 1 && all.length > 10) {
+            extra += `<button class="action-btn bounce" onclick="billingPayersCollapse()" style="width: 100%; grid-column: 1 / -1; background: rgba(255,255,255,0.06); border-radius: 12px; padding: 10px; color: #fff; font-size: 13px;">Свернуть</button>`;
+        }
+        rows.insertAdjacentHTML('beforeend', extra);
+        hiddenBox.innerHTML = blacklisted.size ? `
+            <div style="font-size: 12px; opacity: 0.55; margin-top: 4px;">Скрытые (${blacklisted.size}):</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;">
+                ${[...blacklisted].map(id => `
+                    <button class="bounce" onclick="billingPayerRestore(${id})" title="Вернуть в статистику" style="display: flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 6px 10px; color: rgba(255,255,255,0.7); font-size: 12px;">
+                        ID ${id}<span class="material-symbols-rounded" style="font-size: 15px;">visibility</span>
+                    </button>`).join('')}
+            </div>` : '';
+    }
+
+    window.billingPayerSearch = (value) => {
+        window._billingPayersQuery = value || '';
+        window._billingPayersPage = 1;
+        renderBillingPayers();
+    };
+
+    window.billingPayersMore = () => {
+        window._billingPayersPage = (window._billingPayersPage || 1) + 1;
+        billingHaptic();
+        renderBillingPayers();
+    };
+
+    window.billingPayersCollapse = () => {
+        window._billingPayersPage = 1;
+        billingHaptic();
+        renderBillingPayers();
+    };
+
+    async function billingBlacklist(action, telegramId) {
+        try {
+            const resp = await fetch('/shop/billing-blacklist-api/', {
+                method: 'POST',
+                body: billingFormData({ action, telegram_id: telegramId })
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error);
+            billingHaptic('success');
+            fetchBilling();
+        } catch (e) {
+            showModal({ title: 'Ошибка', message: String((e && e.message) || e), icon: 'error', actionText: 'Ок', onAction: hideModal });
+        }
+    }
+
+    window.billingPayerHide = (telegramId) => {
+        billingBlacklist('add', telegramId);
+    };
+
+    window.billingPayerRestore = (telegramId) => {
+        billingBlacklist('remove', telegramId);
+    };
+
+    window.billingServerModal = (id) => {
+        const data = window._billingData;
+        const servers = (data && data.servers && data.servers.servers) || [];
+        const s = id ? servers.find(x => x.id === id) : null;
+        const customHtml = `
+            <div style="display: flex; flex-direction: column; gap: 10px; width: 100%; text-align: left;">
+                <label style="font-size: 12px; opacity: 0.6;">Название
+                    <input id="billing-server-name" class="modal-input" style="text-align: left; margin-top: 4px;" value="${s ? escapeHtml(s.name) : ''}" placeholder="VPS-1 · Нидерланды">
+                </label>
+                <div style="display: flex; gap: 10px;">
+                    <label style="font-size: 12px; opacity: 0.6; flex: 1;">₽/мес
+                        <input id="billing-server-cost" class="modal-input" style="text-align: left; margin-top: 4px;" type="number" min="1" value="${s ? s.monthly_cost : ''}" placeholder="500">
+                    </label>
+                    <label style="font-size: 12px; opacity: 0.6; flex: 1;">День оплаты
+                        <input id="billing-server-day" class="modal-input" style="text-align: left; margin-top: 4px;" type="number" min="1" max="31" value="${s ? s.pay_day : ''}" placeholder="15">
+                    </label>
+                </div>
+            </div>`;
+        showModal({
+            title: s ? 'Изменить сервер' : 'Новый сервер',
+            message: '',
+            icon: 'dns',
+            customHtml: customHtml,
+            actionText: 'Сохранить',
+            onAction: () => billingServerSave(id || null),
+            closeBtnText: 'Отмена'
+        });
+    };
+
+    async function billingServerSave(id) {
+        const name = (document.getElementById('billing-server-name') || {}).value || '';
+        const cost = (document.getElementById('billing-server-cost') || {}).value || '';
+        const day = (document.getElementById('billing-server-day') || {}).value || '';
+        try {
+            const resp = await fetch('/shop/billing-server-api/', {
+                method: 'POST',
+                body: billingFormData({ action: id ? 'update' : 'create', id: id || '', name, monthly_cost: cost, pay_day: day })
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error);
+            billingHaptic('success');
+            fetchBilling();
+        } catch (e) {
+            showModal({ title: 'Ошибка', message: String((e && e.message) || e), icon: 'error', actionText: 'Ок', onAction: hideModal });
+        }
+    }
+
+    window.billingServerDelete = (id) => {
+        showModal({
+            title: 'Удалить сервер?',
+            message: 'Запись о расходах будет удалена.',
+            icon: 'delete',
+            actionText: 'Удалить',
+            onAction: async () => {
+                try {
+                    const resp = await fetch('/shop/billing-server-api/', {
+                        method: 'POST',
+                        body: billingFormData({ action: 'delete', id })
+                    });
+                    const data = await resp.json();
+                    if (!data.success) throw new Error(data.error);
+                    billingHaptic('success');
+                    fetchBilling();
+                } catch (e) {
+                    showModal({ title: 'Ошибка', message: String((e && e.message) || e), icon: 'error', actionText: 'Ок', onAction: hideModal });
+                }
+            },
+            closeBtnText: 'Отмена'
+        });
+    };
+
+    window._billingLedgerType = 'exp';
+
+    window.billingLedgerType = (type) => {
+        window._billingLedgerType = type;
+        const exp = document.getElementById('billing-ledger-type-exp');
+        const inc = document.getElementById('billing-ledger-type-inc');
+        if (exp) {
+            exp.style.border = type === 'exp' ? '1px solid #EF5350' : '1px solid rgba(255,255,255,0.1)';
+            exp.style.background = type === 'exp' ? 'rgba(239,83,80,0.12)' : 'rgba(255,255,255,0.04)';
+        }
+        if (inc) {
+            inc.style.border = type === 'inc' ? '1px solid #4CAF50' : '1px solid rgba(255,255,255,0.1)';
+            inc.style.background = type === 'inc' ? 'rgba(76,175,80,0.12)' : 'rgba(255,255,255,0.04)';
+        }
+    };
+
+    window.billingLedgerModal = () => {
+        window._billingLedgerType = 'exp';
+        const today = new Date().toISOString().slice(0, 10);
+        const customHtml = `
+            <div style="display: flex; flex-direction: column; gap: 10px; width: 100%; text-align: left;">
+                <div style="display: flex; gap: 10px;">
+                    <button id="billing-ledger-type-exp" class="bounce" onclick="billingLedgerType('exp')" style="flex: 1; border: 1px solid #EF5350; background: rgba(239,83,80,0.12); color: #fff; border-radius: 12px; padding: 10px; font-size: 14px;">Расход −</button>
+                    <button id="billing-ledger-type-inc" class="bounce" onclick="billingLedgerType('inc')" style="flex: 1; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: #fff; border-radius: 12px; padding: 10px; font-size: 14px;">Доход +</button>
+                </div>
+                <label style="font-size: 12px; opacity: 0.6;">Описание
+                    <input id="billing-ledger-name" class="modal-input" style="text-align: left; margin-top: 4px;" placeholder="Такси до ДЦ / перевод на карту">
+                </label>
+                <div style="display: flex; gap: 10px;">
+                    <label style="font-size: 12px; opacity: 0.6; flex: 1;">Сумма, ₽
+                        <input id="billing-ledger-amount" class="modal-input" style="text-align: left; margin-top: 4px;" type="number" min="1" placeholder="1000">
+                    </label>
+                    <label style="font-size: 12px; opacity: 0.6; flex: 1;">Дата
+                        <input id="billing-ledger-date" class="modal-input" style="text-align: left; margin-top: 4px;" type="date" value="${today}">
+                    </label>
+                </div>
+            </div>`;
+        showModal({
+            title: 'Новая запись',
+            message: '',
+            icon: 'edit_note',
+            customHtml: customHtml,
+            actionText: 'Сохранить',
+            onAction: () => billingLedgerSave(),
+            closeBtnText: 'Отмена'
+        });
+    };
+
+    async function billingLedgerSave() {
+        const name = (document.getElementById('billing-ledger-name') || {}).value || '';
+        const rawAmount = parseFloat((document.getElementById('billing-ledger-amount') || {}).value || '0');
+        const date = (document.getElementById('billing-ledger-date') || {}).value || '';
+        if (!name.trim() || !rawAmount || rawAmount <= 0) {
+            showModal({ title: 'Ошибка', message: 'Укажите описание и сумму.', icon: 'error', actionText: 'Ок', onAction: hideModal });
+            return;
+        }
+        const amount = window._billingLedgerType === 'inc' ? Math.abs(rawAmount) : -Math.abs(rawAmount);
+        try {
+            const resp = await fetch('/shop/billing-ledger-api/', {
+                method: 'POST',
+                body: billingFormData({ action: 'create', name: name.trim(), amount, entry_date: date })
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error);
+            billingHaptic('success');
+            fetchBilling();
+        } catch (e) {
+            showModal({ title: 'Ошибка', message: String((e && e.message) || e), icon: 'error', actionText: 'Ок', onAction: hideModal });
+        }
+    }
+
+    window.billingLedgerDelete = (id) => {
+        showModal({
+            title: 'Удалить запись?',
+            message: '',
+            icon: 'delete',
+            actionText: 'Удалить',
+            onAction: async () => {
+                try {
+                    const resp = await fetch('/shop/billing-ledger-api/', {
+                        method: 'POST',
+                        body: billingFormData({ action: 'delete', id })
+                    });
+                    const data = await resp.json();
+                    if (!data.success) throw new Error(data.error);
+                    billingHaptic('success');
+                    fetchBilling();
+                } catch (e) {
+                    showModal({ title: 'Ошибка', message: String((e && e.message) || e), icon: 'error', actionText: 'Ок', onAction: hideModal });
+                }
+            },
+            closeBtnText: 'Отмена'
+        });
+    };
+
+    window.billingServerPaid = async (id) => {
+        try {
+            const resp = await fetch('/shop/billing-server-api/', {
+                method: 'POST',
+                body: billingFormData({ action: 'mark_paid', id })
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error);
+            billingHaptic('success');
+            fetchBilling();
+        } catch (e) {
+            showModal({ title: 'Ошибка', message: String((e && e.message) || e), icon: 'error', actionText: 'Ок', onAction: hideModal });
+        }
+    };
+
+    window.billingPayoutFillAll = () => {
+        const data = window._billingData || {};
+        const input = document.getElementById('billing-payout-amount');
+        if (input && data.payout_all_amount) input.value = data.payout_all_amount;
+        billingHaptic();
+    };
+
+    window.billingPayoutModal = () => {
+        const data = window._billingData || {};
+        const mode = data.payout_mode || (data.payout_configured ? 'api' : 'off');
+        const pmin = data.payout_min || 1000;
+        const pmax = data.payout_max || 87500;
+        const feeUsd = data.payout_fee_usd || 0.5;
+        const allAmount = data.payout_all_amount || 0;
+        const dest = data.payout_dest_masked || '';
+        const cards = data.payout_cards || [];
+        const preset = data.payout_preset_card_id;
+        const options = cards.map(c => {
+            const label = `${c.masked || ''} ${c.brand || ''} ${c.label || ''}`.trim();
+            const sel = preset && preset === c.cardId ? 'selected' : '';
+            return `<option value="${escapeHtml(c.cardId)}" ${sel}>${escapeHtml(label)}</option>`;
+        }).join('');
+        const customHtml = `
+            <div style="display: flex; flex-direction: column; gap: 10px; width: 100%; text-align: left;">
+                <label style="font-size: 12px; opacity: 0.6;">Сумма, ₽ (${pmin}–${pmax})
+                    <input id="billing-payout-amount" class="modal-input" style="text-align: left; margin-top: 4px;" type="number" min="${pmin}" max="${pmax}" value="${allAmount >= pmin ? allAmount : ''}" placeholder="5000">
+                </label>
+                ${mode === 'ui' ? (allAmount
+                    ? `<button class="action-btn bounce" onclick="billingPayoutFillAll()" style="width: 100%; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border-radius: 14px; padding: 14px; font-weight: 600; font-size: 15px;">
+                        <span class="material-symbols-rounded" style="font-size: 20px;">vertical_align_top</span> Вывести максимум · ${fmtRub(allAmount)}
+                    </button>`
+                    : `<div style="font-size: 13px; opacity: 0.6; text-align: center; background: rgba(255,255,255,0.04); border-radius: 14px; padding: 12px;">Максимум недоступен: баланс ниже минимума ${fmtRub(pmin)}</div>`) : ''}
+                ${mode === 'api' && cards.length ? `<label style="font-size: 12px; opacity: 0.6;">Карта
+                    <select id="billing-payout-card" class="modal-input" style="text-align: left; margin-top: 4px; background: rgba(255,255,255,0.05);">
+                        ${options}
+                        <option value="">Ввести номер вручную…</option>
+                    </select>
+                </label>` : ''}
+                ${mode === 'api' ? `<label id="billing-payout-pan-wrap" style="font-size: 12px; opacity: 0.6; ${cards.length ? 'display: none;' : ''}">Номер карты (16 цифр)
+                    <input id="billing-payout-pan" class="modal-input" style="text-align: left; margin-top: 4px;" inputmode="numeric" maxlength="19" placeholder="2200 0000 0000 0000">
+                </label>` : ''}
+                ${mode === 'ui' ? `<div style="font-size: 12px; opacity: 0.6; background: rgba(255,255,255,0.04); border-radius: 12px; padding: 10px 12px;">На карту ${escapeHtml(dest || 'по умолчанию')} · комиссия ${feeUsd} USD (курс ~${Number(data.usd_rub_rate || 0).toFixed(2)}) · заявку выполнит браузер, итог придёт сюда и в Telegram</div>` : ''}
+            </div>`;
+        showModal({
+            title: 'Вывод денег',
+            message: mode === 'ui' ? 'Вывод через сайт Platega.' : 'Деньги спишутся с USDT-баланса Platega.',
+            icon: 'payments',
+            customHtml: customHtml,
+            actionText: 'Далее',
+            onAction: () => billingPayoutConfirm(),
+            closeBtnText: 'Отмена'
+        });
+        const sel = document.getElementById('billing-payout-card');
+        if (sel) {
+            sel.onchange = () => {
+                const wrap = document.getElementById('billing-payout-pan-wrap');
+                if (wrap) wrap.style.display = sel.value ? 'none' : '';
+            };
+        }
+    };
+
+    async function billingPayoutPoll(jobId) {
+        // Опрос статуса браузерной заявки: максимум 6 минут,
+        // дальше итог придёт в Telegram.
+        const t0 = Date.now();
+        showLoading('Выполняю вывод...');
+        while (Date.now() - t0 < 6 * 60 * 1000) {
+            await new Promise(r => setTimeout(r, 5000));
+            let st = null;
+            try {
+                const resp = await fetch('/shop/billing-payout-job-api/', {
+                    method: 'POST',
+                    body: billingFormData({ job_id: jobId })
+                });
+                st = await resp.json();
+                if (!st.success) throw new Error(st.error);
+            } catch (e) {
+                hideLoading();
+                showModal({ title: 'Ошибка', message: String((e && e.message) || e), icon: 'error', actionText: 'Ок', onAction: hideModal });
+                return;
+            }
+            if (st.status === 'DONE') {
+                hideLoading();
+                billingHaptic('success');
+                showModal({
+                    title: 'Вывод создан!',
+                    message: `Выведено ${st.amount} ₽ на ${st.dest_masked || 'карту'}. ${st.page_text || ''}`,
+                    icon: 'check_circle',
+                    actionText: 'Ок',
+                    onAction: hideModal
+                });
+                fetchBilling();
+                return;
+            }
+            if (st.status === 'FAILED') {
+                hideLoading();
+                showModal({ title: 'Ошибка', message: String(st.error || 'неизвестная ошибка'), icon: 'error', actionText: 'Ок', onAction: hideModal });
+                return;
+            }
+        }
+        hideLoading();
+        showModal({ title: 'Всё ещё выполняется', message: 'Вывод занял больше 6 минут. Итог придёт в Telegram.', icon: 'schedule', actionText: 'Ок', onAction: hideModal });
+        fetchBilling();
+    }
+
+    async function billingPayoutConfirm() {
+        const data = window._billingData || {};
+        const mode = data.payout_mode || (data.payout_configured ? 'api' : 'off');
+        const pmin = data.payout_min || 1000;
+        const pmax = data.payout_max || 87500;
+        const amount = parseInt((document.getElementById('billing-payout-amount') || {}).value || '0', 10);
+        const sel = document.getElementById('billing-payout-card');
+        const cardId = sel && sel.value ? sel.value : '';
+        const pan = ((document.getElementById('billing-payout-pan') || {}).value || '').replace(/\D/g, '');
+        if (!amount || amount < pmin || amount > pmax) {
+            showModal({ title: 'Ошибка', message: `Сумма — от ${pmin} до ${pmax} ₽.`, icon: 'error', actionText: 'Ок', onAction: hideModal });
+            return;
+        }
+        if (mode === 'api' && !cardId && pan.length !== 16) {
+            showModal({ title: 'Ошибка', message: 'Укажите карту или номер из 16 цифр.', icon: 'error', actionText: 'Ок', onAction: hideModal });
+            return;
+        }
+        const dest = mode === 'ui'
+            ? `карту ${data.payout_dest_masked || 'по умолчанию'} (выполнит браузер)`
+            : (cardId ? 'сохранённую карту' : `карту **** ${pan.slice(-4)}`);
+        showModal({
+            title: 'Подтверждение',
+            message: `Вывести ${amount} ₽ на ${dest}?`,
+            icon: 'warning',
+            actionText: 'Вывести',
+            onAction: async () => {
+                if (window._payoutInFlight) return false;
+                window._payoutInFlight = true;
+                showLoading('Выполняю вывод...');
+                try {
+                    const resp = await fetch('/shop/billing-payout-api/', {
+                        method: 'POST',
+                        body: billingFormData({ amount, card_id: cardId, card_number: cardId ? '' : pan })
+                    });
+                    const data = await resp.json();
+                    hideLoading();
+                    window._payoutInFlight = false;
+                    if (!data.success) throw new Error(data.error);
+                    if (data.mode === 'ui' && data.job_id) {
+                        billingPayoutPoll(data.job_id);
+                        return;
+                    }
+                    billingHaptic('success');
+                    showModal({
+                        title: 'Вывод создан!',
+                        message: `Статус: ${data.status || 'CREATED'}. Карта: ${data.card_masked || ''}. Списано USDT: ${data.amount_usdt_debited || '—'}.`,
+                        icon: 'check_circle',
+                        actionText: 'Ок',
+                        onAction: hideModal
+                    });
+                    fetchBilling();
+                } catch (e) {
+                    hideLoading();
+                    window._payoutInFlight = false;
+                    showModal({ title: 'Ошибка', message: String((e && e.message) || e), icon: 'error', actionText: 'Ок', onAction: hideModal });
+                }
+            },
+            closeBtnText: 'Отмена'
+        });
+    }
+
+    window._billingAutopayoutOn = false;
+
+    window.billingAutopayoutToggle = (on) => {
+        window._billingAutopayoutOn = !!on;
+        const bOn = document.getElementById('billing-ap-on');
+        const bOff = document.getElementById('billing-ap-off');
+        if (bOn) {
+            bOn.style.border = on ? '1px solid #4CAF50' : '1px solid rgba(255,255,255,0.1)';
+            bOn.style.background = on ? 'rgba(76,175,80,0.12)' : 'rgba(255,255,255,0.04)';
+        }
+        if (bOff) {
+            bOff.style.border = !on ? '1px solid #4CAF50' : '1px solid rgba(255,255,255,0.1)';
+            bOff.style.background = !on ? 'rgba(76,175,80,0.12)' : 'rgba(255,255,255,0.04)';
+        }
+    };
+
+    window.billingAutopayoutModal = () => {
+        const ap = (window._billingData && window._billingData.autopayout) || {};
+        window._billingAutopayoutOn = !!ap.enabled;
+        const lastLine = ap.last_amount
+            ? `Последний автовывод: ${fmtRub(ap.last_amount)}${ap.last_at ? ` · ${ap.last_at.slice(0, 10)}` : ''}`
+            : 'Автовыводов ещё не было';
+        const customHtml = `
+            <div style="display: flex; flex-direction: column; gap: 10px; width: 100%; text-align: left;">
+                <div style="display: flex; gap: 10px;">
+                    <button id="billing-ap-on" class="bounce" onclick="billingAutopayoutToggle(true)" style="flex: 1; border-radius: 12px; padding: 10px; color: #fff; font-size: 14px;">Вкл</button>
+                    <button id="billing-ap-off" class="bounce" onclick="billingAutopayoutToggle(false)" style="flex: 1; border-radius: 12px; padding: 10px; color: #fff; font-size: 14px;">Выкл</button>
+                </div>
+                <label style="font-size: 12px; opacity: 0.6;">Порог баланса, ₽
+                    <input id="billing-ap-threshold" class="modal-input" style="text-align: left; margin-top: 4px;" type="number" min="1000" value="${ap.threshold || ''}" placeholder="10000">
+                </label>
+                <label style="font-size: 12px; opacity: 0.6;">Проверять каждые, мин
+                    <input id="billing-ap-check" class="modal-input" style="text-align: left; margin-top: 4px;" type="number" min="1" max="1440" value="${ap.check_min || ''}" placeholder="15">
+                </label>
+                <label style="font-size: 12px; opacity: 0.6;">Пауза после вывода, мин
+                    <input id="billing-ap-cooldown" class="modal-input" style="text-align: left; margin-top: 4px;" type="number" min="0" max="2880" value="${ap.cooldown_min || ''}" placeholder="60">
+                </label>
+                <div style="font-size: 12px; opacity: 0.55;">${lastLine}</div>
+            </div>`;
+        showModal({
+            title: 'Автовывод',
+            message: '',
+            icon: 'autorenew',
+            customHtml: customHtml,
+            actionText: 'Сохранить',
+            onAction: () => billingAutopayoutSave(),
+            closeBtnText: 'Отмена'
+        });
+        billingAutopayoutToggle(window._billingAutopayoutOn);
+    };
+
+    async function billingAutopayoutSave() {
+        const payload = {
+            enabled: window._billingAutopayoutOn ? '1' : '0',
+            threshold: (document.getElementById('billing-ap-threshold') || {}).value || '',
+            check_min: (document.getElementById('billing-ap-check') || {}).value || '',
+            cooldown_min: (document.getElementById('billing-ap-cooldown') || {}).value || '',
+        };
+        try {
+            const resp = await fetch('/shop/billing-autopayout-api/', {
+                method: 'POST',
+                body: billingFormData(payload)
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error);
+            billingHaptic('success');
+            fetchBilling();
+        } catch (e) {
+            showModal({ title: 'Ошибка', message: String((e && e.message) || e), icon: 'error', actionText: 'Ок', onAction: hideModal });
+        }
+    }
 
     window.handleTogglePreference = async (prefType, value) => {
         const tg = window.Telegram?.WebApp;

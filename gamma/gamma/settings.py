@@ -220,6 +220,76 @@ YOOMONEY_TOKEN = os.getenv("YOOMONEY_TOKEN", "")
 # Platega payment gateway (SBP / Crypto)
 PLATEGA_MERCHANT_ID = os.getenv("PLATEGA_MERCHANT_ID", "")
 PLATEGA_SECRET = os.getenv("PLATEGA_SECRET", "")
+# Platega Payout API: отдельный секрет из ЛК (раздел Payout API).
+# Без него доступны балансы/статистика, но не вывод и не карты.
+PLATEGA_PAYOUT_SECRET = os.getenv("PLATEGA_PAYOUT_SECRET", "")
+# Предустановленная карта для вывода (cardId сохранённой карты).
+# Если пусто — cardId выбирается в панели из списка карт.
+PLATEGA_PAYOUT_CARD_ID = os.getenv("PLATEGA_PAYOUT_CARD_ID", "")
+
+
+# Лимиты ручного вывода, ₽
+def _env_int(name, default):
+    """Число из .env без падения всего приложения при опечатке."""
+    try:
+        return int(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name, default):
+    try:
+        return float(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+PLATEGA_PAYOUT_MIN = _env_int("PLATEGA_PAYOUT_MIN", 1000)
+PLATEGA_PAYOUT_MAX = _env_int("PLATEGA_PAYOUT_MAX", 87500)
+# Комиссия сайта за вывод, USD (снимается с баланса сверх суммы).
+PLATEGA_PAYOUT_FEE_USD = _env_float("PLATEGA_PAYOUT_FEE_USD", 0.5)
+# Курс USD->RUB для оценки «вывести всё» (комиссия в рублях).
+PLATEGA_USD_RUB_RATE = _env_float("PLATEGA_USD_RUB_RATE", 80.0)
+
+# Автовывод через браузер (когда Payout API не одобрен):
+# логин/пароль от личного кабинета Platega. Хранить только в .env!
+PLATEGA_UI_LOGIN = os.getenv("PLATEGA_UI_LOGIN", "")
+PLATEGA_UI_PASSWORD = os.getenv("PLATEGA_UI_PASSWORD", "")
+# Кабинет my.platega.io. PAYOUT_URL — полный адрес раздела выводов
+# (содержит ID мерчанта). Пусто — UI-вывод отключён.
+PLATEGA_UI_LOGIN_URL = os.getenv(
+    "PLATEGA_UI_LOGIN_URL",
+    "https://my.platega.io/login",
+)
+PLATEGA_UI_PAYOUT_URL = os.getenv("PLATEGA_UI_PAYOUT_URL", "")
+# Каталог профиля браузера (сессия, скриншоты). В compose монтируется
+# volume'ом, локально — обычная папка рядом с точкой запуска.
+PLATEGA_UI_PROFILE_DIR = os.getenv(
+    "PLATEGA_UI_PROFILE_DIR",
+    "./platega_profile",
+)
+# Карта-назначение для UI-вывода: последние 4 цифры сохранённой
+# на сайте карты (напр. 3710). Полный PAN нигде не нужен и не хранится.
+PLATEGA_PAYOUT_CARD_LAST4 = "".join(
+    ch for ch in os.getenv("PLATEGA_PAYOUT_CARD_LAST4", "") if ch.isdigit()
+)[-4:]
+# Автовывод по порогу RUB-баланса: 1 — включён.
+PLATEGA_AUTOPAYOUT_ENABLED = os.getenv("PLATEGA_AUTOPAYOUT_ENABLED", "") == "1"
+PLATEGA_AUTOPAYOUT_THRESHOLD_RUB = _env_int(
+    "PLATEGA_AUTOPAYOUT_THRESHOLD_RUB",
+    10000,
+)
+# Как часто проверять порог и очередь задач, минут.
+PLATEGA_AUTOPAYOUT_CHECK_MIN = _env_int("PLATEGA_AUTOPAYOUT_CHECK_MIN", 15)
+# Пауза после любого вывода перед следующим авто-выводом, минут.
+PLATEGA_AUTOPAYOUT_COOLDOWN_MIN = _env_int(
+    "PLATEGA_AUTOPAYOUT_COOLDOWN_MIN",
+    60,
+)
+
+# Комиссии провайдеров (доля от суммы, для расчёта чистого дохода)
+YOOMONEY_FEE_RATE = float(os.getenv("YOOMONEY_FEE_RATE", "0.03"))
+PLATEGA_FEE_RATE = float(os.getenv("PLATEGA_FEE_RATE", "0.04"))
 
 ORDER_TIMEOUT_MINUTES = 10
 

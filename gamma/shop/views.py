@@ -760,6 +760,11 @@ def topup_api(request):
                 if payment_provider in ("sbp", "crypto")
                 else "yoomoney"
             ),
+            payment_method={
+                "yoomoney": "card",
+                "sbp": "sbp",
+                "crypto": "crypto",
+            }.get(payment_provider, ""),
         )
 
     host = request.get_host()

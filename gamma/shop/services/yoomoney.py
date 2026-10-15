@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta, timezone
+import json
 import logging
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from django.conf import settings
 from django.core.cache import cache
@@ -17,6 +20,8 @@ __all__ = [
     "verify_operation",
     "cancel_expired_orders",
     "process_successful_payment",
+    "get_account_info",
+    "get_wallet_daily",
 ]
 
 
@@ -100,6 +105,111 @@ def verify_operation(
     except Exception as e:
         logger.error(f"[yoomoney] verify_operation error: {e}")
         return False
+
+
+def get_account_info():
+    """Баланс кошелька YooMoney (POST /api/account-info).
+
+    Returns:
+        dict | None: {"account", "balance", "currency"} или None.
+    """
+    token = getattr(settings, "YOOMONEY_TOKEN", "")
+    if not token:
+        logger.error("[yoomoney] No token configured")
+        return None
+
+    request = Request(
+        "https://yoomoney.ru/api/account-info",
+        data=b"",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, json.JSONDecodeError, TimeoutError) as e:
+        logger.error(f"[yoomoney] account-info error: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"[yoomoney] account-info unexpected error: {e}")
+        return None
+
+    try:
+        return {
+            "account": str(data.get("account") or ""),
+            "balance": float(data.get("balance") or 0),
+            "currency": str(data.get("currency") or ""),
+        }
+    except (TypeError, ValueError):
+        logger.error("[yoomoney] account-info bad payload")
+        return None
+
+
+def get_wallet_daily(since, now=None, max_ops=500):
+    """Приходы кошелька по дням из истории транзакций (сверка с базой).
+
+    Только успешные пополнения (deposition/success). Возвращает словарь
+    {date_iso: gross_sum}. В доходы НЕ суммируется — это контрольная
+    серия для графика (те же деньги, что уже учтены в заказах).
+
+    Returns:
+        dict: {iso_date: float} (пустой при ошибке/без токена).
+    """
+    token = getattr(settings, "YOOMONEY_TOKEN", "")
+    if not token:
+        return {}
+
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    daily = {}
+    try:
+        client = YooClient(token)
+        start_record = None
+        fetched = 0
+        while fetched < max_ops:
+            history = client.operation_history(
+                type="deposition",
+                from_date=since,
+                till_date=now,
+                start_record=start_record,
+                records=100,
+            )
+            operations = getattr(history, "operations", []) or []
+            if not operations:
+                break
+
+            for op in operations:
+                fetched += 1
+                if getattr(op, "status", "") != "success":
+                    continue
+
+                try:
+                    amount = float(getattr(op, "amount", 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+
+                if amount <= 0:
+                    continue
+
+                day = getattr(op, "datetime", None)
+                if day is None:
+                    continue
+
+                iso = day.date().isoformat()
+                daily[iso] = round(daily.get(iso, 0.0) + amount, 2)
+
+            start_record = getattr(history, "next_record", None)
+            if not start_record:
+                break
+    except Exception as e:
+        logger.error(f"[yoomoney] wallet history error: {e}")
+        return {}
+
+    return daily
 
 
 def cancel_expired_orders():

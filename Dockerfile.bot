@@ -6,6 +6,10 @@ COPY ./requirements /requirements
 RUN pip install -r /requirements/prod.txt
 RUN rm -rf /requirements
 
+# Браузер для автовывода через сайт Platega (Playwright + Chromium).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN python -m playwright install --with-deps chromium
+
 COPY ./gamma /app/gamma
 COPY bot.py /app/bot.py
 

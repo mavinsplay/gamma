@@ -11,6 +11,9 @@ __all__ = [
     "create_platega_payment",
     "verify_platega_payment",
     "process_platega_callback",
+    "get_platega_balances",
+    "get_payout_cards",
+    "create_card_payout",
 ]
 
 
@@ -22,7 +25,49 @@ def _get_client():
             "Platega is not configured (PLATEGA_MERCHANT_ID / PLATEGA_SECRET)",
         )
 
-    return Platega(merchant_id, secret)
+    payout_secret = getattr(settings, "PLATEGA_PAYOUT_SECRET", "") or None
+    return Platega(merchant_id, secret, payout_secret=payout_secret)
+
+
+def get_platega_balances():
+    """Return (balances_list, error). Never raises."""
+    try:
+        return _get_client().get_balances(), None
+    except ValueError as e:
+        logger.error(f"[platega] balances config error: {e}")
+        return None, "not_configured"
+    except Exception as e:
+        logger.error(f"[platega] balances error: {e}")
+        return None, "api_error"
+
+
+def get_payout_cards():
+    """Return (cards_list, error). Cards contain masked data only."""
+    try:
+        return _get_client().get_saved_cards(), None
+    except ValueError as e:
+        logger.error(f"[platega] cards config error: {e}")
+        return None, "not_configured"
+    except Exception as e:
+        logger.error(f"[platega] cards error: {e}")
+        return None, "api_error"
+
+
+def create_card_payout(amount_rub, card_id=None, card_number=None):
+    """Return (result_dict, error). Never raises."""
+    try:
+        result = _get_client().create_card_payout(
+            amount_rub=amount_rub,
+            card_id=card_id,
+            card_number=card_number,
+        )
+        return result, None
+    except ValueError as e:
+        logger.error(f"[platega] payout validation error: {e}")
+        return None, "invalid_params"
+    except Exception as e:
+        logger.error(f"[platega] payout error: {e}")
+        return None, "api_error"
 
 
 def create_platega_payment(

@@ -591,9 +591,44 @@ async def node_monitoring_task():
         await asyncio.sleep(60)
 
 
+async def payout_worker_task():
+    """Фоновая задача выплат: очередь — каждые 30 сек, порог — по таймеру.
+
+    Интервал проверки порога читается из настроек панели (БД).
+    """
+    import time
+
+    from shop.services.billing import get_autopayout_config
+    from shop.services.payout_worker import process_payout_queue
+
+    await asyncio.sleep(15)
+    last_auto = 0.0
+    while True:
+        try:
+            if ADMIN_ID:
+                config = await sync_to_async(get_autopayout_config)()
+                do_auto = (time.monotonic() - last_auto) >= max(
+                    60,
+                    config["check_min"] * 60,
+                )
+                if do_auto:
+                    last_auto = time.monotonic()
+
+                await process_payout_queue(
+                    bot,
+                    ADMIN_ID,
+                    check_auto=do_auto,
+                )
+        except Exception as e:
+            logging.error(f"Error in payout worker task: {e}")
+
+        await asyncio.sleep(30)
+
+
 async def main() -> None:
     logging.info("Бот успешно запущен и готов к работе!")
     asyncio.create_task(subscription_reminder_task())
+    asyncio.create_task(payout_worker_task())
     asyncio.create_task(node_monitoring_task())
 
     retry_delay = 5

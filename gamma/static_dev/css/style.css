@@ -195,14 +195,15 @@ body {
 @media (max-width: 767px) {
     .view-wrapper {
         display: flex;
-        width: 500%;
-        /* Total 5 views: Tariffs, Connection, Settings, Profile, History */
+        /* Ширина и доля вьюхи задаются из JS через --view-count,
+        чтобы добавление вьюх (напр. биллинга) не ломало слайдер */
+        width: calc(100% * var(--view-count, 5));
         height: 100%;
         transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .view {
-        flex: 0 0 20%;
+        flex: 0 0 calc(100% / var(--view-count, 5));
         /* Each view takes 100% of the screen width */
         width: 100%;
         height: 100%;
@@ -1321,6 +1322,306 @@ body {
 
 .modal-input:focus {
     border-color: var(--md-sys-color-primary);
+}
+
+/* Billing panel */
+#billing-content {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow-x: clip;
+}
+
+.billing-section {
+    min-width: 0;
+    animation: billingIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.billing-sec-income {
+    transition: opacity 0.25s ease;
+}
+
+.billing-channels {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+.billing-channel {
+    min-width: 0;
+    border-radius: 14px;
+    padding: 10px 12px;
+    text-align: center;
+}
+
+.billing-channel-head {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-size: 11px;
+    opacity: 0.55;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.billing-channel-head .material-symbols-rounded {
+    font-size: 14px;
+}
+
+.billing-channel-sum {
+    font-size: 16px;
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+.billing-channel-sub {
+    font-size: 11px;
+    opacity: 0.5;
+}
+
+.billing-server-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: 14px;
+    padding: 12px;
+}
+
+.billing-server-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.billing-payer-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 14px;
+    padding: 10px 12px;
+    animation: billingIn 0.4s ease both;
+}
+
+#billing-payer-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.billing-avatar-btn {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+}
+
+.billing-legend {
+    transition: opacity 0.25s ease, transform 0.2s ease;
+}
+
+.billing-legend.off {
+    opacity: 0.45;
+}
+
+.billing-mode-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 7px 12px;
+    color: #fff;
+    font-size: 13px;
+}
+
+.billing-mode-btn.on {
+    border-color: var(--md-sys-color-primary);
+    background: rgba(208, 188, 255, 0.12);
+}
+
+.billing-chart-tip {
+    position: absolute;
+    min-width: 140px;
+    max-width: 170px;
+    background: rgba(20, 20, 28, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 8px 10px;
+    pointer-events: none;
+    z-index: 5;
+    animation: billingTipIn 0.15s ease both;
+}
+
+.billing-draw {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: billingDraw 0.9s ease forwards;
+}
+
+@keyframes billingDraw {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+@keyframes billingTipIn {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Desktop: billing uses full content width, chart kept compact */
+@media (min-width: 768px) {
+    #view-billing .view-content-wrapper {
+        max-width: 1100px;
+    }
+
+    #billing-chart-wrap {
+        max-width: 760px;
+        width: 100%;
+        margin: 0 auto;
+    }
+}
+
+/* Masonry: карточки плотно заполняют обе колонки без пустот.
+   Multicol сам балансирует высоту колонок под любые данные,
+   карточки не разрываются. Порядок секций в DOM —
+   Балансы, Прибыль, Доходы, Плательщики — даёт колонки
+   {Балансы, Прибыль} | {Доходы, Плательщики}: Балансы и Доходы
+   на одном уровне сверху. Телефон: одна колонка (базовые стили).
+   Порог 640 — в узких окнах/панелях Telegram две колонки по ~280px
+   уже смотрятся. */
+@media (min-width: 640px) {
+    #billing-content {
+        display: block;
+        column-count: 2;
+        column-gap: 16px;
+    }
+
+    .billing-section {
+        margin-bottom: 16px;
+        break-inside: avoid;
+        -webkit-column-break-inside: avoid;
+    }
+
+    /* В колонке балансы вертикально — колонка уже, композиция чище */
+    .billing-sec-balances .billing-balances {
+        flex-direction: column;
+    }
+
+    /* В колонке каналы — широкие строки: иконка+название слева, сумма справа */
+    .billing-sec-income .billing-channels {
+        grid-template-columns: 1fr;
+    }
+
+    .billing-sec-income .billing-channel {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        grid-template-areas: "head sum" "sub sum";
+        align-items: center;
+        column-gap: 12px;
+        text-align: left;
+        padding: 12px 14px;
+    }
+
+    .billing-sec-income .billing-channel-head {
+        grid-area: head;
+        justify-content: flex-start;
+        font-size: 12px;
+    }
+
+    .billing-sec-income .billing-channel-head .material-symbols-rounded {
+        font-size: 18px;
+    }
+
+    .billing-sec-income .billing-channel-sum {
+        grid-area: sum;
+        font-size: 19px;
+    }
+
+    .billing-sec-income .billing-channel-sub {
+        grid-area: sub;
+        text-align: left;
+    }
+
+    .billing-updating {
+        opacity: 0.55;
+        transition: opacity 0.25s ease;
+        pointer-events: none;
+    }
+}
+
+/* Mobile: compact minimalistic billing */
+@media (max-width: 767px) {
+    .billing-channel {
+        padding: 8px 6px;
+    }
+
+    .billing-channel-head {
+        font-size: 10px;
+    }
+
+    .billing-channel-sum {
+        font-size: 14px;
+    }
+
+    .billing-channel-sub {
+        font-size: 10px;
+    }
+
+    .billing-server-row {
+        flex-wrap: wrap;
+    }
+
+    .billing-server-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+}
+
+.billing-section:nth-child(2) {
+    animation-delay: 0.06s;
+}
+
+.billing-section:nth-child(3) {
+    animation-delay: 0.12s;
+}
+
+.billing-section:nth-child(4) {
+    animation-delay: 0.18s;
+}
+
+@keyframes billingIn {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* Active Subscription Banner */

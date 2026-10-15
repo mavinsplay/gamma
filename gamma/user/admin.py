@@ -199,11 +199,18 @@ class ProfileAdmin(admin.ModelAdmin):
     def telegram_avatar(self, obj):
         avatar_url = obj.telegram_avatar_url
         if avatar_url:
+            # Через серверный прокси: у части пользователей CDN Telegram
+            # недоступен напрямую.
+            proxied = (
+                reverse("avatar_url_proxy")
+                + "?url="
+                + quote(avatar_url, safe="")
+            )
             return format_html(
                 '<img src="{}" width="34" height="34" '
                 'style="border-radius:50%;object-fit:cover;" '
                 'alt="Аватар Telegram">',
-                avatar_url,
+                proxied,
             )
 
         initials = (obj.telegram_username or "TG").lstrip("@")[:1].upper()

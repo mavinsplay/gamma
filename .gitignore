@@ -181,6 +181,10 @@ media/
 *for_docker/redis_data/
 *for_docker/static/
 
+# Профиль браузера автовывода: live-сессия Platega и скриншоты.
+# Никогда не коммитить — это доступ к аккаунту.
+*platega_profile/
+
 # Ai
 .mimocode
 AGENTS.md

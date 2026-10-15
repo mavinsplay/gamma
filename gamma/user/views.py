@@ -2,7 +2,7 @@ import base64
 import hashlib
 import json
 import secrets
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.contrib.auth import logout
@@ -272,6 +272,74 @@ def avatar_proxy(request):
         resp.raise_for_status()
         content_type = resp.headers.get("Content-Type", "image/jpeg")
         cache.set(cache_key, (resp.content, content_type), 3600)
+        return HttpResponse(resp.content, content_type=content_type)
+    except Exception:
+        return HttpResponse(status=204)
+
+
+# Хосты, с которых разрешено тянуть чужие аватарки через сервер.
+# Строгий allowlist против SSRF: только Telegram CDN.
+AVATAR_PROXY_ALLOWED_HOSTS = (
+    "t.me",
+    "telegram.org",
+    "telegram-cdn.org",
+    "cdn-telegram.org",
+)
+
+AVATAR_PROXY_MAX_BYTES = 2 * 1024 * 1024
+
+
+def avatar_url_proxy(request):
+    """Прокси чужой аватарки через сервер (билинг, Django-админка).
+
+    Доступ: telegram-админ либо staff Django (у staff нет init_data,
+    но есть своя сессия). Хост строго из allowlist, схема https,
+    Content-Type обязан быть image/*, размер ограничен.
+    """
+    staff_user = getattr(request, "user", None)
+    if getattr(staff_user, "is_staff", False):
+        allowed = True
+    else:
+        uid = _get_authorized_telegram_id(request)
+        allowed = uid is not None and str(uid) == str(
+            settings.ADMIN_TELEGRAM_ID,
+        )
+
+    if not allowed:
+        return HttpResponse(status=403)
+
+    url = (request.GET.get("url") or "")[:500].strip()
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return HttpResponse(status=204)
+
+    if parsed.scheme != "https":
+        return HttpResponse(status=204)
+
+    host = (parsed.hostname or "").lower()
+    if not host or not any(
+        host == base or host.endswith("." + base)
+        for base in AVATAR_PROXY_ALLOWED_HOSTS
+    ):
+        return HttpResponse(status=204)
+
+    cache_key = "avatar_url:" + hashlib.sha256(url.encode()).hexdigest()
+    cached = cache.get(cache_key)
+    if cached:
+        return HttpResponse(cached[0], content_type=cached[1])
+
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        content_type = resp.headers.get("Content-Type", "")
+        if not content_type.startswith("image/"):
+            return HttpResponse(status=204)
+
+        if len(resp.content) > AVATAR_PROXY_MAX_BYTES:
+            return HttpResponse(status=204)
+
+        cache.set(cache_key, (resp.content, content_type), 86400)
         return HttpResponse(resp.content, content_type=content_type)
     except Exception:
         return HttpResponse(status=204)

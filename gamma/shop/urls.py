@@ -1,8 +1,39 @@
 from django.urls import path
 
-from shop import views
+from shop import views, views_billing
 
 urlpatterns = [
+    path("billing-api/", views_billing.billing_api, name="billing_api"),
+    path(
+        "billing-server-api/",
+        views_billing.billing_server_api,
+        name="billing_server_api",
+    ),
+    path(
+        "billing-payout-api/",
+        views_billing.billing_payout_api,
+        name="billing_payout_api",
+    ),
+    path(
+        "billing-payout-job-api/",
+        views_billing.billing_payout_job_api,
+        name="billing_payout_job_api",
+    ),
+    path(
+        "billing-autopayout-api/",
+        views_billing.billing_autopayout_api,
+        name="billing_autopayout_api",
+    ),
+    path(
+        "billing-blacklist-api/",
+        views_billing.billing_blacklist_api,
+        name="billing_blacklist_api",
+    ),
+    path(
+        "billing-ledger-api/",
+        views_billing.billing_ledger_api,
+        name="billing_ledger_api",
+    ),
     path("buy-api/", views.buy_tariff_api, name="buy_tariff_api"),
     path("topup-api/", views.topup_api, name="topup_api"),
     path("buy-slot-api/", views.buy_slot_api, name="buy_slot_api"),

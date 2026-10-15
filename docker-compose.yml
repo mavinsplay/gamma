@@ -136,6 +136,9 @@ services:
       DJANGO_POSTGRESQL_HOST: postgres
       DJANGO_DATABASE_SELECT: postgresql
       REDIS_URL: redis://redis:6379/0
+    volumes:
+      # Профиль браузера автовывода (сессия Platega, скриншоты).
+      - ./for_docker/platega_profile:/app/platega_profile
     restart: always
     depends_on:
       postgres:

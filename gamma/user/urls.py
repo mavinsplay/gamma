@@ -13,6 +13,11 @@ urlpatterns = [
     path("logout/", views.logout_view, name="logout"),
     path("avatar/", views.avatar_proxy, name="avatar_proxy"),
     path(
+        "avatar-url-proxy/",
+        views.avatar_url_proxy,
+        name="avatar_url_proxy",
+    ),
+    path(
         "referral-info-api/",
         views.referral_info_api,
         name="referral_info_api",
