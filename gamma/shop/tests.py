@@ -1334,6 +1334,61 @@ class BillingTests(TestCase):
         # У всех точек графика есть ключ servers
         self.assertTrue(all("servers" in p for p in stats["timeline"]))
 
+    def test_payment_method_backfill_migration(self):
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module(
+            "shop.migrations.0025_backfill_payment_method",
+        )
+        Order.objects.create(
+            telegram_id=111,
+            amount=Decimal("100.00"),
+            order_type="TOPUP",
+            status="PAID",
+            payment_provider="platega",
+            payment_method="",
+        )
+        Order.objects.create(
+            telegram_id=111,
+            amount=Decimal("200.00"),
+            order_type="TOPUP",
+            status="PAID",
+            payment_provider="yoomoney",
+            payment_method="",
+        )
+        with_method = Order.objects.create(
+            telegram_id=111,
+            amount=Decimal("300.00"),
+            order_type="TOPUP",
+            status="PAID",
+            payment_provider="platega",
+            payment_method="crypto",
+        )
+        payout = Order.objects.create(
+            telegram_id=111,
+            amount=Decimal("400.00"),
+            order_type="PAYOUT",
+            status="PAID",
+            payment_provider="platega",
+            payment_method="",
+        )
+        migration.backfill_payment_method(apps, None)
+
+        methods = dict(
+            Order.objects.filter(order_type="TOPUP").values_list(
+                "amount",
+                "payment_method",
+            ),
+        )
+        self.assertEqual(methods[Decimal("100.00")], "sbp")
+        self.assertEqual(methods[Decimal("200.00")], "card")
+        with_method.refresh_from_db()
+        self.assertEqual(with_method.payment_method, "crypto")
+        payout.refresh_from_db()
+        self.assertEqual(payout.payment_method, "")
+
     def test_timeline_manual_payment_replaces_auto(self):
         from django.utils import timezone
 

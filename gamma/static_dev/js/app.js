@@ -4866,16 +4866,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sub) sub.textContent = `Скачайте ${APP_DATA[app].name} для вашего устройства.`;
         updateInstrImages(app);
 
-        // Incy skips "Шаг 3: Авторизация Inbound" (fragment step is enough).
-        const overlay = document.getElementById('instruction-overlay');
-        const slide3 = document.getElementById('instr-slide-3');
-        window._instrSlideCount = (app === 'incy') ? 3 : 4;
-        if (overlay) overlay.classList.toggle('incy-mode', app === 'incy');
-        if (slide3) slide3.style.display = (app === 'incy') ? 'none' : '';
+        // Всего 3 шага: установка, фрагментация, подключение.
+        // ("Шаг 3: Авторизация Inbound" убран для всех приложений.)
+        window._instrSlideCount = 3;
     }
 
     function getInstrSlideCount() {
-        return (window._instrSlideCount > 0) ? window._instrSlideCount : 4;
+        return (window._instrSlideCount > 0) ? window._instrSlideCount : 3;
     }
 
     window.selectApp = (app) => {
@@ -4883,7 +4880,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window._selectedApp = app;
         renderAppSelection();
 
-        // Clamp the carousel if the current slide disappears (Incy has 3 steps).
+        // Clamp the carousel to the valid range.
         if (currentInstrSlide > getInstrSlideCount() - 1) {
             currentInstrSlide = getInstrSlideCount() - 1;
             updateInstructionCarousel();
@@ -4944,6 +4941,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.classList.add('recommended');
             }
         });
+
+        // Рекомендуемый способ — наверх списка, чтобы был виден
+        // без скролла даже на низких экранах.
+        const links = document.getElementById('instr-platform-links');
+        const top = links ? links.querySelector('.platform-btn.recommended') : null;
+        if (top && links.firstElementChild !== top) {
+            links.prepend(top);
+        }
     }
 
     window.closeInstructions = () => {
