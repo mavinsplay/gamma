@@ -73,8 +73,10 @@ def recent_payout_exists(minutes):
 
 
 def get_withdrawable_rub():
-    """Доступное к выводу в рублях: USDT после холда × живой курс.
+    """Доступное к выводу в рублях: USDT доступно × живой курс.
 
+    В amount Platega кладёт итог вместе с «в процессе выплаты»,
+    для вывода считаем только доступный остаток (amount − заморозка).
     RUB-баланс — это деньги НА холде, для вывода не считаем.
     Возвращает (amount, error).
     """
@@ -82,16 +84,11 @@ def get_withdrawable_rub():
     if not isinstance(balances, list):
         return 0.0, error or "api_error"
 
-    usdt = 0.0
-    for item in balances:
-        if str(item.get("currency") or "").upper() == "USDT":
-            try:
-                usdt = float(item.get("amount") or 0)
-            except (TypeError, ValueError):
-                return 0.0, "bad_balance"
+    from shop.services.billing import parse_usdt_balance
 
+    available, _in_process, _total = parse_usdt_balance(balances)
     rate, _source = get_usd_rub_rate()
-    return round(usdt * rate, 2), None
+    return round(available * rate, 2), None
 
 
 def schedule_auto_job():

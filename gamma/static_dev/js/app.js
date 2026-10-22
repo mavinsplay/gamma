@@ -3924,10 +3924,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const usdt = balances.find(b => (b.currency || '').toUpperCase() === 'USDT');
         const yo = (data.stats && data.stats.yoomoney) || {};
         const yoBalance = (yo.error || yo.balance == null) ? null : Number(yo.balance);
-        // Доступно = USDT после холда (× живой курс) + кошелёк.
+        // Доступно = USDT доступно (amount минус «в процессе») × курс + кошелёк.
         // RUB-баланс — деньги НА холде, в итог не входит.
+        // Бэкенд присылает готовый разбор (usdt_available/_in_process),
+        // для старых ответов — fallback на amount − frozenBalance.
         const usdRate = Number(data.usd_rub_rate || 0);
-        const usdtRub = Math.floor((usdt ? Number(usdt.amount || 0) : 0) * usdRate);
+        const usdtTotal = usdt ? Number(usdt.amount || 0) : 0;
+        const usdtFrozen = usdt ? Number(usdt.frozenBalance || usdt.frozen || usdt.pending || 0) : 0;
+        const usdtAvail = (data.usdt_available != null) ? Number(data.usdt_available || 0) : Math.max(0, usdtTotal - usdtFrozen);
+        const usdtProcess = (data.usdt_in_process != null) ? Number(data.usdt_in_process || 0) : Math.max(0, usdtTotal - usdtAvail);
+        const usdtRub = Math.floor(usdtAvail * usdRate);
         const combinedTotal = usdtRub + (yoBalance || 0);
         const yoRow = `
             ${yo.error
@@ -3953,16 +3959,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div style="font-size: 11px; opacity: 0.55; margin-top: 2px;">${availLabel}</div>
                 ${subLine ? `<div style="font-size: 11px; opacity: 0.45; margin-top: 2px;">${subLine}</div>` : ''}
                 ${hold == null ? '' : `<div style="display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 11px; opacity: 0.55; margin-top: 4px;">
-                    <span class="material-symbols-rounded" style="font-size: 13px;">hourglass_top</span>Холд: ${hold}
+                    <span class="material-symbols-rounded" style="font-size: 13px;">hourglass_top</span>${holdNote === 'в процессе выплаты' ? 'В процессе' : 'Холд'}: ${hold}
                 </div>`}
-                ${holdNote ? `<div style="font-size: 10px; opacity: 0.4;">${holdNote}</div>` : ''}
+                ${holdNote && holdNote !== 'в процессе выплаты' ? `<div style="font-size: 10px; opacity: 0.4;">${holdNote}</div>` : ''}
             </div>`;
         const balancesHtml = data.balances_error
             ? `<div style="font-size: 13px; opacity: 0.6;">Балансы Platega недоступны</div>`
             : `
             <div class="billing-balances" style="display: flex; gap: 10px;">
                 ${balanceCard('Platega RUB', rub ? fmtRub(rub.amount) : '—', 'На холде', rub ? fmtRub(rub.frozenBalance || 0) : '—', 'холд 3 дня')}
-                ${balanceCard('Platega USDT', usdt ? Number(usdt.amount || 0).toFixed(2) : '—', 'Доступно', null, '', usdt ? `≈ ${fmtRub(usdtRub)}` : '')}
+                ${balanceCard('Platega USDT', usdt ? Number(usdtAvail).toFixed(2) : '—', 'Доступно', usdtProcess > 0 ? Number(usdtProcess).toFixed(2) + ' USDT' : null, usdtProcess > 0 ? 'в процессе выплаты' : '', usdt ? `≈ ${fmtRub(usdtRub)}` : '')}
             </div>
             ${yoRow}`;
 

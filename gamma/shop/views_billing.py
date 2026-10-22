@@ -23,6 +23,7 @@ from shop.services.billing import (
     get_ledger_data,
     get_servers_data,
     get_usd_rub_rate,
+    parse_usdt_balance,
     prune_old_ledger_entries,
 )
 from shop.services.payout_worker import active_job_exists
@@ -62,19 +63,13 @@ def _parse_iso_date(raw):
 
 
 def _usdt_amount(balances):
-    """USDT после холда — единственное доступное к выводу.
-    RUB-баланс — деньги НА холде, не считаем."""
-    if not isinstance(balances, list):
-        return 0.0
+    """USDT доступное к выводу (без «в процессе выплаты»).
 
-    for item in balances:
-        if str(item.get("currency") or "").upper() == "USDT":
-            try:
-                return float(item.get("amount") or 0)
-            except (TypeError, ValueError):
-                return 0.0
-
-    return 0.0
+    /balance/all отдаёт в amount итог вместе с заявками в работе,
+    кабинет показывает их отдельно. Доступно = amount − заморозка.
+    """
+    available, _in_process, _total = parse_usdt_balance(balances)
+    return available
 
 
 def _autopayout_payload():
@@ -196,11 +191,15 @@ def billing_api(request):
         last4 = configured_last4()
         dest_masked = f"**** {last4}" if last4 else None
 
+    usdt_available, usdt_in_process, usdt_total = parse_usdt_balance(balances)
     return JsonResponse(
         {
             "success": True,
             "balances": balances,
             "balances_error": balances_error,
+            "usdt_available": usdt_available,
+            "usdt_in_process": usdt_in_process,
+            "usdt_total": usdt_total,
             "payout_configured": payout_configured,
             "payout_mode": payout_mode,
             "payout_cards": payout_cards,

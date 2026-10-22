@@ -24,6 +24,7 @@ __all__ = [
     "get_top_payers",
     "get_usd_rub_rate",
     "get_yoomoney_block",
+    "parse_usdt_balance",
     "prune_old_ledger_entries",
     "save_autopayout_config",
 ]
@@ -49,6 +50,74 @@ def mask_account(account):
         return "****"
 
     return f"{digits[:4]} •••• {digits[-4:]}"
+
+
+def parse_usdt_balance(balances):
+    """Разбор USDT-баланса Platega: (доступно, в процессе, всего).
+
+    /balance/all отдаёт в `amount` итог вместе с заявками в работе
+    (кабинет показывает их отдельно «В процессе выплаты»), а сама
+    блокировка — в `frozenBalance` (для RUB уже так показываем холд).
+    Поэтому доступно = amount − заморозка, а не весь amount.
+    """
+    total = 0.0
+    item = None
+    if isinstance(balances, list):
+        for entry in balances:
+            if not isinstance(entry, dict):
+                continue
+
+            if str(entry.get("currency") or "").upper() == "USDT":
+                item = entry
+                break
+
+    if not isinstance(item, dict):
+        return 0.0, 0.0, 0.0
+
+    try:
+        total = float(item.get("amount") or 0)
+    except (TypeError, ValueError):
+        return 0.0, 0.0, 0.0
+
+    # Прямое поле доступного, если вдруг появится в API.
+    for key in (
+        "available",
+        "availableBalance",
+        "availableAmount",
+        "free",
+        "freeBalance",
+    ):
+        try:
+            if item.get(key) is not None:
+                available = max(0.0, float(item.get(key) or 0))
+                in_process = max(0.0, total - available)
+                return available, in_process, total
+        except (TypeError, ValueError):
+            continue
+
+    in_process = 0.0
+    for key in (
+        "frozenBalance",
+        "frozen",
+        "pending",
+        "pendingAmount",
+        "locked",
+        "lockedAmount",
+        "hold",
+        "holdAmount",
+        "inProcess",
+        "in_process",
+        "payoutInProgress",
+    ):
+        try:
+            if item.get(key) is not None:
+                in_process = max(0.0, float(item.get(key) or 0))
+                break
+        except (TypeError, ValueError):
+            continue
+
+    available = max(0.0, total - in_process)
+    return available, in_process, total
 
 
 def get_yoomoney_block(days=30, date_from=None, date_to=None):

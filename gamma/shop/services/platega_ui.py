@@ -54,17 +54,32 @@ SELECTORS = {
     "modal": ':text("Создать вывод")',
     "card_tab": '//button[normalize-space()="Карта"]',
     "card_opener": 'button:has-text("Выберите карту")',
-    "amount_input": 'input[placeholder*="Например"], input[name="amount"]',
+    # Инпут суммы в модалке «Создать вывод» (подпись «Сумма в рублях»).
+    # Плейсхолдер у Platega менялся, поэтому пробуем несколько
+    # кандидатов по очереди, берём первый видимый.
+    "amount_input": 'input[placeholder*="Например"], input[name="amount"], '
+    'input[placeholder*="руб"], input[placeholder*="RUB"], '
+    'input[placeholder*="умм"], input[type="number"], '
+    'input[inputmode="decimal"], input[inputmode="numeric"]',
     "confirm": '//button[normalize-space()="Подтвердить"]',
-    # Признак успеха после отправки.
-    "success_markers": ':text("успешно"), :text("success"), '
+    # Признак успеха после отправки. Первый селектор — точная фраза
+    # с экрана «Заявка успешно создана» (заголовок «Создать вывод»
+    # при этом остаётся, поэтому по нему успех не определяем).
+    "success_markers": ':text("Заявка успешно создана"), '
+    ':text("успешно"), :text("success"), '
     ':text("создан"), :text("created"), :text("в обработке")',
-    # Признак ошибки заявки на странице.
+    # Признак ошибки заявки на странице. В DOM такие узлы часто есть
+    # скрытыми всегда — поэтому после отправки проверяем только
+    # видимые с непустым текстом (см. _visible_marker).
     "error_markers": '.error, .alert-danger, [role="alert"]',
 }
 
 ACTION_TIMEOUT_MS = 15000
 CONFIRM_RETRIES = 6
+# Сайт пересчитывает конвертацию после ввода суммы 3-5 сек —
+# кнопку проверяем не одним снимком, а ожиданием с опросом.
+AMOUNT_SETTLE_TIMEOUT_MS = 8000
+AMOUNT_POLL_INTERVAL_MS = 500
 
 
 class UiPayoutError(Exception):
@@ -239,6 +254,76 @@ async def _visible_error_text(page):
     return ""
 
 
+async def _visible_marker(page, selectors_csv):
+    """Первый видимый маркер с непустым текстом. Возвращает (el, text).
+
+    Скрытые узлы (.error в DOM всегда) и пустые тексты игнорируем —
+    иначе ложный «site error: unknown» при реальном успехе.
+    """
+    for selector in [s.strip() for s in str(selectors_csv).split(",")]:
+        if not selector:
+            continue
+
+        try:
+            elements = await page.query_selector_all(selector)
+        except Exception:
+            continue
+
+        for el in elements:
+            try:
+                if not await el.is_visible():
+                    continue
+
+                text = (await el.inner_text() or "").strip()
+            except Exception:
+                continue
+
+            if text:
+                return el, text[:200]
+
+    return None, ""
+
+
+async def _wait_payout_result(page, timeout_ms=15000):
+    """Ждём итога после «Подтвердить»: успех или видимая ошибка.
+
+    Успех проверяем первым: модалка «Создать вывод» при успехе
+    не закрывается, а показывает «Заявка успешно создана».
+    Возвращает (success_text, error_text).
+    """
+    waited = 0
+    step = 500
+    success_text = ""
+    error_text = ""
+    while waited < timeout_ms:
+        _, success_text = await _visible_marker(
+            page,
+            SELECTORS["success_markers"],
+        )
+        if success_text:
+            return success_text, ""
+
+        _, error_text = await _visible_marker(
+            page,
+            SELECTORS["error_markers"],
+        )
+        if error_text:
+            return "", error_text
+
+        await page.wait_for_timeout(step)
+        waited += step
+
+    _, success_text = await _visible_marker(
+        page,
+        SELECTORS["success_markers"],
+    )
+    if success_text:
+        return success_text, ""
+
+    _, error_text = await _visible_marker(page, SELECTORS["error_markers"])
+    return "", error_text
+
+
 async def _login(page, shots, login_url, login, password):
     # Важно: Django по умолчанию показывает только WARNING+, поэтому
     # вся диагностика входа — warning, иначе её не видно в консоли.
@@ -373,24 +458,156 @@ async def _select_saved_card(page, shots, last4):
         except Exception:
             pass
 
-    await page.wait_for_timeout(500)
+    await page.wait_for_timeout(1500)
     await _shot(page, shots, "card-selected")
 
 
-async def _fill_amount_until_confirmed(page, shots, amount, payout_min):
-    """Ввод суммы; кнопка disabled при превышении доступного —
-    уменьшаем на 5% до победного. Возвращает итоговую сумму."""
-    actual = amount
-    for attempt in range(CONFIRM_RETRIES):
-        await page.fill(SELECTORS["amount_input"], str(actual))
-        await page.wait_for_timeout(800)
+def _amount_candidates():
+    """Кандидаты селектора суммы по приоритету (первые — точные)."""
+    return [
+        s.strip() for s in SELECTORS["amount_input"].split(",") if s.strip()
+    ]
+
+
+async def _resolve_amount_locator(page):
+    """Первый видимый инпут суммы или None."""
+    for selector in _amount_candidates():
+        try:
+            locator = page.locator(selector).first
+            if await locator.count() > 0 and await locator.is_visible():
+                return locator, selector
+        except Exception:
+            continue
+
+    return None, ""
+
+
+async def _set_amount_value(page, value):
+    """Ввод суммы как человек + события для React. Возвращает (ok, read)."""
+    locator, selector = await _resolve_amount_locator(page)
+    if locator is None:
+        return False, ""
+
+    try:
+        await locator.click()
+    except Exception:
+        pass
+
+    try:
+        # Полная очистка: Triple-click + Backspace надёжнее fill("")
+        # для контролируемых React-инпутов.
+        await locator.fill("")
+    except Exception:
+        pass
+
+    try:
+        await locator.press_sequentially(str(value), delay=40)
+    except Exception:
+        try:
+            await page.fill(selector, str(value))
+        except Exception:
+            return False, ""
+
+    try:
+        read = await locator.input_value()
+    except Exception:
+        read = ""
+
+    if str(read).replace(" ", "").replace("\u00a0", "") != str(value):
+        # Fallback: нативный сеттер + input/change/blur, иначе React
+        # не видит значение и кнопка остаётся disabled при любой сумме.
+        try:
+            await page.evaluate(
+                """([sel, val]) => {
+                    const el = document.querySelector(sel);
+                    if (!el) return;
+                    const proto = el instanceof HTMLTextAreaElement
+                        ? HTMLTextAreaElement.prototype
+                        : HTMLInputElement.prototype;
+                    const desc = Object.getOwnPropertyDescriptor(
+                        proto, 'value');
+                    if (desc && desc.set) {
+                        desc.set.call(el, val);
+                    } else {
+                        el.value = val;
+                    }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    el.dispatchEvent(
+                        new FocusEvent('blur', { bubbles: true }));
+                }""",
+                [selector, str(value)],
+            )
+            read = await locator.input_value()
+        except Exception as e:
+            logger.warning("[platega-ui] amount js fallback failed: %s", e)
+
+    normalized = str(read or "").replace(" ", "").replace("\u00a0", "")
+    return (normalized == str(value) and bool(normalized)), read
+
+
+async def _is_confirm_enabled(page):
+    try:
         confirm = await page.query_selector(SELECTORS["confirm"])
-        if confirm is not None and await confirm.is_enabled():
+        if confirm is None:
+            return False
+
+        return await confirm.is_enabled()
+    except Exception:
+        return False
+
+
+async def _wait_confirm_enabled(page, timeout_ms):
+    """Ждём пересчёт сайта (3-5 сек): опрос кнопки до timeout."""
+    waited = 0
+    while waited < timeout_ms:
+        if await _is_confirm_enabled(page):
+            return True
+
+        await page.wait_for_timeout(AMOUNT_POLL_INTERVAL_MS)
+        waited += AMOUNT_POLL_INTERVAL_MS
+
+    return await _is_confirm_enabled(page)
+
+
+async def _fill_amount_until_confirmed(page, shots, amount, payout_min):
+    """Ввод суммы; кнопку ждём с опросом, т.к. сайт считает 3-5 сек.
+
+    Только если после ожидания кнопка всё ещё disabled — уменьшаем
+    на 5% до победного. Возвращает итоговую сумму.
+    """
+    actual = amount
+    last_tried = amount
+    for attempt in range(CONFIRM_RETRIES):
+        ok, read = await _set_amount_value(page, str(actual))
+        if not ok:
+            logger.warning(
+                "[platega-ui] amount input not set " "want=%s got=%s",
+                actual,
+                read,
+            )
+            await _shot(page, shots, f"filled-retry-{attempt}")
+            last_tried = actual
+            actual = math.floor(actual * 0.95)
+            if actual < payout_min:
+                break
+
+            continue
+
+        if await _wait_confirm_enabled(page, AMOUNT_SETTLE_TIMEOUT_MS):
             await _shot(page, shots, "filled")
             return actual
 
-        logger.warning("[platega-ui] confirm disabled for %s, retry", actual)
+        hint = await _visible_error_text(page)
+        logger.warning(
+            "[platega-ui] confirm disabled for %s (attempt %s/%s)%s",
+            actual,
+            attempt + 1,
+            CONFIRM_RETRIES,
+            f" hint: {hint}" if hint else "",
+        )
         await _shot(page, shots, f"filled-retry-{attempt}")
+        last_tried = actual
         actual = math.floor(actual * 0.95)
         if actual < payout_min:
             break
@@ -398,7 +615,9 @@ async def _fill_amount_until_confirmed(page, shots, amount, payout_min):
     await _fail(
         page,
         shots,
-        "confirm button stays disabled (check balance/limits)",
+        "confirm button stays disabled "
+        f"(requested {amount}, last tried {last_tried}, "
+        "check balance/limits)",
     )
     raise AssertionError("unreachable")
 
@@ -581,7 +800,7 @@ async def run_ui_card_payout(
 
                 await _shot(page, shots, "modal")
                 await page.click(SELECTORS["card_tab"])
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(800)
                 await _select_saved_card(page, shots, last4)
                 start = amount
                 site_available = None
@@ -619,8 +838,9 @@ async def run_ui_card_payout(
 
                 if dry_run:
                     # Проверка селекторов, баланс не важен: сумму просто
-                    # вписываем, активность кнопки не проверяем.
-                    await page.fill(SELECTORS["amount_input"], str(amount))
+                    # вписываем как человек, активность кнопки не проверяем.
+                    await _set_amount_value(page, str(amount))
+                    await page.wait_for_timeout(1000)
                     await _shot(page, shots, "filled")
                     return {
                         "status": "DRY_RUN",
@@ -638,36 +858,18 @@ async def run_ui_card_payout(
                 )
 
                 await page.click(SELECTORS["confirm"])
-                try:
-                    await page.wait_for_selector(
-                        SELECTORS["modal"],
-                        state="hidden",
-                        timeout=15000,
-                    )
-                    modal_gone = True
-                except Exception:
-                    modal_gone = False
-
+                # Успешная заявка модалку не закрывает, а переключает
+                # на «Заявка успешно создана» — ждём видимый итог.
+                page_text, err_text = await _wait_payout_result(page, 15000)
                 await _shot(page, shots, "submitted")
-                err = await page.query_selector(SELECTORS["error_markers"])
-                if err is not None:
-                    err_text = (await err.inner_text() or "").strip()[:200]
-                    await _fail(
-                        page,
-                        shots,
-                        f"site error: {err_text or 'unknown'}",
-                    )
+                if not page_text:
+                    if err_text:
+                        await _fail(
+                            page,
+                            shots,
+                            f"site error: {err_text}",
+                        )
 
-                success = await page.query_selector(
-                    SELECTORS["success_markers"],
-                )
-                page_text = ""
-                if success is not None:
-                    page_text = (await success.inner_text() or "").strip()[
-                        :200
-                    ]
-
-                if not modal_gone and success is None:
                     await _fail(page, shots, "no success confirmation")
 
                 await _shot(page, shots, "done")
