@@ -3,7 +3,7 @@ import logging
 
 from django.conf import settings
 
-from connect.services.remnawave import RemnawaveClient
+from connect.services.remnawave import RemnawaveClient, user_ref
 
 logger = logging.getLogger(__name__)
 
@@ -18,14 +18,19 @@ __all__ = ["sync_tariff_to_remnawave"]
 
 def _get_main_user(rw_users, profile=None):
     """Filter out whitelist users, returning only the main user."""
+    if isinstance(rw_users, dict):
+        # 3.x envelope TelegramUserResponseDto {users: [...]}.
+        inner = rw_users.get("users")
+        rw_users = inner if isinstance(inner, list) else [rw_users]
+
     if not isinstance(rw_users, list):
         return rw_users
 
     wl_uuid = getattr(profile, "whitelist_uuid", None) if profile else None
 
     for u in rw_users:
-        if u and u.get("uuid"):
-            if wl_uuid and u["uuid"] == wl_uuid:
+        if u and user_ref(u):
+            if wl_uuid and user_ref(u) == wl_uuid:
                 continue
 
             if u.get("username", "").endswith("_wl"):
@@ -54,13 +59,19 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
 
         # Fetch existing RW users
         rw_users = await client.get_user_by_tgid(telegram_id)
+        if isinstance(rw_users, dict) and isinstance(
+            rw_users.get("users"),
+            list,
+        ):
+            rw_users = rw_users["users"]
+
         if not isinstance(rw_users, list):
             rw_users = [rw_users] if rw_users else []
 
         rw_user = _get_main_user(rw_users, profile)
 
         # --- Try replace_sub first (update existing user) ---
-        if rw_user and rw_user.get("uuid"):
+        if rw_user and user_ref(rw_user):
             try:
                 new_expire = (
                     (
@@ -73,7 +84,7 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                 main_squads = [tariff.squad_uuid] if tariff.squad_uuid else []
 
                 await client.update_user(
-                    uuid=rw_user["uuid"],
+                    uuid=user_ref(rw_user),
                     expire_at=new_expire,
                     trafficlimitbytes=tariff.traffic_limit_bytes,
                     hwiddevicelimit=tariff.device_limit,
@@ -108,12 +119,12 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                     if not whitelist_uuid:
                         for u in rw_users:
                             uname = u.get("username", "")
-                            if uname.endswith("_wl") and u.get(
-                                "uuid",
-                            ) != rw_user.get("uuid"):
+                            if uname.endswith("_wl") and user_ref(
+                                u,
+                            ) != user_ref(rw_user):
                                 try:
                                     await client.update_user(
-                                        uuid=u["uuid"],
+                                        uuid=user_ref(u),
                                         expire_at=new_expire,
                                         trafficlimitbytes=5368709120,
                                         trafficlimitstrategy="MONTH",
@@ -126,7 +137,7 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                                             WHITELIST_EXTERNAL_SQUAD_UUID
                                         ),
                                     )
-                                    whitelist_uuid = u["uuid"]
+                                    whitelist_uuid = user_ref(u)
                                 except Exception:
                                     pass
 
@@ -152,8 +163,8 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                                     WHITELIST_EXTERNAL_SQUAD_UUID
                                 ),
                             )
-                            if wl_user and wl_user.get("uuid"):
-                                whitelist_uuid = wl_user["uuid"]
+                            if wl_user and user_ref(wl_user):
+                                whitelist_uuid = user_ref(wl_user)
                         except Exception:
                             pass
                 else:
@@ -182,10 +193,10 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
 
         # Disable ALL existing users with this telegramId
         for u in rw_users:
-            if u and u.get("uuid"):
+            if u and user_ref(u):
                 try:
                     await client.update_user(
-                        uuid=u["uuid"],
+                        uuid=user_ref(u),
                         status="DISABLED",
                     )
                 except Exception:
@@ -209,7 +220,7 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                 if uname.endswith("_wl"):
                     try:
                         await client.update_user(
-                            uuid=u["uuid"],
+                            uuid=user_ref(u),
                             expire_at=(
                                 main_user.get("expireAt")
                                 if main_user
@@ -222,7 +233,7 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                             activeinternalsquads=[tariff.whitelist_squad_uuid],
                             externalsquaduuid=WHITELIST_EXTERNAL_SQUAD_UUID,
                         )
-                        whitelist_uuid = u["uuid"]
+                        whitelist_uuid = user_ref(u)
                     except Exception:
                         pass
 
@@ -240,8 +251,8 @@ async def sync_tariff_to_remnawave(profile, tariff, client=None):
                         activeinternalsquads=[tariff.whitelist_squad_uuid],
                         externalsquaduuid=WHITELIST_EXTERNAL_SQUAD_UUID,
                     )
-                    if wl_user and wl_user.get("uuid"):
-                        whitelist_uuid = wl_user["uuid"]
+                    if wl_user and user_ref(wl_user):
+                        whitelist_uuid = user_ref(wl_user)
                 except Exception:
                     pass
 

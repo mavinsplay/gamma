@@ -9,6 +9,7 @@ from django.http import HttpResponseRedirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from connect.services.remnawave import user_ref
 from shop.models import Tariff
 from user.models import Profile
 from user.services.remnawave_admin import (
@@ -389,11 +390,12 @@ class ProfileAdmin(admin.ModelAdmin):
         try:
             tariff = obj.tarif
             whitelist = async_to_sync(ensure_whitelist_sync)(obj, tariff)
-            if obj.whitelist_uuid != whitelist["uuid"]:
+            wl_ref = user_ref(whitelist)
+            if obj.whitelist_uuid != (str(wl_ref) if wl_ref else None):
                 Profile.objects.filter(pk=obj.pk).update(
-                    whitelist_uuid=whitelist["uuid"],
+                    whitelist_uuid=str(wl_ref) if wl_ref else None,
                 )
-                obj.whitelist_uuid = whitelist["uuid"]
+                obj.whitelist_uuid = str(wl_ref) if wl_ref else None
                 cache.delete(f"admin_rw_subscription:{obj.telegram_id}")
                 self.message_user(
                     request,

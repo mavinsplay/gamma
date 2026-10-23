@@ -16,7 +16,7 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.csrf import csrf_exempt
 import requests
 
-from connect.services.remnawave import RemnawaveClient
+from connect.services.remnawave import RemnawaveClient, user_ref
 from shop.models import (
     Order,
     PromoCode,
@@ -145,14 +145,19 @@ def _pay_referral_reward(profile):
 def _get_main_user(rw_users, profile=None):
     """Filter _wl (whitelist) user from a list of Remnawave users,
     returning only the main user."""
+    if isinstance(rw_users, dict):
+        # 3.x envelope TelegramUserResponseDto {users: [...]}.
+        inner = rw_users.get("users")
+        rw_users = inner if isinstance(inner, list) else [rw_users]
+
     if not isinstance(rw_users, list):
         return rw_users
 
     wl_uuid = getattr(profile, "whitelist_uuid", None) if profile else None
 
     for u in rw_users:
-        if u and u.get("uuid"):
-            if wl_uuid and u["uuid"] == wl_uuid:
+        if u and user_ref(u):
+            if wl_uuid and user_ref(u) == wl_uuid:
                 continue
 
             if u.get("username", "").endswith("_wl"):
@@ -397,17 +402,17 @@ def buy_tariff_api(request):
                     old_users = await client.get_user_by_tgid(int(telegram_id))
                     if isinstance(old_users, list):
                         for u in old_users:
-                            if u and u.get("uuid"):
+                            if u and user_ref(u):
                                 try:
                                     await client.update_user(
-                                        uuid=u["uuid"],
+                                        uuid=user_ref(u),
                                         status="DISABLED",
                                     )
                                 except Exception:
                                     pass
-                    elif old_users and old_users.get("uuid"):
+                    elif old_users and user_ref(old_users):
                         await client.update_user(
-                            uuid=old_users["uuid"],
+                            uuid=user_ref(old_users),
                             status="DISABLED",
                         )
                 except Exception:
@@ -431,7 +436,7 @@ def buy_tariff_api(request):
                             if uname.endswith("_wl"):
                                 try:
                                     await client.update_user(
-                                        uuid=u["uuid"],
+                                        uuid=user_ref(u),
                                         expire_at=(
                                             main_user.get("expireAt")
                                             if main_user
@@ -448,7 +453,7 @@ def buy_tariff_api(request):
                                             WHITELIST_EXTERNAL_SQUAD_UUID
                                         ),
                                     )
-                                    whitelist_uuid = u["uuid"]
+                                    whitelist_uuid = user_ref(u)
                                 except Exception:
                                     pass
 
@@ -470,8 +475,8 @@ def buy_tariff_api(request):
                                     WHITELIST_EXTERNAL_SQUAD_UUID
                                 ),
                             )
-                            if wl_user and wl_user.get("uuid"):
-                                whitelist_uuid = wl_user["uuid"]
+                            if wl_user and user_ref(wl_user):
+                                whitelist_uuid = user_ref(wl_user)
                         except Exception:
                             # Whitelist sub creation is non-fatal
                             pass
@@ -486,7 +491,7 @@ def buy_tariff_api(request):
                 rw_users = await client.get_user_by_tgid(telegram_id)
                 rw_user = _get_main_user(rw_users, profile)
 
-                if not rw_user or not rw_user.get("uuid"):
+                if not rw_user or not user_ref(rw_user):
                     return None, None  # fallback to provision_new
 
                 new_expire = (
@@ -500,7 +505,7 @@ def buy_tariff_api(request):
                 main_squads = [tariff.squad_uuid] if tariff.squad_uuid else []
                 try:
                     main_user = await client.update_user(
-                        uuid=rw_user["uuid"],
+                        uuid=user_ref(rw_user),
                         expire_at=new_expire,
                         trafficlimitbytes=(tariff.traffic_limit_bytes),
                         hwiddevicelimit=tariff.device_limit,
@@ -535,12 +540,12 @@ def buy_tariff_api(request):
                     if not whitelist_uuid:
                         for u in rw_users:
                             uname = u.get("username", "")
-                            if uname.endswith("_wl") and u.get(
-                                "uuid",
-                            ) != rw_user.get("uuid"):
+                            if uname.endswith("_wl") and user_ref(
+                                u,
+                            ) != user_ref(rw_user):
                                 try:
                                     await client.update_user(
-                                        uuid=u["uuid"],
+                                        uuid=user_ref(u),
                                         expire_at=new_expire,
                                         trafficlimitbytes=5368709120,
                                         trafficlimitstrategy="MONTH",
@@ -553,7 +558,7 @@ def buy_tariff_api(request):
                                             WHITELIST_EXTERNAL_SQUAD_UUID
                                         ),
                                     )
-                                    whitelist_uuid = u["uuid"]
+                                    whitelist_uuid = user_ref(u)
                                 except Exception:
                                     pass
 
@@ -578,8 +583,8 @@ def buy_tariff_api(request):
                                     WHITELIST_EXTERNAL_SQUAD_UUID
                                 ),
                             )
-                            if wl_user and wl_user.get("uuid"):
-                                whitelist_uuid = wl_user["uuid"]
+                            if wl_user and user_ref(wl_user):
+                                whitelist_uuid = user_ref(wl_user)
                         except Exception:
                             pass
                 else:
@@ -1062,14 +1067,14 @@ def buy_slot_api(request):
                 rw_user = await client.get_user_by_tgid(telegram_id)
                 rw_user = _get_main_user(rw_user, profile)
 
-                if not rw_user or not rw_user.get("uuid"):
+                if not rw_user or not user_ref(rw_user):
                     raise ValueError("User not found in Remnawave")
 
                 current_limit = rw_user.get("hwidDeviceLimit", 0)
                 new_limit = current_limit + 1
 
                 return await client.update_user(
-                    uuid=rw_user["uuid"],
+                    uuid=user_ref(rw_user),
                     hwiddevicelimit=new_limit,
                 )
             finally:
@@ -1141,16 +1146,26 @@ def get_subscription_link_api(request):
         profile.save()
 
     if sub_type == "whitelist":
-        if not profile.whitelist_uuid:
-            return JsonResponse(
-                {"error": "У вас нет активной whitelist-подписки"},
-                status=400,
-            )
 
         async def fetch_wl_link():
             client = RemnawaveClient()
             try:
-                return await client.get_sub_link(profile.whitelist_uuid)
+                # Резолв через панель: сохранённый id мог протухнуть.
+                wl_user = await client.get_whitelist_user(
+                    int(telegram_id),
+                    profile.whitelist_uuid,
+                )
+                if wl_user is None:
+                    raise ValueError("no whitelist user")
+
+                healed = user_ref(wl_user)
+                if healed and profile.whitelist_uuid != healed:
+                    Profile.objects.filter(pk=profile.pk).update(
+                        whitelist_uuid=healed,
+                    )
+                    profile.whitelist_uuid = healed
+
+                return await client.get_sub_link(user_ref(wl_user))
             finally:
                 await client.close()
 
@@ -1164,6 +1179,11 @@ def get_subscription_link_api(request):
                         sub_data.get("subscriptionUrl", ""),
                     ),
                 },
+            )
+        except ValueError:
+            return JsonResponse(
+                {"error": "У вас нет активной whitelist-подписки"},
+                status=400,
             )
         except Exception:
             return JsonResponse(
@@ -1181,7 +1201,7 @@ def get_subscription_link_api(request):
                 print(f"Error fetching user from Remnawave: {e}")  # noqa: T201
                 rw_user = None
 
-            if not rw_user or not rw_user.get("uuid"):
+            if not rw_user or not user_ref(rw_user):
                 # Auto-heal: user has tariff in DB but missing in Remnawave
                 if profile and profile.tarif:
                     username = (
@@ -1195,7 +1215,7 @@ def get_subscription_link_api(request):
                         telegramid=int(telegram_id),
                         activeinternalsquads=[profile.tarif.squad_uuid],
                     )
-                    if not rw_user or not rw_user.get("uuid"):
+                    if not rw_user or not user_ref(rw_user):
                         raise ValueError(
                             "User not found and failed to re-provision",
                         )
@@ -1203,7 +1223,7 @@ def get_subscription_link_api(request):
                 else:
                     raise ValueError("User not found")
 
-            return await client.get_sub_link(rw_user["uuid"])
+            return await client.get_sub_link(user_ref(rw_user))
         finally:
             await client.close()
 
@@ -1265,10 +1285,10 @@ def delete_hwid_device_api(request):
             rw_user = await client.get_user_by_tgid(telegram_id)
             rw_user = _get_main_user(rw_user, profile)
 
-            if not rw_user or not rw_user.get("uuid"):
+            if not rw_user or not user_ref(rw_user):
                 raise ValueError("User not found in Remnawave")
 
-            await client.delete_hwid_device(rw_user["uuid"], hwid)
+            await client.delete_hwid_device(user_ref(rw_user), hwid)
         finally:
             await client.close()
 
@@ -1368,7 +1388,7 @@ def promo_api(request):
                         else:
                             rw_user = rw_users
 
-                        if rw_user and rw_user.get("uuid"):
+                        if rw_user and user_ref(rw_user):
                             from datetime import (
                                 datetime,
                                 timedelta,
@@ -1402,7 +1422,7 @@ def promo_api(request):
                             )
 
                             await client.update_user(
-                                uuid=rw_user["uuid"],
+                                uuid=user_ref(rw_user),
                                 expire_at=new_expire_str,
                             )
                     finally:
@@ -1520,7 +1540,7 @@ def extend_sub_api(request):
                 rw_users = await client.get_user_by_tgid(telegram_id)
                 rw_user = _get_main_user(rw_users, profile)
 
-                if rw_user and rw_user.get("uuid"):
+                if rw_user and user_ref(rw_user):
                     current_expire_str = rw_user.get("expireAt")
                     now = datetime.now(timezone.utc)
                     if current_expire_str:
@@ -1541,17 +1561,22 @@ def extend_sub_api(request):
                     )
 
                     await client.update_user(
-                        uuid=rw_user["uuid"],
+                        uuid=user_ref(rw_user),
                         expire_at=new_expire_at,
                         # Remnawave marks expired users as EXPIRED, but that
                         # system status cannot be sent back in an update.
                         status="ACTIVE",
                     )
 
-                # Also extend whitelist user if it exists
-                if cur_whitelist_uuid:
-                    try:
-                        wl_user = await client.get_user(cur_whitelist_uuid)
+                # Also extend whitelist user if it exists. Stored uuid
+                # may be stale (2.x) — resolve via panel list.
+                # _wl failure must not fail the whole extend (as before).
+                try:
+                    wl_user = await client.get_whitelist_user(
+                        int(telegram_id),
+                        cur_whitelist_uuid,
+                    )
+                    if wl_user and user_ref(wl_user):
                         wl_expire_str = wl_user.get("expireAt")
                         now = datetime.now(timezone.utc)
                         if wl_expire_str:
@@ -1571,17 +1596,24 @@ def extend_sub_api(request):
                             "Z",
                         )
                         await client.update_user(
-                            uuid=cur_whitelist_uuid,
+                            uuid=user_ref(wl_user),
                             expire_at=wl_new_expire,
                             status="ACTIVE",
                         )
-                    except Exception:
-                        pass
+                        healed = user_ref(wl_user)
+                        if healed and profile.whitelist_uuid != healed:
+                            profile.whitelist_uuid = healed
+                except Exception:
+                    pass
 
             finally:
                 await client.close()
 
         async_to_sync(extend_both)()
+        if profile.whitelist_uuid != cur_whitelist_uuid:
+            Profile.objects.filter(pk=profile.pk).update(
+                whitelist_uuid=profile.whitelist_uuid,
+            )
 
         # Compute actual remaining days from new expire
         actual_remaining = months * 30
@@ -1807,12 +1839,26 @@ def sync_data_api(request):
                     asyncio.create_task(client.get_user_by_tgid(telegram_id)),
                 )
 
-            if profile and profile.whitelist_uuid:
-                tasks.append(
-                    asyncio.create_task(
-                        client.get_user(profile.whitelist_uuid),
-                    ),
+            async def _fetch_wl():
+                if not profile:
+                    return None
+
+                stored = profile.whitelist_uuid
+                if not stored and not (
+                    profile.tarif and profile.tarif.has_whitelist
+                ):
+                    return None
+
+                return await client.get_whitelist_user(
+                    int(telegram_id),
+                    stored,
                 )
+
+            if profile and (
+                profile.whitelist_uuid
+                or (profile.tarif and profile.tarif.has_whitelist)
+            ):
+                tasks.append(asyncio.create_task(_fetch_wl()))
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -1835,10 +1881,10 @@ def sync_data_api(request):
 
             hwid_error = False
             hwid_devices = []
-            if rw_user and rw_user.get("uuid"):
+            if rw_user and user_ref(rw_user):
                 try:
                     hwid_devices = await client.get_user_hwid_devices(
-                        rw_user["uuid"],
+                        user_ref(rw_user),
                     )
                 except Exception:
                     hwid_error = True
@@ -1906,6 +1952,16 @@ def sync_data_api(request):
                 rw_user["expire_at"] = rw_user["expireAt"]
             except ValueError:
                 pass
+
+        # Самолечение протухшего whitelist_uuid (2.x -> 3.x): нашли _wl
+        # по суффиксу — сохраняем актуальный id.
+        if profile and whitelist_user_data:
+            healed = user_ref(whitelist_user_data)
+            if healed and profile.whitelist_uuid != healed:
+                Profile.objects.filter(pk=profile.pk).update(
+                    whitelist_uuid=healed,
+                )
+                profile.whitelist_uuid = healed
 
         # Proxy Bypass logic
         proxies_data = []

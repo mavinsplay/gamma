@@ -31,6 +31,9 @@ REMNAWAVE_URL = os.getenv("REMNAWAVE_URL", "")
 REMNAWAVE_TOKEN = os.getenv("REMNAWAVE_TOKEN", "")
 REMNAWAVE_SECRET_NAME = os.getenv("REMNAWAVE_SECRET_NAME", "")
 REMNAWAVE_SECRET_VALUE = os.getenv("REMNAWAVE_SECRET_VALUE", "")
+# 3.x за Caddy: API-ключ в заголовке X-Api-Key. Оставлен опциональным,
+# старый Bearer + cookie для 2.x продолжают работать.
+REMNAWAVE_API_KEY = os.getenv("REMNAWAVE_API_KEY", "")
 WHITELIST_EXTERNAL_SQUAD_UUID = os.getenv(
     "WHITELIST_EXTERNAL_SQUAD_UUID",
     "68fce704-b469-43f4-afc9-8a38a5c8b851",

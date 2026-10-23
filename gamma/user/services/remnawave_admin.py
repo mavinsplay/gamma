@@ -3,7 +3,11 @@ from math import ceil
 
 from django.conf import settings
 
-from connect.services.remnawave import RemnawaveClient
+from connect.services.remnawave import (
+    match_wl_id,
+    RemnawaveClient,
+    user_ref,
+)
 
 __all__ = [
     "change_subscription_days",
@@ -20,7 +24,15 @@ def _as_users(response):
     if isinstance(response, list):
         return response
 
-    return [response]
+    if isinstance(response, dict):
+        # 3.x заворачивает в TelegramUserResponseDto {users: [...]}.
+        inner = response.get("users")
+        if isinstance(inner, list):
+            return inner
+
+        return [response]
+
+    return []
 
 
 def _parse_expire_at(user):
@@ -38,9 +50,15 @@ def _find_users(users, profile):
     )
     if profile.whitelist_uuid:
         whitelist_user = next(
-            (u for u in users if u.get("uuid") == profile.whitelist_uuid),
+            (u for u in users if match_wl_id(u, profile.whitelist_uuid)),
             None,
         )
+        if whitelist_user is None:
+            # Сохранённый id устарел (2.x uuid) — ищем по суффиксу.
+            whitelist_user = next(
+                (u for u in users if u.get("username", "").endswith("_wl")),
+                None,
+            )
     else:
         whitelist_user = next(
             (u for u in users if u.get("username", "").endswith("_wl")),
@@ -81,7 +99,7 @@ async def change_subscription_days(profile, days):
 
         for user, expire_at in updates:
             await client.update_user(
-                uuid=user["uuid"],
+                uuid=user_ref(user),
                 expire_at=expire_at,
                 status="ACTIVE",
             )
@@ -137,7 +155,7 @@ async def ensure_whitelist_sync(profile, tariff=None):
                 "68fce704-b469-43f4-afc9-8a38a5c8b851",
             ),
         )
-        if not whitelist_user or not whitelist_user.get("uuid"):
+        if not whitelist_user or not user_ref(whitelist_user):
             raise ValueError("Remnawave не вернул UUID созданного _wl")
 
         return whitelist_user
@@ -159,7 +177,7 @@ async def get_subscription_sync_status(profile):
             expire_at = _parse_expire_at(user)
             remaining_days = max(0, (expire_at - now).days) if expire_at else 0
             return {
-                "uuid": user.get("uuid"),
+                "uuid": user_ref(user),
                 "username": user.get("username"),
                 "status": user.get("status"),
                 "expire_at": expire_at,

@@ -4,7 +4,7 @@ from asgiref.sync import async_to_sync
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 
-from connect.services.remnawave import RemnawaveClient
+from connect.services.remnawave import RemnawaveClient, user_ref
 from user.models import Profile
 
 __all__ = ()
@@ -24,20 +24,25 @@ def delete_remnawave_user(sender, instance, **kwargs):
         client = RemnawaveClient()
         try:
             rw_users = await client.get_user_by_tgid(telegram_id)
+            if isinstance(rw_users, dict) and isinstance(
+                rw_users.get("users"),
+                list,
+            ):
+                rw_users = rw_users["users"]
 
             if isinstance(rw_users, list):
                 for u in rw_users:
-                    if u and u.get("uuid"):
+                    if u and user_ref(u):
                         try:
                             await client.update_user(
-                                uuid=u["uuid"],
+                                uuid=user_ref(u),
                                 status="DISABLED",
                             )
                         except Exception:
                             pass
-            elif rw_users and rw_users.get("uuid"):
+            elif rw_users and user_ref(rw_users):
                 await client.update_user(
-                    uuid=rw_users["uuid"],
+                    uuid=user_ref(rw_users),
                     status="DISABLED",
                 )
         except Exception as e:

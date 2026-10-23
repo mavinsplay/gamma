@@ -391,6 +391,13 @@ class PaymentTests(TestCase):
                 "expireAt": "2020-01-01T00:00:00.000Z",
             },
         )
+        mock_client.get_whitelist_user = AsyncMock(
+            return_value={
+                "uuid": "whitelist-uuid",
+                "username": "testuser_wl",
+                "expireAt": "2020-01-01T00:00:00.000Z",
+            },
+        )
         mock_client.update_user = AsyncMock()
         mock_client.close = AsyncMock()
 
