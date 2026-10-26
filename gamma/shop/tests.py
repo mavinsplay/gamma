@@ -197,6 +197,122 @@ class PaymentTests(TestCase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.balance, Decimal("600.00"))
 
+    def test_topup_bonus_rates(self):
+        from shop.services.billing import (
+            topup_bonus_amount,
+            topup_bonus_percent,
+            topup_bonus_rates,
+        )
+
+        settings.TOPUP_BONUS_PERCENT = 4.0
+        self.assertEqual(topup_bonus_percent("sbp"), 4.0)
+        self.assertEqual(topup_bonus_percent("crypto"), 4.0)
+        self.assertEqual(topup_bonus_percent("SBP"), 4.0)
+        self.assertEqual(topup_bonus_percent("card"), 0.0)
+        self.assertEqual(topup_bonus_percent(""), 0.0)
+        self.assertEqual(topup_bonus_percent(None), 0.0)
+        self.assertEqual(
+            topup_bonus_amount(Decimal("500.00"), "sbp"),
+            Decimal("20.00"),
+        )
+        self.assertEqual(
+            topup_bonus_amount(Decimal("333.00"), "crypto"),
+            Decimal("13.32"),
+        )
+        self.assertEqual(
+            topup_bonus_amount(Decimal("500.00"), "card"),
+            Decimal("0.00"),
+        )
+        rates = topup_bonus_rates()
+        self.assertEqual(rates["sbp"], 4.0)
+        self.assertEqual(rates["crypto"], 4.0)
+        self.assertEqual(rates["card"], 0.0)
+
+    def test_process_successful_payment_sbp_bonus(self):
+        settings.TOPUP_BONUS_PERCENT = 4.0
+        settings.ORDER_TIMEOUT_MINUTES = 10
+        order = Order.objects.create(
+            telegram_id=12345,
+            amount=Decimal("500.00"),
+            order_type="TOPUP",
+            status="PENDING",
+            payment_provider="platega",
+            payment_method="sbp",
+        )
+
+        result = process_successful_payment(order.id)
+        self.assertIsNotNone(result)
+
+        order.refresh_from_db()
+        self.assertEqual(order.status, "PAID")
+        self.assertEqual(order.bonus_amount, Decimal("20.00"))
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.balance, Decimal("620.00"))
+
+    def test_process_successful_payment_crypto_bonus(self):
+        settings.TOPUP_BONUS_PERCENT = 4.0
+        settings.ORDER_TIMEOUT_MINUTES = 10
+        order = Order.objects.create(
+            telegram_id=12345,
+            amount=Decimal("1000.00"),
+            order_type="TOPUP",
+            status="PENDING",
+            payment_provider="platega",
+            payment_method="crypto",
+        )
+
+        result = process_successful_payment(order.id)
+        self.assertIsNotNone(result)
+
+        order.refresh_from_db()
+        self.assertEqual(order.bonus_amount, Decimal("40.00"))
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.balance, Decimal("1140.00"))
+
+    def test_process_successful_payment_card_no_bonus(self):
+        settings.TOPUP_BONUS_PERCENT = 4.0
+        settings.ORDER_TIMEOUT_MINUTES = 10
+        order = Order.objects.create(
+            telegram_id=12345,
+            amount=Decimal("500.00"),
+            order_type="TOPUP",
+            status="PENDING",
+            payment_provider="yoomoney",
+            payment_method="card",
+        )
+
+        result = process_successful_payment(order.id)
+        self.assertIsNotNone(result)
+
+        order.refresh_from_db()
+        self.assertEqual(order.bonus_amount, Decimal("0.00"))
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.balance, Decimal("600.00"))
+
+    def test_process_successful_payment_no_bonus_for_purchase(self):
+        settings.TOPUP_BONUS_PERCENT = 4.0
+        settings.ORDER_TIMEOUT_MINUTES = 10
+        order = Order.objects.create(
+            telegram_id=12345,
+            amount=Decimal("500.00"),
+            order_type="PURCHASE",
+            status="PENDING",
+            payment_provider="platega",
+            payment_method="sbp",
+        )
+
+        result = process_successful_payment(order.id)
+        self.assertIsNotNone(result)
+
+        order.refresh_from_db()
+        self.assertEqual(order.bonus_amount, Decimal("0.00"))
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.balance, Decimal("600.00"))
+
     def test_cancel_expired_orders(self):
         old_date = datetime.now(timezone.utc) - timedelta(minutes=15)
         order1 = Order.objects.create(

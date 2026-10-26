@@ -25,6 +25,7 @@ from shop.models import (
     Tariff,
 )
 from shop.platega import Platega, PlategaAPIError, PlategaCallback
+from shop.services.billing import topup_bonus_rates
 from shop.services.platega import (
     create_platega_payment,
     process_platega_callback,
@@ -2045,6 +2046,7 @@ def sync_data_api(request):
         response_data = {
             "success": True,
             "is_admin": is_admin,
+            "topup_bonuses": topup_bonus_rates(),
             "profile": (
                 {
                     "balance": float(profile.balance),

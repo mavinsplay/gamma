@@ -378,10 +378,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function checkAdmin() {
-        if (window.authenticatedUserId && typeof ADMIN_ID !== 'undefined' && String(window.authenticatedUserId) === String(ADMIN_ID)) {
-            const adminLink = document.getElementById('admin-panel-link');
-            if (adminLink) adminLink.style.display = 'flex';
-        }
+        const isAdmin = Boolean(window.authenticatedUserId && typeof ADMIN_ID !== 'undefined' && String(window.authenticatedUserId) === String(ADMIN_ID));
+        const adminLink = document.getElementById('admin-panel-link');
+        if (adminLink) adminLink.style.display = isAdmin ? 'flex' : 'none';
+        const billingLink = document.getElementById('billing-panel-link');
+        if (billingLink) billingLink.style.display = isAdmin ? 'flex' : 'none';
     }
 
     async function initTelegram() {
@@ -607,6 +608,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function showPaymentMethodPicker(amount) {
         let selectedMethod = 'yoomoney';
+        const bonuses = window._topupBonuses || {card: 0, sbp: 4, crypto: 4};
+        const methodBonus = (m) => Number((bonuses[m === 'yoomoney' ? 'card' : m]) || 0);
+        const bonusPill = (m) => {
+            const pct = methodBonus(m);
+            if (!(pct > 0)) return '';
+            return `<br><span style="display: inline-block; margin-top: 4px; font-size: 11px; font-weight: 700; color: #4CAF50; background: rgba(76, 175, 80, 0.12); border-radius: 8px; padding: 2px 8px;">+${pct}% к балансу</span>`;
+        };
+        const pickerMessage = (m) => {
+            const pct = methodBonus(m);
+            if (pct > 0) {
+                const credit = Math.floor(Number(amount) * (1 + pct / 100) * 100) / 100;
+                return `Сумма: ${amount} ₽. К зачислению: ${credit} ₽ (бонус +${pct}%). Выберите метод оплаты:`;
+            }
+            return `Сумма: ${amount} ₽. Выберите метод оплаты:`;
+        };
         const html = `
             <div class="payment-methods-list">
                 <div class="payment-method-item selected bounce" data-method="yoomoney">
@@ -640,7 +656,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="payment-method-info">
                         <div class="payment-method-title">СБП</div>
-                        <div class="payment-method-desc">Система быстрых платежей (Platega)</div>
+                        <div class="payment-method-desc">Система быстрых платежей (Platega)${bonusPill('sbp')}</div>
                     </div>
                     <div class="payment-method-check">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -657,7 +673,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="payment-method-info">
                         <div class="payment-method-title">Криптовалюта</div>
-                        <div class="payment-method-desc">USDT, TON, TRX и др. (Platega)</div>
+                        <div class="payment-method-desc">USDT, TON, TRX и др. (Platega)${bonusPill('crypto')}</div>
                     </div>
                     <div class="payment-method-check">✓</div>
                 </div>
@@ -665,7 +681,7 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
         showModal({
             title: 'Способ оплаты',
-            message: `Сумма: ${amount} ₽. Выберите метод оплаты:`,
+            message: pickerMessage(selectedMethod),
             icon: 'account_balance_wallet',
             actionText: 'Оплатить',
             showInput: false,
@@ -681,6 +697,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     items.forEach(i => i.classList.remove('selected'));
                     item.classList.add('selected');
                     selectedMethod = item.getAttribute('data-method');
+                    const msgEl = document.getElementById('modal-message');
+                    if (msgEl) msgEl.textContent = pickerMessage(selectedMethod);
                 };
             });
         }, 50);
@@ -2553,6 +2571,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateUIWithSyncData(data) {
         if (!data.success) return;
 
+        if (data.topup_bonuses) window._topupBonuses = data.topup_bonuses;
+
         // Update Balance and Profile Details
         if (data.profile) {
             const balanceEl = document.getElementById('profile-balance');
@@ -3538,7 +3558,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchBilling() {
         const container = document.getElementById('billing-content');
         if (!container) return;
-        container.innerHTML = `<div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; opacity: 0.4; text-align: center;"><div class="spinner"></div><span>Загрузка...</span></div>`;
+        container.innerHTML = `<div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; opacity: 0.4; text-align: center;"><div class="spinner"></div></div>`;
         try {
             const range = window._billingRange;
             const params = range
@@ -3935,6 +3955,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const usdtProcess = (data.usdt_in_process != null) ? Number(data.usdt_in_process || 0) : Math.max(0, usdtTotal - usdtAvail);
         const usdtRub = Math.floor(usdtAvail * usdRate);
         const combinedTotal = usdtRub + (yoBalance || 0);
+        const rubFrozen = rub ? Number(rub.frozenBalance || 0) : 0;
         const yoRow = `
             ${yo.error
                 ? `<div style="font-size: 12px; opacity: 0.55; text-align: center; background: rgba(255,255,255,0.04); border-radius: 14px; padding: 12px;">Кошелёк ЮMoney недоступен</div>`
@@ -3967,7 +3988,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ? `<div style="font-size: 13px; opacity: 0.6;">Балансы Platega недоступны</div>`
             : `
             <div class="billing-balances" style="display: flex; gap: 10px;">
-                ${balanceCard('Platega RUB', rub ? fmtRub(rub.amount) : '—', 'На холде', rub ? fmtRub(rub.frozenBalance || 0) : '—', 'холд 3 дня')}
+                ${balanceCard('Platega RUB', rub ? fmtRub(rub.amount) : '—', 'На холде', rubFrozen > 0 ? fmtRub(rubFrozen) : null, rubFrozen > 0 ? 'холд 3 дня' : '')}
                 ${balanceCard('Platega USDT', usdt ? Number(usdtAvail).toFixed(2) : '—', 'Доступно', usdtProcess > 0 ? Number(usdtProcess).toFixed(2) + ' USDT' : null, usdtProcess > 0 ? 'в процессе выплаты' : '', usdt ? `≈ ${fmtRub(usdtRub)}` : '')}
             </div>
             ${yoRow}`;

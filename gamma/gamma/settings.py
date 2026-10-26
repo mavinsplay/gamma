@@ -293,6 +293,8 @@ PLATEGA_AUTOPAYOUT_COOLDOWN_MIN = _env_int(
 # Комиссии провайдеров (доля от суммы, для расчёта чистого дохода)
 YOOMONEY_FEE_RATE = float(os.getenv("YOOMONEY_FEE_RATE", "0.03"))
 PLATEGA_FEE_RATE = float(os.getenv("PLATEGA_FEE_RATE", "0.04"))
+# Бонус к балансу за пополнение через СБП/крипту, % от суммы платежа.
+TOPUP_BONUS_PERCENT = _env_float("TOPUP_BONUS_PERCENT", 4.0)
 
 ORDER_TIMEOUT_MINUTES = 10
 

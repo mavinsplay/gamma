@@ -245,10 +245,20 @@ def process_successful_payment(order_id):
     if not profile:
         return None
 
-    order.status = "PAID"
-    order.save(update_fields=["status"])
+    from decimal import Decimal
 
-    profile.balance += order.amount
+    from shop.services.billing import topup_bonus_amount
+
+    # Бонус +4% за СБП/крипту: баллы сверху, в заказе храним факт оплаты.
+    bonus = Decimal("0.00")
+    if order.order_type == "TOPUP":
+        bonus = topup_bonus_amount(order.amount, order.payment_method)
+
+    order.status = "PAID"
+    order.bonus_amount = bonus
+    order.save(update_fields=["status", "bonus_amount"])
+
+    profile.balance += order.amount + bonus
     profile.save(update_fields=["balance"])
 
     cache.delete(f"sync_data:{order.telegram_id}")

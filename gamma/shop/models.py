@@ -93,6 +93,13 @@ class Order(models.Model):
     )
     telegram_id = models.BigIntegerField()
     amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    bonus_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0.00,
+        verbose_name="Бонус (₽)",
+        help_text="+4% за СБП/крипту: баллы сверху, доходом не считается",
+    )
     order_type = models.CharField(
         max_length=20,
         choices=TYPE_CHOICES,

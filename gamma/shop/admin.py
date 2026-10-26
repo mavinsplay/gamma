@@ -82,6 +82,7 @@ class OrderAdmin(admin.ModelAdmin):
         "payment_provider",
         "payment_method",
         "amount",
+        "bonus_amount",
         "created_at",
     )
     list_filter = (
@@ -93,7 +94,7 @@ class OrderAdmin(admin.ModelAdmin):
         "tariff",
     )
     search_fields = ("telegram_id",)
-    readonly_fields = ("created_at",)
+    readonly_fields = ("created_at", "bonus_amount")
     ordering = ("-created_at",)
 
 

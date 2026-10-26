@@ -27,6 +27,9 @@ __all__ = [
     "parse_usdt_balance",
     "prune_old_ledger_entries",
     "save_autopayout_config",
+    "topup_bonus_amount",
+    "topup_bonus_percent",
+    "topup_bonus_rates",
 ]
 
 
@@ -50,6 +53,39 @@ def mask_account(account):
         return "****"
 
     return f"{digits[:4]} •••• {digits[-4:]}"
+
+
+def topup_bonus_percent(payment_method):
+    """Бонус к балансу за способ пополнения, % (СБП/крипта — +4)."""
+    if str(payment_method or "").lower() not in ("sbp", "crypto"):
+        return 0.0
+
+    try:
+        return max(0.0, float(getattr(settings, "TOPUP_BONUS_PERCENT", 4.0)))
+    except (TypeError, ValueError):
+        return 4.0
+
+
+def topup_bonus_rates():
+    """Ставки бонуса по методам для фронта (один источник правды)."""
+    return {
+        "card": 0.0,
+        "sbp": topup_bonus_percent("sbp"),
+        "crypto": topup_bonus_percent("crypto"),
+    }
+
+
+def topup_bonus_amount(amount, payment_method):
+    """Сумма бонуса в рублях (округление до копеек)."""
+    from decimal import ROUND_HALF_UP
+
+    pct = topup_bonus_percent(payment_method)
+    if not pct:
+        return Decimal("0.00")
+
+    return (
+        Decimal(str(amount or 0)) * Decimal(str(pct)) / Decimal("100")
+    ).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)
 
 
 def parse_usdt_balance(balances):
