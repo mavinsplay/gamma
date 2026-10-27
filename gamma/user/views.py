@@ -147,9 +147,13 @@ def login_view(request):
         "code_challenge_method": "S256",
     }
 
-    oauth_host = (
+    # Прокси Telegram-OAuth. Домены фиксированы: зеркало всегда одно,
+    # поэтому хост задаётся явно — через OAUTH_TG_HOST под каждый
+    # сервер, с дефолтом на основной домен.
+    oauth_host = settings.OAUTH_TG_HOST or (
         "oauth.telegram.org" if settings.DEBUG else "oauth-tg.gamma-net.ru"
     )
+
     auth_url = f"https://{oauth_host}/auth?{urlencode(params)}"
     return render(
         request,

@@ -18,6 +18,7 @@ Including another URLconf
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic.base import RedirectView
 
 from shop.views import app_index
 
@@ -27,6 +28,15 @@ urlpatterns = [
     path("connect/", include("connect.urls")),
     path("user/", include("user.urls")),
     path("", app_index, name="home"),
+    # Браузеры и боты запрашивают /favicon.ico напрямую —
+    # отдаём статику вместо 404 в логах.
+    path(
+        "favicon.ico",
+        RedirectView.as_view(
+            url="/static/favicons/favicon.ico",
+            permanent=True,
+        ),
+    ),
 ]
 
 admin.site.site_header = "Gamma VPN Admin"

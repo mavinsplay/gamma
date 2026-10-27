@@ -72,6 +72,11 @@ SUPPORT_URL = "https://t.me/" + os.getenv(
     "SUPPORT_USERNAME",
     "gamma_net_bot",
 ).replace("@", "")
+# Хост прокси Telegram-OAuth (без схемы). Пусто — дефолт на основной
+# домен. На зеркале задать явно: OAUTH_TG_HOST=oauth-tg.<зеркало>.
+# Для нового домена также нужны DNS A-запись, сертификат на поддомен
+# и домен в BotFather (/setdomain).
+OAUTH_TG_HOST = os.getenv("OAUTH_TG_HOST", "")
 
 INSTALLED_APPS = [
     "django.contrib.admin",

@@ -99,10 +99,12 @@ services:
     profiles: ["prod"]
     env_file: .env
     environment:
+      # Образ jonasal/nginx-certbot сам находит домены для certbot:
+      # сканирует server_name + пути live/<имя>/ в user_conf.d/*.conf.
+      # SSL_DOMAIN ему не нужен. STAGING=1 — только для тестов (staging-серты).
       - NGINX_MAX_BODY_SIZE=50G
       - STAGING=${CERTBOT_STAGING}
       - CERTBOT_EMAIL=${CERTBOT_EMAIL}
-      - SSL_DOMAIN=gamma-net.ru
     ports:
       - "80:80"
       - "443:443"
