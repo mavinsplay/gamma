@@ -709,9 +709,19 @@ def topup_api(request):
     try:
         telegram_id = int(telegram_id)
         amount_dec = Decimal(str(amount))
-        if amount_dec <= 0 or amount_dec > 100000:
+        if (
+            not amount_dec.is_finite()
+            or amount_dec < settings.TOPUP_MIN_AMOUNT
+            or amount_dec > settings.TOPUP_MAX_AMOUNT
+        ):
             return JsonResponse(
-                {"error": "Некорректная сумма"},
+                {
+                    "error": (
+                        "Сумма пополнения — от "
+                        f"{settings.TOPUP_MIN_AMOUNT} до "
+                        f"{settings.TOPUP_MAX_AMOUNT} ₽"
+                    ),
+                },
                 status=400,
             )
     except Exception:

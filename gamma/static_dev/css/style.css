@@ -1308,6 +1308,7 @@ body {
 
 .modal-input {
     width: 100%;
+    box-sizing: border-box;
     background-color: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
@@ -1322,6 +1323,22 @@ body {
 
 .modal-input:focus {
     border-color: var(--md-sys-color-primary);
+}
+
+/* Контейнер инпута — flex-элемент .modal-box (align-items: center),
+   без width: 100% сжимается по контенту и инпут внутри становится узким. */
+#modal-input-container {
+    width: 100%;
+}
+
+/* Инлайн-ошибка под полем ввода в модалке (вместо нативного alert). */
+.modal-input-error {
+    margin-top: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #F48FB1;
+    text-align: center;
+    line-height: 1.4;
 }
 
 /* Billing panel */

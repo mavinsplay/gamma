@@ -109,6 +109,58 @@ class PaymentTests(TestCase):
         self.assertEqual(order.status, "PENDING")
 
     @patch("shop.views.verify_telegram_init_data")
+    def test_topup_api_rejects_out_of_range_amounts(self, mock_verify):
+        mock_verify.return_value = (
+            True,
+            {"id": 12345, "username": "testuser"},
+        )
+        settings.YOOMONEY_RECEIVER = "410019014512803"
+
+        for amount in ("0", "5", "9.99", "-50", "100001", "1000000", "nan"):
+            response = self.client.post(
+                reverse("topup_api"),
+                {"init_data": "mock_data", "amount": amount},
+            )
+            self.assertEqual(response.status_code, 400, msg=amount)
+            self.assertIn("от", response.json()["error"])
+
+        for amount in ("abc", ""):
+            response = self.client.post(
+                reverse("topup_api"),
+                {"init_data": "mock_data", "amount": amount},
+            )
+            self.assertEqual(response.status_code, 400, msg=amount)
+
+        self.assertFalse(
+            Order.objects.filter(
+                telegram_id=12345,
+                order_type="TOPUP",
+            ).exists(),
+        )
+
+    @patch("shop.views.verify_telegram_init_data")
+    def test_topup_api_accepts_boundary_amounts(self, mock_verify):
+        mock_verify.return_value = (
+            True,
+            {"id": 12345, "username": "testuser"},
+        )
+        settings.YOOMONEY_RECEIVER = "410019014512803"
+
+        for amount in ("10", "100000"):
+            response = self.client.post(
+                reverse("topup_api"),
+                {"init_data": "mock_data", "amount": amount},
+            )
+            self.assertEqual(response.status_code, 200, msg=amount)
+            order = Order.objects.get(
+                telegram_id=12345,
+                amount=Decimal(amount),
+            )
+            self.assertEqual(order.status, "PENDING")
+            order.status = "FAILED"
+            order.save(update_fields=["status"])
+
+    @patch("shop.views.verify_telegram_init_data")
     def test_topup_api_debug_returns_payment_url(self, mock_verify):
         mock_verify.return_value = (
             True,

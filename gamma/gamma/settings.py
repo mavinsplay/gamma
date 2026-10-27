@@ -300,6 +300,9 @@ YOOMONEY_FEE_RATE = float(os.getenv("YOOMONEY_FEE_RATE", "0.03"))
 PLATEGA_FEE_RATE = float(os.getenv("PLATEGA_FEE_RATE", "0.04"))
 # Бонус к балансу за пополнение через СБП/крипту, % от суммы платежа.
 TOPUP_BONUS_PERCENT = _env_float("TOPUP_BONUS_PERCENT", 4.0)
+# Лимиты разового пополнения баланса, ₽.
+TOPUP_MIN_AMOUNT = _env_int("TOPUP_MIN_AMOUNT", 10)
+TOPUP_MAX_AMOUNT = _env_int("TOPUP_MAX_AMOUNT", 100000)
 
 ORDER_TIMEOUT_MINUTES = 10
 

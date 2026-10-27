@@ -373,7 +373,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (error) {
             console.error('Logout error:', error);
-            alert('Ошибка при выходе');
+            showErrorModal('Ошибка при выходе');
         }
     };
 
@@ -514,12 +514,38 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalAction = document.getElementById('modal-action');
     const modalInputContainer = document.getElementById('modal-input-container');
     const modalAmountInput = document.getElementById('modal-amount-input');
+    const modalInputError = document.getElementById('modal-input-error');
+
+    // Инлайн-ошибка под полем ввода — замена нативному alert().
+    function setModalInputError(message) {
+        if (!modalInputError) return;
+        modalInputError.textContent = message;
+        modalInputError.style.display = 'block';
+    }
+
+    function clearModalInputError() {
+        if (!modalInputError) return;
+        modalInputError.textContent = '';
+        modalInputError.style.display = 'none';
+    }
+
+    // Одноразовая ошибка в стиле приложения — замена нативному alert().
+    function showErrorModal(message) {
+        showModal({
+            title: 'Ошибка',
+            message: message,
+            icon: 'error',
+            actionText: 'Понятно',
+            onAction: () => {},
+        });
+    }
 
     let modalKeepOpen = false;
     let showModalCount = 0;
 
-    function showModal({ title, message, icon = 'info', actionText = 'Пополнить', onAction = null, showInput = false, inputValue = '', inputPlaceholder = 'Введите данные...', inputType = 'text', customHtml = '', closeBtnText = 'Закрыть' }) {
+    function showModal({ title, message, icon = 'info', actionText = 'Пополнить', onAction = null, showInput = false, inputValue = '', inputPlaceholder = 'Введите данные...', inputType = 'text', inputMin = '', inputMax = '', customHtml = '', closeBtnText = 'Закрыть' }) {
         showModalCount++;
+        clearModalInputError();
 
         // Если модалка уже открыта — оверлей не трогаем (иначе будет
         // резкое мигание opacity 1 -> 0 -> 1). Анимируем только бокс
@@ -538,6 +564,8 @@ document.addEventListener('DOMContentLoaded', () => {
             modalAmountInput.value = inputValue;
             modalAmountInput.placeholder = inputPlaceholder;
             modalAmountInput.type = inputType;
+            if (inputMin !== '') modalAmountInput.min = inputMin;
+            if (inputMax !== '') modalAmountInput.max = inputMax;
             modalAmountInput.focus();
         } else {
             modalInputContainer.style.display = 'none';
@@ -605,6 +633,9 @@ document.addEventListener('DOMContentLoaded', () => {
     modalOverlay.onclick = (e) => {
         if (e.target === modalOverlay) hideModal();
     };
+
+    // Ошибка под полем гаснет, как только пользователь правит ввод.
+    modalAmountInput.addEventListener('input', clearModalInputError);
 
     function showPaymentMethodPicker(amount) {
         let selectedMethod = 'yoomoney';
@@ -704,14 +735,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 50);
     }
 
+    // Лимиты разового пополнения баланса, ₽.
+    // Должны совпадать с TOPUP_MIN_AMOUNT/TOPUP_MAX_AMOUNT на бэкенде.
+    const TOPUP_MIN_AMOUNT = 10;
+    const TOPUP_MAX_AMOUNT = 100000;
+
     window.handleTopup = (initialAmount = '', pendingPurchase = null) => {
         // Покупка, которую пользователь хотел совершить, но не хватило
         // средств. После успешной оплаты она выполнится автоматически.
         // Ручное пополнение (без pendingPurchase) сбрасывает отложенную.
         pendingPurchaseAfterTopup = pendingPurchase || null;
         let message = initialAmount
-            ? `На вашем счёте недостаточно ${initialAmount} ₽. Введите сумму для пополнения:`
-            : 'Введите сумму, на которую вы хотите пополнить счёт:';
+            ? `На вашем счёте недостаточно ${initialAmount} ₽. Введите сумму для пополнения (от ${TOPUP_MIN_AMOUNT} до ${TOPUP_MAX_AMOUNT} ₽):`
+            : `Введите сумму, на которую вы хотите пополнить счёт (от ${TOPUP_MIN_AMOUNT} до ${TOPUP_MAX_AMOUNT} ₽):`;
         if (pendingPurchaseAfterTopup) {
             message += ' После пополнения покупка завершится автоматически.';
         }
@@ -724,11 +760,13 @@ document.addEventListener('DOMContentLoaded', () => {
             inputValue: initialAmount,
             inputPlaceholder: 'Сумма в рублях',
             inputType: 'number',
+            inputMin: TOPUP_MIN_AMOUNT,
+            inputMax: TOPUP_MAX_AMOUNT,
             onAction: () => {
                 const amount = parseFloat(modalAmountInput.value);
-                if (isNaN(amount) || amount <= 0) {
-                    alert('Пожалуйста, введите корректную сумму.');
-                    return;
+                if (isNaN(amount) || amount < TOPUP_MIN_AMOUNT || amount > TOPUP_MAX_AMOUNT) {
+                    setModalInputError(`Пожалуйста, введите сумму от ${TOPUP_MIN_AMOUNT} до ${TOPUP_MAX_AMOUNT} ₽.`);
+                    return false;
                 }
                 showPaymentMethodPicker(amount);
             }
@@ -1100,8 +1138,8 @@ document.addEventListener('DOMContentLoaded', () => {
             onAction: async () => {
                 const code = modalAmountInput.value.trim();
                 if (!code) {
-                    alert('Пожалуйста, введите промокод.');
-                    return;
+                    setModalInputError('Пожалуйста, введите промокод.');
+                    return false;
                 }
 
                 showLoading('Активация промокода...');
@@ -2211,7 +2249,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const userId = window.authenticatedUserId;
 
         if (!userId || userId === 'undefined') {
-            alert('Профиль не загружен');
+            showErrorModal('Профиль не загружен');
             return;
         }
 
@@ -2285,7 +2323,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (response.ok) {
                         if (window.syncNow) window.syncNow();
                     } else {
-                        alert('Ошибка сохранения статуса');
+                        showErrorModal('Ошибка сохранения статуса');
                     }
                 } catch (e) {
                     console.error('Failed to set node status:', e);
