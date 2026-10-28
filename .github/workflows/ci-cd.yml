@@ -62,6 +62,10 @@ jobs:
           # т.к. unittest-discovery не спускается в gamma/ без __init__.py.
           python gamma/manage.py test shop user connect settings
         env:
+          # DEBUG=True на импорте, иначе settings включает SECURE_SSL_REDIRECT
+          # и SecurityMiddleware отдаёт 301 на каждый http-запрос тест-клиента.
+          # Сам раннер всё равно выполняет тесты с settings.DEBUG=False.
+          DJANGO_DEBUG: True
           DJANGO_DATABASE_SELECT: sqlite3
           DJANGO_ALLOW_CAPTCHA: 0
           DJANGO_SECRET_KEY: test-secret-key-for-ci

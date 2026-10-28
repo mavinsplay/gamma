@@ -32,7 +32,7 @@ Optional `.env` keys:
 |---|---|
 | Run dev server | `python gamma/manage.py runserver` |
 | Run bot | `python bot.py` |
-| Run all tests | `python gamma/manage.py test shop user connect settings` (голый `test` находит 0 — unittest-discovery не спускается в `gamma/` без `__init__.py`) |
+| Run all tests | `python gamma/manage.py test shop user connect settings` (голый `test` находит 0 — unittest-discovery не спускается в `gamma/` без `__init__.py`; для прогона нужен `DJANGO_DEBUG=True`, иначе `SECURE_SSL_REDIRECT` даёт 301 на каждый запрос) |
 | Run single app tests | `python gamma/manage.py test connect` (apps: `connect`, `shop`, `user`, `settings`) |
 | Run single test | `python gamma/manage.py test user.tests.TestClass.test_method` |
 | Format | `black gamma/ bot.py` (line-length 79) |
