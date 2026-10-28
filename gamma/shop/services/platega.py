@@ -76,6 +76,7 @@ def create_platega_payment(
     payment_method,
     return_url,
     failed_url,
+    payer_id=None,
 ):
     """
     Create a Platega transaction and return (redirect_url, transaction_id).
@@ -83,9 +84,11 @@ def create_platega_payment(
     Args:
         order_id: Internal Order.id — stored as payload for callback matching
         amount: Decimal amount in RUB
-        payment_method: Platega.METHOD_SBP_QR or Platega.METHOD_CRYPTO
+        payment_method: Platega.METHOD_SBP_QR, METHOD_CRYPTO or
+            METHOD_CARD_ACQUIRING
         return_url: Success redirect URL
         failed_url: Failure redirect URL
+        payer_id: Telegram user id — passed as metadata.userId for antifraud
 
     Returns:
         tuple(str, str): (redirect_url, platega_transaction_id)
@@ -95,6 +98,7 @@ def create_platega_payment(
         ValueError: if credentials not configured
     """
     client = _get_client()
+    metadata = {"userId": str(payer_id)} if payer_id else None
     result = client.create_payment(
         amount=float(amount),
         currency="RUB",
@@ -103,6 +107,7 @@ def create_platega_payment(
         return_url=return_url,
         failed_url=failed_url,
         payload=str(order_id),
+        metadata=metadata,
     )
     redirect_url = result.get("redirect", "")
     transaction_id = result.get("transactionId", "")

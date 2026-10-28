@@ -81,25 +81,42 @@ class PaymentTests(TestCase):
         )
         settings.DEBUG = False
 
+    @patch("shop.views.create_platega_payment")
     @patch("shop.views.verify_telegram_init_data")
-    def test_topup_api_creates_pending_order(self, mock_verify):
+    def test_topup_api_creates_pending_order(
+        self,
+        mock_verify,
+        mock_create,
+    ):
         mock_verify.return_value = (
             True,
             {"id": 12345, "username": "testuser"},
         )
-        settings.YOOMONEY_RECEIVER = "410019014512803"
+        mock_create.return_value = (
+            "https://pay.platega.io/abc123",
+            "tx-uuid-1",
+        )
+        settings.PLATEGA_MERCHANT_ID = "test-merchant"
 
         response = self.client.post(
             reverse("topup_api"),
-            {"init_data": "mock_data", "amount": "500"},
+            {
+                "init_data": "mock_data",
+                "amount": "500",
+                "payment_provider": "card",
+            },
         )
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(data["success"])
-        self.assertIn("payment_url", data)
-        self.assertIn("order_id", data)
-        self.assertTrue(data["payment_url"].startswith("https://yoomoney.ru/"))
+        self.assertTrue(
+            data["payment_url"].startswith(
+                "https://pay.platega.io/",
+            ),
+        )
+        mock_create.assert_called_once()
+        self.assertEqual(mock_create.call_args.kwargs["payer_id"], 12345)
 
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.balance, Decimal("100.00"))
@@ -107,6 +124,9 @@ class PaymentTests(TestCase):
         order = Order.objects.get(telegram_id=12345, amount=Decimal("500.00"))
         self.assertEqual(order.id, data["order_id"])
         self.assertEqual(order.status, "PENDING")
+        self.assertEqual(order.payment_provider, "platega")
+        self.assertEqual(order.payment_method, "card")
+        self.assertEqual(order.platega_transaction_id, "tx-uuid-1")
 
     @patch("shop.views.verify_telegram_init_data")
     def test_topup_api_rejects_out_of_range_amounts(self, mock_verify):
@@ -114,7 +134,6 @@ class PaymentTests(TestCase):
             True,
             {"id": 12345, "username": "testuser"},
         )
-        settings.YOOMONEY_RECEIVER = "410019014512803"
 
         for amount in ("0", "5", "9.99", "-50", "100001", "1000000", "nan"):
             response = self.client.post(
@@ -138,18 +157,31 @@ class PaymentTests(TestCase):
             ).exists(),
         )
 
+    @patch("shop.views.create_platega_payment")
     @patch("shop.views.verify_telegram_init_data")
-    def test_topup_api_accepts_boundary_amounts(self, mock_verify):
+    def test_topup_api_accepts_boundary_amounts(
+        self,
+        mock_verify,
+        mock_create,
+    ):
         mock_verify.return_value = (
             True,
             {"id": 12345, "username": "testuser"},
         )
-        settings.YOOMONEY_RECEIVER = "410019014512803"
+        mock_create.return_value = (
+            "https://pay.platega.io/abc123",
+            "tx-uuid-2",
+        )
+        settings.PLATEGA_MERCHANT_ID = "test-merchant"
 
         for amount in ("10", "100000"):
             response = self.client.post(
                 reverse("topup_api"),
-                {"init_data": "mock_data", "amount": amount},
+                {
+                    "init_data": "mock_data",
+                    "amount": amount,
+                    "payment_provider": "card",
+                },
             )
             self.assertEqual(response.status_code, 200, msg=amount)
             order = Order.objects.get(
@@ -160,18 +192,31 @@ class PaymentTests(TestCase):
             order.status = "FAILED"
             order.save(update_fields=["status"])
 
+    @patch("shop.views.create_platega_payment")
     @patch("shop.views.verify_telegram_init_data")
-    def test_topup_api_debug_returns_payment_url(self, mock_verify):
+    def test_topup_api_debug_returns_payment_url(
+        self,
+        mock_verify,
+        mock_create,
+    ):
         mock_verify.return_value = (
             True,
             {"id": 12345, "username": "testuser"},
         )
+        mock_create.return_value = (
+            "https://pay.platega.io/abc123",
+            "tx-uuid-3",
+        )
         settings.DEBUG = True
-        settings.YOOMONEY_RECEIVER = "410019014512803"
+        settings.PLATEGA_MERCHANT_ID = "test-merchant"
 
         response = self.client.post(
             reverse("topup_api"),
-            {"init_data": "mock_data", "amount": "200"},
+            {
+                "init_data": "mock_data",
+                "amount": "200",
+                "payment_provider": "card",
+            },
         )
 
         self.assertEqual(response.status_code, 200)
@@ -257,10 +302,12 @@ class PaymentTests(TestCase):
         )
 
         settings.TOPUP_BONUS_PERCENT = 4.0
+        settings.TOPUP_CARD_BONUS_PERCENT = 5.0
         self.assertEqual(topup_bonus_percent("sbp"), 4.0)
         self.assertEqual(topup_bonus_percent("crypto"), 4.0)
         self.assertEqual(topup_bonus_percent("SBP"), 4.0)
-        self.assertEqual(topup_bonus_percent("card"), 0.0)
+        self.assertEqual(topup_bonus_percent("card"), 5.0)
+        self.assertEqual(topup_bonus_percent("CARD"), 5.0)
         self.assertEqual(topup_bonus_percent(""), 0.0)
         self.assertEqual(topup_bonus_percent(None), 0.0)
         self.assertEqual(
@@ -273,12 +320,12 @@ class PaymentTests(TestCase):
         )
         self.assertEqual(
             topup_bonus_amount(Decimal("500.00"), "card"),
-            Decimal("0.00"),
+            Decimal("25.00"),
         )
         rates = topup_bonus_rates()
         self.assertEqual(rates["sbp"], 4.0)
         self.assertEqual(rates["crypto"], 4.0)
-        self.assertEqual(rates["card"], 0.0)
+        self.assertEqual(rates["card"], 5.0)
 
     def test_process_successful_payment_sbp_bonus(self):
         settings.TOPUP_BONUS_PERCENT = 4.0
@@ -323,15 +370,16 @@ class PaymentTests(TestCase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.balance, Decimal("1140.00"))
 
-    def test_process_successful_payment_card_no_bonus(self):
+    def test_process_successful_payment_card_bonus(self):
         settings.TOPUP_BONUS_PERCENT = 4.0
+        settings.TOPUP_CARD_BONUS_PERCENT = 5.0
         settings.ORDER_TIMEOUT_MINUTES = 10
         order = Order.objects.create(
             telegram_id=12345,
             amount=Decimal("500.00"),
             order_type="TOPUP",
             status="PENDING",
-            payment_provider="yoomoney",
+            payment_provider="platega",
             payment_method="card",
         )
 
@@ -339,10 +387,10 @@ class PaymentTests(TestCase):
         self.assertIsNotNone(result)
 
         order.refresh_from_db()
-        self.assertEqual(order.bonus_amount, Decimal("0.00"))
+        self.assertEqual(order.bonus_amount, Decimal("25.00"))
 
         self.profile.refresh_from_db()
-        self.assertEqual(self.profile.balance, Decimal("600.00"))
+        self.assertEqual(self.profile.balance, Decimal("625.00"))
 
     def test_process_successful_payment_no_bonus_for_purchase(self):
         settings.TOPUP_BONUS_PERCENT = 4.0
@@ -1197,18 +1245,6 @@ class BillingTests(TestCase):
         self.client = Client()
         # Кэш общий между прогонами — чистим для детерминированности.
         cache.clear()
-        # YooMoney-блок мокаем: иначе тесты полезут в сеть по живым
-        # кредам из .env.
-        yo_patch = patch("shop.services.billing.get_yoomoney_block")
-        self.mock_yo = yo_patch.start()
-        self.mock_yo.return_value = {
-            "balance": None,
-            "account_masked": None,
-            "error": True,
-            "daily": {},
-            "total": 0.0,
-        }
-        self.addCleanup(yo_patch.stop)
         self._old_admin = settings.ADMIN_TELEGRAM_ID
         self._old_payout_secret = settings.PLATEGA_PAYOUT_SECRET
         settings.ADMIN_TELEGRAM_ID = 999
@@ -1287,7 +1323,7 @@ class BillingTests(TestCase):
         stats = get_billing_stats(days=365)
         channels = stats["period"]["channels"]
         self.assertEqual(channels["card"]["gross"], 1000.00)
-        self.assertEqual(channels["card"]["net"], 970.00)
+        self.assertEqual(channels["card"]["net"], 950.00)
         self.assertEqual(channels["sbp"]["gross"], 500.00)
         self.assertEqual(channels["sbp"]["net"], 480.00)
         self.assertEqual(channels["crypto"]["gross"], 200.00)
@@ -1295,7 +1331,7 @@ class BillingTests(TestCase):
         self.assertEqual(channels["platega_other"]["gross"], 100.00)
         self.assertEqual(channels["platega_other"]["net"], 96.00)
         self.assertEqual(stats["period"]["gross"], 1800.00)
-        self.assertEqual(stats["period"]["net"], 1738.00)
+        self.assertEqual(stats["period"]["net"], 1718.00)
         self.assertEqual(stats["period"]["count"], 4)
 
     def test_timeline_has_today(self):
@@ -1308,8 +1344,8 @@ class BillingTests(TestCase):
         today = timezone.now().date().isoformat()
         days = {p["date"]: p for p in stats["timeline"]}
         self.assertIn(today, days)
-        self.assertEqual(days[today]["card"], 291.00)
-        self.assertEqual(days[today]["total"], 291.00)
+        self.assertEqual(days[today]["card"], 285.00)
+        self.assertEqual(days[today]["total"], 285.00)
         self.assertEqual(days[today]["gross"], 300.00)
         self.assertEqual(days[today]["refund"], 0.00)
 
@@ -1632,9 +1668,9 @@ class BillingTests(TestCase):
             entry_date=today,
         )
         stats = get_billing_stats(days=7)
-        # 970 чистыми − 500 сервер + 232 внеплановые
-        self.assertEqual(stats["period"]["net"], 970.00)
-        self.assertEqual(stats["period"]["profit"], 702.00)
+        # 950 чистыми − 500 сервер + 232 внеплановые
+        self.assertEqual(stats["period"]["net"], 950.00)
+        self.assertEqual(stats["period"]["profit"], 682.00)
 
     def test_timeline_includes_ledger(self):
         from django.utils import timezone
@@ -1998,20 +2034,6 @@ class BillingTests(TestCase):
                 {"action": "add", "telegram_id": "111"},
             )
             self.assertEqual(response.status_code, 403)
-
-    def test_yoomoney_block_in_stats(self):
-        from shop.services.billing import get_billing_stats
-
-        self.mock_yo.return_value = {
-            "balance": 1000.0,
-            "account_masked": "4100 •••• 6789",
-            "error": False,
-            "daily": {},
-            "total": 0.0,
-        }
-        stats = get_billing_stats(days=7)
-        self.assertEqual(stats["yoomoney"]["balance"], 1000.0)
-        self.assertFalse(stats["yoomoney"]["error"])
 
     def test_wallet_daily_from_history(self):
         from datetime import datetime

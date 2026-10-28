@@ -98,7 +98,7 @@ class Order(models.Model):
         decimal_places=2,
         default=0.00,
         verbose_name="Бонус (₽)",
-        help_text="+4% за СБП/крипту: баллы сверху, доходом не считается",
+        help_text="+5% за карту, +4% за СБП/крипту: баллы сверху, доходом не считается",  # noqa: E501
     )
     order_type = models.CharField(
         max_length=20,
@@ -113,7 +113,7 @@ class Order(models.Model):
     payment_provider = models.CharField(
         max_length=20,
         choices=PROVIDER_CHOICES,
-        default="yoomoney",
+        default="platega",
         verbose_name="Платёжный провайдер",
     )
     METHOD_CHOICES = (
@@ -127,7 +127,7 @@ class Order(models.Model):
         default="",
         blank=True,
         verbose_name="Метод оплаты",
-        help_text="card — карта (YooMoney), sbp/crypto — Platega",
+        help_text="card/sbp/crypto — все через Platega",
     )
     platega_transaction_id = models.CharField(
         max_length=100,

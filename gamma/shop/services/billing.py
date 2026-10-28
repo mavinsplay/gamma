@@ -23,7 +23,6 @@ __all__ = [
     "get_servers_data",
     "get_top_payers",
     "get_usd_rub_rate",
-    "get_yoomoney_block",
     "parse_usdt_balance",
     "prune_old_ledger_entries",
     "save_autopayout_config",
@@ -35,14 +34,13 @@ __all__ = [
 
 # Канал -> (подпись, провайдер, ставка комиссии берётся из настроек)
 CHANNELS = (
-    ("card", "Карты", "yoomoney"),
+    ("card", "Карты", "platega"),
     ("sbp", "СБП", "platega"),
     ("crypto", "Крипто", "platega"),
     ("platega_other", "Platega (стар.)", "platega"),
 )
 
 
-YOOMONEY_CACHE_TTL = 300
 USD_RUB_RATE_CACHE_KEY = "billing:usd_rub_rate"
 USD_RUB_RATE_TTL = 900
 
@@ -56,8 +54,20 @@ def mask_account(account):
 
 
 def topup_bonus_percent(payment_method):
-    """Бонус к балансу за способ пополнения, % (СБП/крипта — +4)."""
-    if str(payment_method or "").lower() not in ("sbp", "crypto"):
+    """Бонус к балансу за способ пополнения, % (карта — +5, СБП/крипта — +4)."""  # noqa: E501
+    method = str(payment_method or "").lower()
+    if method == "card":
+        try:
+            return max(
+                0.0,
+                float(
+                    getattr(settings, "TOPUP_CARD_BONUS_PERCENT", 5.0),
+                ),
+            )
+        except (TypeError, ValueError):
+            return 5.0
+
+    if method not in ("sbp", "crypto"):
         return 0.0
 
     try:
@@ -69,7 +79,7 @@ def topup_bonus_percent(payment_method):
 def topup_bonus_rates():
     """Ставки бонуса по методам для фронта (один источник правды)."""
     return {
-        "card": 0.0,
+        "card": topup_bonus_percent("card"),
         "sbp": topup_bonus_percent("sbp"),
         "crypto": topup_bonus_percent("crypto"),
     }
@@ -154,62 +164,6 @@ def parse_usdt_balance(balances):
 
     available = max(0.0, total - in_process)
     return available, in_process, total
-
-
-def get_yoomoney_block(days=30, date_from=None, date_to=None):
-    """Кошелёк YooMoney: баланс + приходы по дням (для сверки).
-
-    Кэшируется на 5 минут — история тянется несколькими запросами.
-    Период — либо последние `days` дней, либо диапазон date_from..date_to.
-    """
-    from django.core.cache import cache
-
-    from shop.services.yoomoney import get_account_info, get_wallet_daily
-
-    now = timezone.now()
-    tz = timezone.get_current_timezone()
-    if date_from and date_to and date_from <= date_to:
-        since = timezone.make_aware(
-            datetime.combine(date_from, dt_time.min),
-            tz,
-        )
-        # История будущего не существует — обрезаем по сегодня.
-        end_day = min(date_to, now.date())
-        end = timezone.make_aware(datetime.combine(end_day, dt_time.max), tz)
-        cache_key = (
-            f"billing:yoomoney:{date_from.isoformat()}:{date_to.isoformat()}"
-        )
-    else:
-        try:
-            days = int(days)
-        except (TypeError, ValueError):
-            days = 30
-
-        days = max(1, min(days, 365))
-        since = now - timedelta(days=days)
-        end = now
-        cache_key = f"billing:yoomoney:{days}"
-
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    info = get_account_info()
-    if info is None:
-        result = {"balance": None, "account_masked": None, "error": True}
-        cache.set(cache_key, result, 60)
-        return result
-
-    daily = get_wallet_daily(since, end)
-    result = {
-        "balance": info["balance"],
-        "account_masked": mask_account(info["account"]),
-        "error": False,
-        "daily": daily,
-        "total": round(sum(daily.values()), 2),
-    }
-    cache.set(cache_key, result, YOOMONEY_CACHE_TTL)
-    return result
 
 
 def get_blacklisted_ids():
@@ -375,7 +329,7 @@ def get_usd_rub_rate():
 
 def _fee_rate(channel):
     if channel == "card":
-        return float(getattr(settings, "YOOMONEY_FEE_RATE", 0.03))
+        return float(getattr(settings, "PLATEGA_CARD_FEE_RATE", 0.05))
 
     return float(getattr(settings, "PLATEGA_FEE_RATE", 0.04))
 
@@ -673,15 +627,6 @@ def get_billing_stats(days=30, date_from=None, date_to=None):
     )
     period["ledger"] = round(sum(p["ledger"] for p in timeline), 2)
 
-    if custom:
-        yoomoney = get_yoomoney_block(date_from=date_from, date_to=date_to)
-    else:
-        yoomoney = get_yoomoney_block(days=days)
-
-    wallet_daily = yoomoney.get("daily") or {}
-    for point in timeline:
-        point["wallet"] = wallet_daily.get(point["date"], 0.0)
-
     return {
         "days": days,
         "date_from": start_date.isoformat(),
@@ -691,12 +636,6 @@ def get_billing_stats(days=30, date_from=None, date_to=None):
         "all_time": aggregate(all_qs),
         "timeline": timeline,
         "top_payers": get_top_payers(limit=50),
-        "yoomoney": {
-            "balance": yoomoney.get("balance"),
-            "account_masked": yoomoney.get("account_masked"),
-            "error": yoomoney.get("error", False),
-            "total": yoomoney.get("total", 0.0),
-        },
     }
 
 

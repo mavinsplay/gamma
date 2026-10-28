@@ -676,9 +676,10 @@ def topup_api(request):
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
     amount = request.POST.get("amount", 0)
-    # Метод оплаты: yoomoney, sbp или crypto
-    payment_provider = request.POST.get("payment_provider", "yoomoney")
-    if payment_provider not in ("yoomoney", "sbp", "crypto"):
+    # Метод оплаты: card, sbp или crypto — все через Platega
+    # (YooMoney отключён: счёт заблокирован).
+    payment_provider = request.POST.get("payment_provider", "card")
+    if payment_provider not in ("card", "sbp", "crypto"):
         return JsonResponse({"error": "Неверный метод оплаты"}, status=400)
 
     init_data = request.POST.get("init_data")
@@ -771,16 +772,8 @@ def topup_api(request):
             amount=amount_dec,
             order_type="TOPUP",
             status="PENDING",
-            payment_provider=(
-                "platega"
-                if payment_provider in ("sbp", "crypto")
-                else "yoomoney"
-            ),
-            payment_method={
-                "yoomoney": "card",
-                "sbp": "sbp",
-                "crypto": "crypto",
-            }.get(payment_provider, ""),
+            payment_provider="platega",
+            payment_method=payment_provider,
         )
 
     host = request.get_host()
@@ -788,47 +781,9 @@ def topup_api(request):
     success_url = f"{scheme}://{host}/shop/success/{order.id}/"
     failed_url = f"{scheme}://{host}/shop/fail/{order.id}/"
 
-    # --- YooMoney ---
-    if payment_provider == "yoomoney":
-        receiver = getattr(settings, "YOOMONEY_RECEIVER", "")
-        if not receiver:
-            order.status = "FAILED"
-            order.save(update_fields=["status"])
-            return JsonResponse(
-                {"error": "Payment gateway not configured"},
-                status=500,
-            )
-
-        try:
-            payment_url = create_payment_url(
-                order_id=order.id,
-                amount=amount_dec,
-                receiver=receiver,
-                success_url=success_url,
-            )
-            order.payment_url = payment_url
-            order.save(update_fields=["payment_url"])
-            expires_at = order.created_at + timedelta(
-                minutes=settings.ORDER_TIMEOUT_MINUTES,
-            )
-            return JsonResponse(
-                {
-                    "success": True,
-                    "payment_url": payment_url,
-                    "order_id": order.id,
-                    "expires_at": expires_at.isoformat(),
-                },
-            )
-        except Exception:
-            order.status = "FAILED"
-            order.save(update_fields=["status"])
-            return JsonResponse(
-                {"error": "Ошибка платежной системы"},
-                status=500,
-            )
-
-    # --- Platega (SBP / Crypto) ---
+    # --- Platega (карты, СБП, крипта) ---
     platega_method_map = {
+        "card": Platega.METHOD_CARD_ACQUIRING,
         "sbp": Platega.METHOD_SBP_QR,
         "crypto": Platega.METHOD_CRYPTO,
     }
@@ -856,6 +811,7 @@ def topup_api(request):
             payment_method=platega_method,
             return_url=success_url,
             failed_url=failed_url,
+            payer_id=telegram_id,
         )
         order.platega_transaction_id = transaction_id
         order.payment_url = redirect_url

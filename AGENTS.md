@@ -32,7 +32,7 @@ Optional `.env` keys:
 |---|---|
 | Run dev server | `python gamma/manage.py runserver` |
 | Run bot | `python bot.py` |
-| Run all tests | `python gamma/manage.py test` |
+| Run all tests | `python gamma/manage.py test shop user connect settings` (голый `test` находит 0 — unittest-discovery не спускается в `gamma/` без `__init__.py`) |
 | Run single app tests | `python gamma/manage.py test connect` (apps: `connect`, `shop`, `user`, `settings`) |
 | Run single test | `python gamma/manage.py test user.tests.TestClass.test_method` |
 | Format | `black gamma/ bot.py` (line-length 79) |
@@ -57,6 +57,6 @@ gamma/settings/  — placeholder (empty)
   redis, django (gunicorn), bot, nginx. Redis is wired automatically
   (`REDIS_URL=redis://redis:6379/0` is set in compose environment).
 - **Admin URL** is custom (set via `ADMIN_URL` in `.env`), not `/admin/`.
-- **All test files are currently empty stubs** — new tests use `django.test.TestCase`.
+- **Tests** live in `gamma/<app>/tests.py` (`shop` покрыт, остальные — пустые стабы) — new tests use `django.test.TestCase`.
 - **Test deps** include Flake8 + 15 plugins; formatter is Black only.
 - **`.env` contains live secrets** — never commit or expose it.

@@ -3112,8 +3112,29 @@ body {
     display: block;
 }
 
-.yoomoney-logo {
-    height: 28px;
+/* Иконки методов оплаты: одинаковая ширина обёрток, чтобы текст
+   во всех строках начинался вровень. */
+.payment-method-icon-wrapper.mir-logo-wrapper,
+.payment-method-icon-wrapper.sbp-logo-wrapper,
+.payment-method-icon-wrapper.crypto-badge {
+    width: 60px;
+    flex-shrink: 0;
+}
+.payment-method-icon-wrapper.mir-logo-wrapper {
+    background-color: transparent;
+    width: auto;
+    padding: 0 4px;
+}
+
+.payment-method-item.selected .payment-method-icon-wrapper.mir-logo-wrapper {
+    background-color: transparent;
+}
+
+.mir-logo {
+    width: 52px;
+    height: auto;
+    display: block;
+    flex-shrink: 0;
 }
 
 /* Brand badges keep their own colors regardless of selected state */

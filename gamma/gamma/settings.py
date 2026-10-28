@@ -295,11 +295,15 @@ PLATEGA_AUTOPAYOUT_COOLDOWN_MIN = _env_int(
     60,
 )
 
-# Комиссии провайдеров (доля от суммы, для расчёта чистого дохода)
+# Комиссии провайдеров (доля от суммы, для расчёта чистого дохода).
+# YooMoney отключён (счёт заблокирован), карты идут через Platega.
 YOOMONEY_FEE_RATE = float(os.getenv("YOOMONEY_FEE_RATE", "0.03"))
 PLATEGA_FEE_RATE = float(os.getenv("PLATEGA_FEE_RATE", "0.04"))
+PLATEGA_CARD_FEE_RATE = _env_float("PLATEGA_CARD_FEE_RATE", 0.05)
 # Бонус к балансу за пополнение через СБП/крипту, % от суммы платежа.
 TOPUP_BONUS_PERCENT = _env_float("TOPUP_BONUS_PERCENT", 4.0)
+# Бонус к балансу за пополнение картой через Platega, %.
+TOPUP_CARD_BONUS_PERCENT = _env_float("TOPUP_CARD_BONUS_PERCENT", 5.0)
 # Лимиты разового пополнения баланса, ₽.
 TOPUP_MIN_AMOUNT = _env_int("TOPUP_MIN_AMOUNT", 10)
 TOPUP_MAX_AMOUNT = _env_int("TOPUP_MAX_AMOUNT", 100000)

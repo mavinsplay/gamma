@@ -77,6 +77,7 @@ class Platega:
         return_url: str = None,
         failed_url: str = None,
         payload: str = None,
+        metadata: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         """
         Create a new payment
@@ -89,6 +90,7 @@ class Platega:
             return_url: Success redirect URL
             failed_url: Failed redirect URL
             payload: Custom payload data (e.g., order ID)
+            metadata: Payer metadata (e.g., {"userId": ...}) for antifraud
 
         Returns:
             dict: Response data with keys:
@@ -120,6 +122,9 @@ class Platega:
 
         if payload:
             data["payload"] = str(payload)
+
+        if metadata:
+            data["metadata"] = dict(metadata)
 
         return self._request("POST", "/transaction/process", data)
 

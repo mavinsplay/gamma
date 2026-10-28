@@ -58,7 +58,9 @@ jobs:
       - name: Run Django migrations and tests
         run: |
           python gamma/manage.py migrate
-          python gamma/manage.py test
+          # Явные лейблы приложений: голый `test` находит 0 тестов,
+          # т.к. unittest-discovery не спускается в gamma/ без __init__.py.
+          python gamma/manage.py test shop user connect settings
         env:
           DJANGO_DATABASE_SELECT: sqlite3
           DJANGO_ALLOW_CAPTCHA: 0

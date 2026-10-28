@@ -638,9 +638,9 @@ document.addEventListener('DOMContentLoaded', () => {
     modalAmountInput.addEventListener('input', clearModalInputError);
 
     function showPaymentMethodPicker(amount) {
-        let selectedMethod = 'yoomoney';
-        const bonuses = window._topupBonuses || {card: 0, sbp: 4, crypto: 4};
-        const methodBonus = (m) => Number((bonuses[m === 'yoomoney' ? 'card' : m]) || 0);
+        let selectedMethod = 'card';
+        const bonuses = window._topupBonuses || {card: 5, sbp: 4, crypto: 4};
+        const methodBonus = (m) => Number((bonuses[m]) || 0);
         const bonusPill = (m) => {
             const pct = methodBonus(m);
             if (!(pct > 0)) return '';
@@ -656,15 +656,20 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         const html = `
             <div class="payment-methods-list">
-                <div class="payment-method-item selected bounce" data-method="yoomoney">
-                    <div class="payment-method-icon-wrapper">
-                        <svg class="pm-brand-icon yoomoney-logo" viewBox="0 0 1000 700" aria-label="ЮMoney" xmlns="http://www.w3.org/2000/svg">
-                            <path fill="#8B3FFD" fill-rule="evenodd" clip-rule="evenodd" d="M288.3,349c0.5-192.3,158-349,355.9-349c195.9,0,358.1,157.3,355.8,350c0,192.7-159.9,350-355.8,350C448.4,700,288.7,545.4,288.3,349.9V610.4H162.2L0,101.9h288.3V349zM511.2,350c0,70.9,60.8,130.7,132.9,130.7c74.3,0,132.9-59.8,132.9-130.7c0-70.9-60.8-130.7-132.9-130.7C572.1,219.3,511.2,279.1,511.2,350z"/>
+                <div class="payment-method-item selected bounce" data-method="card">
+                    <div class="payment-method-icon-wrapper mir-logo-wrapper">
+                        <svg class="mir-logo" viewBox="0 0 400 120" aria-label="МИР" xmlns="http://www.w3.org/2000/svg">
+                            <linearGradient id="mirGrad" x1="370" x2="290" gradientUnits="userSpaceOnUse">
+                                <stop stop-color="#1F5CD7"/>
+                                <stop stop-color="#02AEFF" offset="1"/>
+                            </linearGradient>
+                            <path d="m31 13h33c3 0 12-1 16 13 3 9 7 23 13 44h2c6-22 11-37 13-44 4-14 14-13 18-13h31v96h-32v-57h-2l-17 57h-24l-17-57h-3v57h-31m139-96h32v57h3l21-47c4-9 13-10 13-10h30v96h-32v-57h-2l-21 47c-4 9-14 10-14 10h-30m142-29v29h-30v-50h98c-4 12-18 21-34 21" fill="#0f754e"/>
+                            <path d="m382 53c4-18-8-40-34-40h-68c2 21 20 40 39 40" fill="url(#mirGrad)"/>
                         </svg>
                     </div>
                     <div class="payment-method-info">
                         <div class="payment-method-title">По карте</div>
-                        <div class="payment-method-desc">Российские карты (ЮМани)</div>
+                        <div class="payment-method-desc">Российские карты · МИР (Platega)${bonusPill('card')}</div>
                     </div>
                     <div class="payment-method-check">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -843,7 +848,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 orderId: orderId,
                 amount: amount,
                 paymentUrl: paymentUrl,
-                paymentProvider: paymentProvider || 'yoomoney',
+                paymentProvider: paymentProvider || 'card',
                 expiresAt: expiresAt
             }));
         } catch (e) {}
@@ -980,7 +985,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function performTopup(amount, paymentMethod = 'yoomoney') {
+    async function performTopup(amount, paymentMethod = 'card') {
         // Keep the picker open synchronously (before any await) so the modal
         // wrapper doesn't auto-close it while we await the fetch in dev mode.
         if (typeof IS_DEBUG !== 'undefined' && IS_DEBUG) {
@@ -3660,7 +3665,6 @@ document.addEventListener('DOMContentLoaded', () => {
             { key: 'refund', label: 'Возвраты', color: '#FF9F0A', get: (p) => p.refund || 0 },
             { key: 'servers', label: 'Серверы', color: '#EF5350', get: (p) => p.servers || 0 },
             { key: 'ledger', label: 'Внеплановые', color: '#4CAF50', get: (p) => p.ledger || 0 },
-            { key: 'wallet', label: 'Кошелёк', color: '#2DD4BF', dashed: true, get: (p) => p.wallet || 0 },
         ];
     }
 
@@ -3691,7 +3695,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 ${legend('refund', 'Возвраты', '#FF9F0A', period.refunds || 0)}
                 ${legend('servers', 'Серверы', '#EF5350', serversTotal)}
                 ${legend('ledger', 'Внеплановые', '#4CAF50', ledgerTotal)}
-                ${legend('wallet', 'Кошелёк', '#2DD4BF', (stats.yoomoney && stats.yoomoney.total) || 0)}
             </div>
             <div id="billing-chart-wrap" style="position: relative; margin-top: 4px;">
                 ${billingChartSvg(timeline, series, hidden, mode)}
@@ -3952,7 +3955,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div id="billing-period-pills" style="display: flex; gap: 8px;">${pills}</div>
                 <div class="billing-channels">
                     <div class="billing-channel" style="background: rgba(208,188,255,0.07);">
-                        <div class="billing-channel-head"><span class="material-symbols-rounded">credit_card</span>Карты · −3%</div>
+                        <div class="billing-channel-head"><span class="material-symbols-rounded">credit_card</span>Карты · −5%</div>
                         <div class="billing-channel-sum">${fmtRub(card.net)}</div>
                         <div class="billing-channel-sub">${card.count} пл. · ${fmtRub(card.gross)}</div>
                     </div>
@@ -3980,10 +3983,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const balances = Array.isArray(data.balances) ? data.balances : [];
         const rub = balances.find(b => (b.currency || '').toUpperCase() === 'RUB');
         const usdt = balances.find(b => (b.currency || '').toUpperCase() === 'USDT');
-        const yo = (data.stats && data.stats.yoomoney) || {};
-        const yoBalance = (yo.error || yo.balance == null) ? null : Number(yo.balance);
-        // Доступно = USDT доступно (amount минус «в процессе») × курс + кошелёк.
-        // RUB-баланс — деньги НА холде, в итог не входит.
+        // Итого доступно = RUB-баланс (деньги на холде) + USDT доступно × курс.
         // Бэкенд присылает готовый разбор (usdt_available/_in_process),
         // для старых ответов — fallback на amount − frozenBalance.
         const usdRate = Number(data.usd_rub_rate || 0);
@@ -3992,19 +3992,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const usdtAvail = (data.usdt_available != null) ? Number(data.usdt_available || 0) : Math.max(0, usdtTotal - usdtFrozen);
         const usdtProcess = (data.usdt_in_process != null) ? Number(data.usdt_in_process || 0) : Math.max(0, usdtTotal - usdtAvail);
         const usdtRub = Math.floor(usdtAvail * usdRate);
-        const combinedTotal = usdtRub + (yoBalance || 0);
+        const rubTotal = rub ? Number(rub.amount || 0) : 0;
+        const combinedTotal = Math.floor(rubTotal + usdtRub);
         const rubFrozen = rub ? Number(rub.frozenBalance || 0) : 0;
         const yoRow = `
-            ${yo.error
-                ? `<div style="font-size: 12px; opacity: 0.55; text-align: center; background: rgba(255,255,255,0.04); border-radius: 14px; padding: 12px;">Кошелёк ЮMoney недоступен</div>`
-                : `<div style="display: flex; align-items: center; gap: 10px; background: rgba(208,188,255,0.07); border-radius: 14px; padding: 12px;">
-                    <span class="material-symbols-rounded" style="font-size: 20px; color: var(--md-sys-color-primary);">account_balance</span>
-                    <div style="flex: 1; min-width: 0;">
-                        <div style="font-size: 14px; font-weight: 600;">ЮMoney · ${escapeHtml(yo.account_masked || '')}</div>
-                        <div style="font-size: 11px; opacity: 0.55;">кошелёк</div>
-                    </div>
-                    <div style="font-size: 17px; font-weight: 700; white-space: nowrap;">${fmtRub(yoBalance)}</div>
-                </div>`}
             <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(76,175,80,0.08); border-radius: 14px; padding: 12px;">
                 <div style="font-size: 12px; opacity: 0.65; text-transform: uppercase; letter-spacing: 0.5px;">Итого доступно</div>
                 <div style="font-size: 19px; font-weight: 700; color: #4CAF50;">${fmtRub(combinedTotal)}</div>
@@ -5217,7 +5208,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     orderId: pp.order_id,
                     amount: pp.amount,
                     paymentUrl: pp.payment_url,
-                    paymentProvider: pp.payment_provider || 'yoomoney',
+                    paymentProvider: pp.payment_provider || 'card',
                     expiresAt: new Date(pp.expires_at).getTime()
                 }));
             } catch (e) {}
