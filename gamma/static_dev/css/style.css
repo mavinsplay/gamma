@@ -3080,6 +3080,17 @@ body {
     border-color: var(--md-sys-color-primary);
 }
 
+/* Временно недоступный метод: серый, не кликается. */
+.payment-method-item.disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.payment-method-item.disabled:hover {
+    background-color: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
 .payment-method-icon-wrapper {
     display: flex;
     align-items: center;

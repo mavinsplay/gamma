@@ -638,7 +638,7 @@ document.addEventListener('DOMContentLoaded', () => {
     modalAmountInput.addEventListener('input', clearModalInputError);
 
     function showPaymentMethodPicker(amount) {
-        let selectedMethod = 'card';
+        let selectedMethod = 'sbp';
         const bonuses = window._topupBonuses || {card: 5, sbp: 4, crypto: 4};
         const methodBonus = (m) => Number((bonuses[m]) || 0);
         const bonusPill = (m) => {
@@ -656,7 +656,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         const html = `
             <div class="payment-methods-list">
-                <div class="payment-method-item selected bounce" data-method="card">
+                <div class="payment-method-item bounce disabled" data-method="card">
                     <div class="payment-method-icon-wrapper mir-logo-wrapper">
                         <svg class="mir-logo" viewBox="0 0 400 120" aria-label="МИР" xmlns="http://www.w3.org/2000/svg">
                             <linearGradient id="mirGrad" x1="370" x2="290" gradientUnits="userSpaceOnUse">
@@ -669,7 +669,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="payment-method-info">
                         <div class="payment-method-title">По карте</div>
-                        <div class="payment-method-desc">Российские карты · МИР (Platega)${bonusPill('card')}</div>
+                        <div class="payment-method-desc">Российские карты · МИР (Platega)<br><span style="display: inline-block; margin-top: 4px; font-size: 11px; font-weight: 700; color: #9E9E9E; background: rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 2px 8px;">Недоступно</span></div>
                     </div>
                     <div class="payment-method-check">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -677,7 +677,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </svg>
                     </div>
                 </div>
-                <div class="payment-method-item bounce" data-method="sbp">
+                <div class="payment-method-item selected bounce" data-method="sbp">
                     <div class="payment-method-icon-wrapper sbp-logo-wrapper">
                         <svg class="sbp-logo" viewBox="0 0 345.5 398.9" aria-label="СБП" xmlns="http://www.w3.org/2000/svg">
                             <path fill="#8F4794" d="M100.3,199.4l-52,30L0,313.1l196.9-113.7L100.3,199.4z"/>
@@ -730,6 +730,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const items = document.querySelectorAll('.payment-method-item');
             items.forEach(item => {
                 item.onclick = () => {
+                    if (item.classList.contains('disabled')) return;
                     items.forEach(i => i.classList.remove('selected'));
                     item.classList.add('selected');
                     selectedMethod = item.getAttribute('data-method');
