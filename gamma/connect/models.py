@@ -78,3 +78,42 @@ class NodeStatus(models.Model):
 
     def __str__(self):
         return f"Node {self.node_id}: {self.status_text}"
+
+
+class ProxyCheckStatus(models.Model):
+    """Состояние конфига Xray Checker для алертов админу.
+
+    Ключ — stableId конфига (16-hex из /api/v1/proxies), не путать
+    с node_id Remnawave. Строка создаётся при первом опросе без алерта,
+    дальше бот шлёт OFFLINE/ONLINE только на переходах (защита от спама
+    — last_alert_sent).
+    """
+
+    stable_id = models.CharField(
+        max_length=255,
+        unique=True,
+        verbose_name="Stable ID конфига",
+    )
+    last_known_online = models.BooleanField(
+        null=True,
+        blank=True,
+        verbose_name="Последнее известное состояние (онлайн)",
+    )
+    last_alert_sent = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        verbose_name="Последнее отправленное уведомление",
+    )
+    notifications_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Уведомления включены",
+        help_text="Тумблер на вкладке «Подключение» (админ)",
+    )
+
+    class Meta:
+        verbose_name = "Статус конфига"
+        verbose_name_plural = "Статусы конфигов"
+
+    def __str__(self):
+        return f"Proxy {self.stable_id}: {self.last_known_online}"

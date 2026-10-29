@@ -2249,6 +2249,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    window.toggleCheckerNotifications = async (stableId, el) => {
+        const tg = window.Telegram?.WebApp;
+        try {
+            const formData = new FormData();
+            formData.append('stable_id', stableId);
+            formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+            if (tg?.initData) {
+                formData.append('init_data', tg.initData);
+            }
+            const response = await fetch('/connect/proxy-notifications-api/', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            if (response.ok && data.success) {
+                const on = !!data.notifications_enabled;
+                el.textContent = on ? 'notifications' : 'notifications_off';
+                el.style.opacity = on ? '0.7' : '0.3';
+                el.title = on ? 'Выключить уведомления' : 'Включить уведомления';
+            }
+        } catch (e) {
+            console.error('Failed to toggle proxy notifications:', e);
+        }
+    };
+
     window.handleSetNodeStatus = (nodeId, nodeDataStr) => {
         const node = JSON.parse(decodeURIComponent(nodeDataStr));
         const tg = window.Telegram?.WebApp;
@@ -3121,6 +3146,81 @@ document.addEventListener('DOMContentLoaded', () => {
                 nodesContainer.innerHTML = nodesHtml;
             } else {
                 console.warn('Sync nodes error or empty while error flag set, keeping previous list');
+            }
+        }
+
+        // Admin: мониторинг конфигов Xray Checker (вся подписка).
+        const checkerContainer = document.getElementById('checker-list-container');
+        if (checkerContainer) {
+            const checkerProxies = (data.is_admin && Array.isArray(data.checker_proxies)) ? data.checker_proxies : [];
+            if (checkerProxies.length > 0) {
+                const onlineCount = checkerProxies.filter(p => p.online).length;
+                const pings = checkerProxies.map(p => p.latencyMs).filter(v => typeof v === 'number');
+                const avgPing = pings.length ? Math.round(pings.reduce((a, b) => a + b, 0) / pings.length) : null;
+
+                let checkerHtml = `
+                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 12px; margin-bottom: -4px;">
+                        <h3 style="color: var(--md-sys-color-primary); font-weight: 500; font-size: 14px; opacity: 0.8; letter-spacing: 0.5px; text-transform: uppercase; margin: 0;">Мониторинг</h3>
+                        <div style="display: flex; gap: 10px; font-size: 11px; opacity: 0.6; color: var(--md-sys-color-on-surface);">
+                            <span style="display: flex; align-items: center; gap: 4px;">
+                                <span style="width: 6px; height: 6px; border-radius: 50%; background: ${onlineCount === checkerProxies.length ? '#4CAF50' : '#F44336'};"></span>
+                                <span>${onlineCount}/${checkerProxies.length} онлайн${avgPing !== null ? ` · ~${avgPing} мс` : ''}</span>
+                            </span>
+                        </div>
+                    </div>`;
+
+                checkerProxies.forEach(p => {
+                    const dot = p.online ? '#4CAF50' : '#F44336';
+                    const stateText = p.online ? 'Онлайн' : 'Офлайн';
+                    const hasPing = (typeof p.latencyMs === 'number');
+                    const pingBig = hasPing ? `${p.latencyMs}` : '—';
+                    const notifyOn = p.notificationsEnabled !== false;
+                    const bellIcon = notifyOn ? 'notifications' : 'notifications_off';
+                    let checked = '—';
+                    if (p.lastCheck) {
+                        const d = new Date(p.lastCheck * 1000);
+                        if (!isNaN(d)) {
+                            checked = d.toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
+                        }
+                    }
+                    const sub = [p.groupName, p.location].filter(Boolean).join(' · ') || (p.subName || '');
+                    const subLine = [sub, `пров. ${checked}`].filter(Boolean).join(' · ');
+                    checkerHtml += `
+                        <div class="server-selector bounce" style="margin-top: 10px; opacity: ${p.online ? '1' : '0.75'};">
+                            <div class="server-info" style="flex: 1; min-width: 0;">
+                                <div class="server-icon-wrapper">
+                                    ${p.countryCode ? `
+                                        <img src="${IS_DEBUG ? 'https://flagcdn.com/w80/' : '/tg-flags/w80/'}${escapeHtml(p.countryCode.toLowerCase())}.png"
+                                             class="flag-img"
+                                             alt="${escapeHtml(p.countryCode)}">
+                                    ` : `
+                                        <span style="width: 10px; height: 10px; border-radius: 50%; background: ${dot}; box-shadow: 0 0 8px ${dot}; flex-shrink: 0;"></span>
+                                    `}
+                                </div>
+                                <div class="server-details" style="flex: 1; min-width: 0;">
+                                    <span class="server-name">${escapeHtml(p.displayName || p.name || p.stableId)}
+                                        <span style="display: inline-block; vertical-align: middle; margin-left: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; color: var(--md-sys-color-primary); background: rgba(208, 188, 255, 0.12); border-radius: 6px; padding: 1px 6px;">${escapeHtml((p.protocol || '').toUpperCase() || '—')}</span>
+                                    </span>
+                                    <span class="server-ping" style="font-family: monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(p.address || '—')}</span>
+                                    ${subLine ? `<span class="server-ping" style="font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(subLine)}</span>` : ''}
+                                </div>
+                            </div>
+                            <div style="text-align: right; flex-shrink: 0; margin-left: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+                                <div style="font-size: 18px; font-weight: 700; line-height: 1.1;">${escapeHtml(pingBig)}${hasPing ? '<span style="font-size: 11px; font-weight: 500; opacity: 0.6;"> мс</span>' : ''}</div>
+                                <div style="font-size: 11px; color: ${dot}; font-weight: 500; margin-top: 2px;">${stateText}</div>
+                                <span class="material-symbols-rounded" style="font-size: 17px; opacity: ${notifyOn ? '0.7' : '0.3'}; cursor: pointer; margin-top: 2px;" title="${notifyOn ? 'Выключить уведомления' : 'Включить уведомления'}" onclick="event.stopPropagation(); toggleCheckerNotifications('${escapeJsAttr(p.stableId)}', this)">${bellIcon}</span>
+                            </div>
+                        </div>`;
+                });
+
+                checkerContainer.innerHTML = checkerHtml;
+                checkerContainer.style.display = 'block';
+            } else if (data.is_admin && data.checker_error && data.checker_error !== 'disabled') {
+                checkerContainer.innerHTML = `
+                    <div style="margin-top: 12px; font-size: 12px; opacity: 0.55; text-align: center; background: rgba(255,255,255,0.04); border-radius: 14px; padding: 12px;">Мониторинг конфигов недоступен</div>`;
+                checkerContainer.style.display = 'block';
+            } else {
+                checkerContainer.style.display = 'none';
             }
         }
 

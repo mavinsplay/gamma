@@ -34,6 +34,11 @@ REMNAWAVE_SECRET_VALUE = os.getenv("REMNAWAVE_SECRET_VALUE", "")
 # 3.x за Caddy: API-ключ в заголовке X-Api-Key. Оставлен опциональным,
 # старый Bearer + cookie для 2.x продолжают работать.
 REMNAWAVE_API_KEY = os.getenv("REMNAWAVE_API_KEY", "")
+# Xray Checker: мониторинг конфигов в подписке (онлайн/пинг/адреса).
+# Пустой URL — интеграция выключена: ни опросов, ни алертов, ни блока.
+XRAY_CHECKER_URL = os.getenv("XRAY_CHECKER_URL", "").rstrip("/")
+XRAY_CHECKER_USER = os.getenv("XRAY_CHECKER_USER", "")
+XRAY_CHECKER_PASSWORD = os.getenv("XRAY_CHECKER_PASSWORD", "")
 WHITELIST_EXTERNAL_SQUAD_UUID = os.getenv(
     "WHITELIST_EXTERNAL_SQUAD_UUID",
     "68fce704-b469-43f4-afc9-8a38a5c8b851",

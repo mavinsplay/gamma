@@ -7,7 +7,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from connect.models import NodeStatus
+from connect.models import NodeStatus, ProxyCheckStatus
 from shop.utils import verify_telegram_init_data
 
 __all__ = ()
@@ -62,6 +62,56 @@ def set_node_status_api(request):
     )
 
     return JsonResponse({"success": True})
+
+
+@csrf_exempt
+@require_POST
+def toggle_proxy_notifications_api(request):
+    """Тумблер алертов по одному конфигу чекера. Только админ."""
+    init_data = request.POST.get("init_data")
+    is_valid, tg_user = verify_telegram_init_data(init_data)
+
+    if is_valid:
+        telegram_id = tg_user.get("id")
+    elif "tg_user" in request.session:
+        telegram_id = request.session["tg_user"]["id"]
+    elif settings.DEBUG:
+        mock = settings.MOCK_TELEGRAM_USER_DATA
+        if not mock:
+            return JsonResponse(
+                {"error": "No mock data configured"},
+                status=400,
+            )
+
+        telegram_id = mock.get("id")
+    else:
+        return JsonResponse({"error": "Invalid auth"}, status=403)
+
+    if str(telegram_id) != str(settings.ADMIN_TELEGRAM_ID):
+        return JsonResponse(
+            {"success": False, "error": "Unauthorized"},
+            status=403,
+        )
+
+    stable_id = (request.POST.get("stable_id") or "").strip()
+    if not stable_id:
+        return JsonResponse(
+            {"success": False, "error": "stable_id required"},
+            status=400,
+        )
+
+    status, _ = ProxyCheckStatus.objects.get_or_create(
+        stable_id=stable_id,
+    )
+    status.notifications_enabled = not status.notifications_enabled
+    status.save(update_fields=["notifications_enabled"])
+
+    return JsonResponse(
+        {
+            "success": True,
+            "notifications_enabled": status.notifications_enabled,
+        },
+    )
 
 
 APP_SCHEMES = {"incy": "incy://add/", "happ": "happ://add/"}

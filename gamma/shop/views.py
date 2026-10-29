@@ -1941,6 +1941,30 @@ def sync_data_api(request):
 
         is_admin = str(telegram_id) == str(settings.ADMIN_TELEGRAM_ID)
 
+        # Xray Checker: полные данные конфигов (с адресами) — только админу.
+        checker_proxies = []
+        checker_error = None
+        if is_admin:
+            from connect.models import ProxyCheckStatus
+            from connect.services.xray_checker import get_checker_proxies
+
+            try:
+                checker_proxies, checker_error = get_checker_proxies()
+            except Exception as e:
+                logger.warning(f"[xray-checker] sync fetch failed: {e}")
+                checker_error = "api_error"
+
+            if checker_proxies:
+                muted = set(
+                    ProxyCheckStatus.objects.filter(
+                        notifications_enabled=False,
+                    ).values_list("stable_id", flat=True),
+                )
+                for proxy in checker_proxies:
+                    proxy["notificationsEnabled"] = (
+                        proxy.get("stableId") not in muted
+                    )
+
         from connect.models import NodeStatus
 
         pending_order = (
@@ -2050,6 +2074,8 @@ def sync_data_api(request):
             "hwid_devices": hwid_devices,
             "nodes": nodes_data,
             "nodes_error": nodes_error,
+            "checker_proxies": checker_proxies if is_admin else [],
+            "checker_error": checker_error if is_admin else None,
             "rw_error": rw_error,
             "hwid_error": hwid_error,
             "wl_error": wl_error,

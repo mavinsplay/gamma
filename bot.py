@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
+import html
 import logging
 import os
 from pathlib import Path
@@ -29,6 +30,10 @@ from dotenv import load_dotenv  # noqa: E402
 django.setup()
 
 from connect.services.remnawave import RemnawaveClient  # noqa: E402
+from connect.services.xray_checker import (  # noqa: E402
+    get_checker_proxies,
+    is_checker_configured,
+)
 from user.models import Profile  # noqa: E402
 
 __all__ = ()
@@ -566,6 +571,77 @@ async def check_and_notify_nodes(raw_nodes, admin_id):
             await sync_to_async(node_status.save)()
 
 
+def _proxy_check_time(last_check):
+    if not last_check:
+        return "—"
+
+    try:
+        dt = datetime.fromtimestamp(int(last_check), tz=timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return "—"
+
+    return dt.strftime("%d.%m %H:%M UTC")
+
+
+async def check_and_notify_proxies(proxies, admin_id):
+    """Алерты админу о падениях/восстановлениях конфигов Xray Checker.
+
+    Переходы определяет collect_proxy_events, здесь — только тексты
+    и отправка. Пометка last_alert_sent ставится после успешной
+    отправки, чтобы при ошибке алерт повторился.
+    """
+    from connect.services.proxy_alerts import (
+        collect_proxy_events,
+        get_muted_proxy_ids,
+        mark_proxy_alert_sent,
+    )
+
+    events = await sync_to_async(collect_proxy_events)(proxies or [])
+    muted = await sync_to_async(get_muted_proxy_ids)()
+
+    for kind, proxy in events:
+        stable_id = str(proxy.get("stableId") or "")
+        if not stable_id:
+            continue
+
+        if stable_id in muted:
+            await sync_to_async(mark_proxy_alert_sent)(stable_id, kind)
+            continue
+
+        name = html.escape(str(proxy.get("name") or stable_id[:8]))
+        protocol = html.escape(str(proxy.get("protocol") or "—").upper())
+        address = html.escape(str(proxy.get("address") or "—"))
+        latency = proxy.get("latencyMs")
+        latency_text = f"{latency} мс" if latency is not None else "—"
+
+        if kind == "OFFLINE":
+            msg = (
+                "🔴 <b>Конфиг отвалился!</b>\n\n"
+                f"🧩 <b>Конфиг:</b> {name}\n"
+                f"📡 <b>Протокол:</b> {protocol}\n"
+                f"🌐 <b>Адрес:</b> <code>{address}</code>\n"
+                f"📶 <b>Был пинг:</b> {latency_text}\n"
+                f"🕒 <b>Проверка:</b> "
+                f"{_proxy_check_time(proxy.get('lastCheck'))}"
+            )
+        else:
+            msg = (
+                "🟢 <b>Конфиг снова в строю!</b>\n\n"
+                f"🧩 <b>Конфиг:</b> {name}\n"
+                f"📡 <b>Протокол:</b> {protocol}\n"
+                f"🌐 <b>Адрес:</b> <code>{address}</code>\n"
+                f"📶 <b>Пинг:</b> {latency_text}"
+            )
+
+        try:
+            await bot.send_message(admin_id, msg, parse_mode="HTML")
+            await sync_to_async(mark_proxy_alert_sent)(stable_id, kind)
+        except Exception as e:
+            logging.error(
+                f"Failed to send proxy {kind.lower()} alert to admin: {e}",
+            )
+
+
 async def node_monitoring_task():
     while True:
         try:
@@ -585,6 +661,28 @@ async def node_monitoring_task():
                             await check_and_notify_nodes(raw_nodes, admin_id)
                     finally:
                         await client.close()
+
+                    # Конфиги Xray Checker: тот же гейт уведомлений.
+                    # Ошибка чекера не должна ронять мониторинг нод.
+                    if is_checker_configured():
+                        try:
+                            proxies, error = await sync_to_async(
+                                get_checker_proxies,
+                            )()
+                            if error and error != "disabled":
+                                logging.warning(
+                                    "Xray checker poll failed: %s",
+                                    error,
+                                )
+                            elif isinstance(proxies, list):
+                                await check_and_notify_proxies(
+                                    proxies,
+                                    admin_id,
+                                )
+                        except Exception as e:
+                            logging.error(
+                                f"Error in proxy monitoring task: {e}",
+                            )
         except Exception as e:
             logging.error(f"Error in node monitoring task: {e}")
 

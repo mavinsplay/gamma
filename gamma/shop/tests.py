@@ -8,7 +8,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.test import Client, TestCase, TransactionTestCase
+from django.test import (
+    Client,
+    override_settings,
+    TestCase,
+    TransactionTestCase,
+)
 from django.urls import reverse
 
 from shop.models import Order, Tariff
@@ -232,6 +237,112 @@ class PaymentTests(TestCase):
         self.assertEqual(order.status, "PENDING")
 
         settings.DEBUG = False
+
+    @override_settings(ADMIN_TELEGRAM_ID=12345)
+    @patch("connect.services.xray_checker.get_checker_proxies")
+    @patch("shop.views.RemnawaveClient")
+    @patch("shop.views.verify_telegram_init_data")
+    def test_sync_data_includes_checker_for_admin(
+        self,
+        mock_verify,
+        mock_client_class,
+        mock_checker,
+    ):
+        from django.core.cache import cache
+
+        cache.clear()
+        mock_verify.return_value = (
+            True,
+            {"id": 12345, "username": "testuser"},
+        )
+        mock_client = mock_client_class.return_value
+        mock_client.get_nodes = AsyncMock(return_value=[])
+        mock_client.get_user_by_tgid = AsyncMock(return_value=[])
+        mock_client.close = AsyncMock()
+        mock_checker.return_value = (
+            [
+                {
+                    "stableId": "a1b2c3d4e5f60718",
+                    "name": "DE-1",
+                    "protocol": "vless",
+                    "address": "203.0.113.10:443",
+                    "online": True,
+                    "latencyMs": 87,
+                    "lastCheck": 1751130000,
+                    "location": "Germany",
+                    "groupName": "",
+                    "subName": "",
+                },
+                {
+                    "stableId": "muted-1",
+                    "name": "FR-1",
+                    "protocol": "vless",
+                    "address": "203.0.113.20:443",
+                    "online": True,
+                    "latencyMs": 50,
+                    "lastCheck": 1751130000,
+                    "location": "",
+                    "groupName": "",
+                    "subName": "",
+                },
+            ],
+            None,
+        )
+
+        from connect.models import ProxyCheckStatus
+
+        ProxyCheckStatus.objects.create(
+            stable_id="muted-1",
+            notifications_enabled=False,
+        )
+
+        response = self.client.post(
+            reverse("sync_data_api"),
+            {"init_data": "mock_data"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["is_admin"])
+        self.assertIsNone(data["checker_error"])
+        self.assertEqual(len(data["checker_proxies"]), 2)
+        self.assertEqual(
+            data["checker_proxies"][0]["address"],
+            "203.0.113.10:443",
+        )
+        by_id = {p["stableId"]: p for p in data["checker_proxies"]}
+        self.assertTrue(by_id["a1b2c3d4e5f60718"]["notificationsEnabled"])
+        self.assertFalse(by_id["muted-1"]["notificationsEnabled"])
+
+    @patch("shop.views.RemnawaveClient")
+    @patch("shop.views.verify_telegram_init_data")
+    def test_sync_data_hides_checker_for_user(
+        self,
+        mock_verify,
+        mock_client_class,
+    ):
+        from django.core.cache import cache
+
+        cache.clear()
+        mock_verify.return_value = (
+            True,
+            {"id": 12345, "username": "testuser"},
+        )
+        mock_client = mock_client_class.return_value
+        mock_client.get_nodes = AsyncMock(return_value=[])
+        mock_client.get_user_by_tgid = AsyncMock(return_value=[])
+        mock_client.close = AsyncMock()
+
+        response = self.client.post(
+            reverse("sync_data_api"),
+            {"init_data": "mock_data"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["is_admin"])
+        self.assertEqual(data["checker_proxies"], [])
+        self.assertIsNone(data["checker_error"])
 
     @patch("shop.views.verify_telegram_init_data")
     def test_buy_tariff_insufficient_funds(self, mock_verify):
