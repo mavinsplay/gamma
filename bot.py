@@ -697,6 +697,7 @@ async def payout_worker_task():
     import time
 
     from shop.services.billing import get_autopayout_config
+    from shop.services.conversion_monitor import check_conversions
     from shop.services.payout_worker import process_payout_queue
 
     await asyncio.sleep(15)
@@ -717,8 +718,25 @@ async def payout_worker_task():
                     ADMIN_ID,
                     check_auto=do_auto,
                 )
+                # Serialized with payouts: both reuse the browser session.
+                await check_conversions()
         except Exception as e:
             logging.error(f"Error in payout worker task: {e}")
+
+        await asyncio.sleep(30)
+
+
+async def admin_notifications_task():
+    from shop.services.admin_notifications import send_pending_notifications
+
+    while True:
+        try:
+            await send_pending_notifications(bot, ADMIN_ID)
+        except Exception as error:
+            logging.error(
+                "Admin notification worker failed (%s)",
+                type(error).__name__,
+            )
 
         await asyncio.sleep(30)
 
@@ -727,6 +745,7 @@ async def main() -> None:
     logging.info("Бот успешно запущен и готов к работе!")
     asyncio.create_task(subscription_reminder_task())
     asyncio.create_task(payout_worker_task())
+    asyncio.create_task(admin_notifications_task())
     asyncio.create_task(node_monitoring_task())
 
     retry_delay = 5

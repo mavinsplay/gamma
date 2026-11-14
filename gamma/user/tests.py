@@ -127,9 +127,102 @@ class RemnawaveAdminServiceTests(TestCase):
         self.assertEqual(result["uuid"], "new-wl-uuid")
         client.create_user.assert_awaited_once()
         self.assertEqual(
+            client.create_user.await_args.kwargs["expire_at"],
+            "2020-01-01T00:00:00.000Z",
+        )
+        self.assertEqual(
+            client.create_user.await_args.kwargs["status"],
+            "DISABLED",
+        )
+        self.assertEqual(
             client.create_user.await_args.kwargs["activeinternalsquads"],
             ["wl-squad"],
         )
+
+    @patch("user.services.remnawave_admin.RemnawaveClient")
+    def test_repair_existing_whitelist_aligns_exact_expiry(self, client_class):
+        self.profile.tarif = self.tariff
+        client = client_class.return_value
+        main = {
+            "id": 10,
+            "username": "user",
+            "status": "ACTIVE",
+            "expireAt": "2030-04-12T11:23:45.123Z",
+        }
+        wl = {
+            "id": 11,
+            "username": "user_wl",
+            "expireAt": "2028-01-01T00:00:00Z",
+            "trafficLimitBytes": 15000000000,
+        }
+        client.get_user_by_tgid = AsyncMock(return_value={"users": [wl, main]})
+        client.update_user = AsyncMock(return_value=wl)
+        client.create_user = AsyncMock()
+        client.close = AsyncMock()
+        result = async_to_sync(ensure_whitelist_sync)(
+            self.profile,
+            self.tariff,
+        )
+        self.assertEqual(result["id"], 11)
+        self.assertEqual(
+            client.update_user.await_args.kwargs["expire_at"],
+            main["expireAt"],
+        )
+        self.assertNotIn(
+            "trafficlimitbytes",
+            client.update_user.await_args.kwargs,
+        )
+        client.create_user.assert_not_awaited()
+
+    @patch("user.services.remnawave_admin.RemnawaveClient")
+    def test_repair_failure_does_not_create_duplicate(self, client_class):
+        client = client_class.return_value
+        client.get_user_by_tgid = AsyncMock(
+            return_value=[
+                {
+                    "id": 10,
+                    "username": "user",
+                    "expireAt": "2030-01-01T00:00:00Z",
+                },
+                {"id": 11, "username": "user_wl"},
+            ],
+        )
+        client.update_user = AsyncMock(side_effect=ValueError("invalid squad"))
+        client.create_user = AsyncMock()
+        client.close = AsyncMock()
+        with self.assertRaises(ValueError):
+            async_to_sync(ensure_whitelist_sync)(self.profile, self.tariff)
+
+        client.create_user.assert_not_awaited()
+
+    @patch("user.services.remnawave_admin.RemnawaveClient")
+    def test_changing_days_eliminates_existing_expiry_difference(
+        self,
+        client_class,
+    ):
+        client = client_class.return_value
+        client.get_user_by_tgid = AsyncMock(
+            return_value=[
+                {
+                    "id": 10,
+                    "username": "user",
+                    "expireAt": "2030-05-01T10:00:00Z",
+                },
+                {
+                    "id": 11,
+                    "username": "user_wl",
+                    "expireAt": "2030-04-01T10:00:00Z",
+                },
+            ],
+        )
+        client.update_user = AsyncMock()
+        client.close = AsyncMock()
+        async_to_sync(change_subscription_days)(self.profile, 3)
+        expiries = [
+            call.kwargs["expire_at"]
+            for call in client.update_user.await_args_list
+        ]
+        self.assertEqual(expiries, ["2030-05-04T10:00:00Z"] * 2)
 
     @patch("user.services.remnawave_admin.RemnawaveClient")
     def test_all_statuses_use_one_users_request(self, client_class):

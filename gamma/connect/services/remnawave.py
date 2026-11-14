@@ -143,10 +143,12 @@ class RemnawaveClient:
         status: str = "ACTIVE",
         externalsquaduuid: str = None,
         trafficlimitstrategy: str = "NO_RESET",
+        expire_at=None,
     ):
         expire_at = (
-            datetime.utcnow() + timedelta(days=days)
-        ).isoformat() + "Z"
+            expire_at
+            or (datetime.utcnow() + timedelta(days=days)).isoformat() + "Z"
+        )
 
         payload = {
             "username": username,
@@ -160,6 +162,9 @@ class RemnawaveClient:
             "externalSquadUuid": externalsquaduuid,
         }
 
+        payload = {
+            key: value for key, value in payload.items() if value is not None
+        }
         response = await self.http_client.post("users", json=payload)
         response.raise_for_status()
         return response.json().get("response", {})
@@ -177,90 +182,54 @@ class RemnawaveClient:
         externalsquaduuid: str = None,
         trafficlimitstrategy: str = None,
     ):
-        # Fetch current user to merge data
+        # PATCH only explicit changes. Read-only statuses (EXPIRED/LIMITED)
+        # and legacy metadata must never be echoed back to the API.
         current_user = await self.get_user(uuid)
-
-        # Extract activeInternalSquads UUIDs if they are dictionaries
-        squads = current_user.get("activeInternalSquads", [])
-        squad_uuids = (
-            activeinternalsquads
-            if activeinternalsquads is not None
-            else [s.get("uuid") if isinstance(s, dict) else s for s in squads]
-        )
-
-        merged = {
-            "username": (
-                username
-                if username is not None
-                else current_user.get("username", "")
-            ),
-            "status": (
-                status
-                if status is not None
-                else current_user.get("status", "ACTIVE")
-            ),
-            "trafficLimitBytes": (
-                trafficlimitbytes
-                if trafficlimitbytes is not None
-                else current_user.get("trafficLimitBytes", 0)
-            ),
-            "trafficLimitStrategy": (
-                trafficlimitstrategy
-                if trafficlimitstrategy is not None
-                else current_user.get("trafficLimitStrategy", "NO_RESET")
-            ),
-            "expireAt": (
-                expire_at
-                if expire_at is not None
-                else current_user.get("expireAt", "")
-            ),
-            "description": current_user.get("description"),
-            "tag": current_user.get("tag", ""),
-            "telegramId": (
-                telegramid
-                if telegramid is not None
-                else current_user.get("telegramId")
-            ),
-            "email": current_user.get("email"),
-            "hwidDeviceLimit": (
-                hwiddevicelimit
-                if hwiddevicelimit is not None
-                else current_user.get("hwidDeviceLimit", 0)
-            ),
-            "activeInternalSquads": squad_uuids,
-            "externalSquadUuid": (
-                externalsquaduuid
-                if externalsquaduuid is not None
-                else current_user.get("externalSquadUuid")
-            ),
+        changes = {
+            "expireAt": expire_at,
+            "trafficLimitBytes": trafficlimitbytes,
+            "hwidDeviceLimit": hwiddevicelimit,
+            "telegramId": telegramid,
+            "status": status,
+            "activeInternalSquads": activeinternalsquads,
+            "externalSquadUuid": externalsquaduuid,
+            "trafficLimitStrategy": trafficlimitstrategy,
         }
-
-        numeric_id = (
-            current_user.get("id") if isinstance(current_user, dict) else None
-        )
-        # 3.x-first (numeric id), 2.x-fallback (uuid string).
+        changes = {k: v for k, v in changes.items() if v is not None}
+        numeric_id = current_user.get("id")
+        legacy_uuid = current_user.get("uuid")
         attempts = []
         if _is_numeric_id(numeric_id):
-            attempts.append({"id": int(str(numeric_id)), **merged})
+            # v3 treats username as an alternative identifier, not a rename.
+            if username is not None and username != current_user.get(
+                "username",
+            ):
+                raise ValueError("Renaming users is not supported by API v3")
 
-        attempts.append({"uuid": user_ref(current_user) or uuid, **merged})
-        last_error = None
-        for payload in attempts:
-            try:
-                response = await self.http_client.patch("users", json=payload)
-                response.raise_for_status()
-                return response.json().get("response", {})
-            except Exception as e:
-                last_error = e
-                status_code = getattr(
-                    getattr(e, "response", None),
-                    "status_code",
-                    None,
-                )
-                if status_code not in (None, 400, 404, 405, 422):
-                    raise
+            attempts.append({"id": int(str(numeric_id)), **changes})
 
-        raise last_error
+        if legacy_uuid:
+            legacy = {"uuid": legacy_uuid, **changes}
+            if username is not None:
+                legacy["username"] = username
+
+            attempts.append(legacy)
+
+        if not attempts:
+            raise ValueError("Remnawave returned no user id or uuid")
+
+        for index, payload in enumerate(attempts):
+            response = await self.http_client.patch("users", json=payload)
+            if response.status_code in (
+                400,
+                404,
+                405,
+                422,
+            ) and index + 1 < len(attempts):
+                continue
+
+            response.raise_for_status()
+            return response.json().get("response", {})
 
     async def get_users(self, size: int = 100, start: int = 0):
         response = await self.http_client.get(

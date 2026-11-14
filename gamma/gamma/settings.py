@@ -275,6 +275,7 @@ PLATEGA_UI_LOGIN_URL = os.getenv(
     "https://my.platega.io/login",
 )
 PLATEGA_UI_PAYOUT_URL = os.getenv("PLATEGA_UI_PAYOUT_URL", "")
+PLATEGA_UI_CONVERSIONS_URL = os.getenv("PLATEGA_UI_CONVERSIONS_URL", "")
 # Каталог профиля браузера (сессия, скриншоты). В compose монтируется
 # volume'ом, локально — обычная папка рядом с точкой запуска.
 PLATEGA_UI_PROFILE_DIR = os.getenv(

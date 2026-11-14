@@ -1,8 +1,11 @@
-from unittest.mock import MagicMock, patch
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from asgiref.sync import async_to_sync
 from django.core.cache import cache
 from django.test import override_settings, TestCase
 from django.urls import reverse
+import httpx
 import requests
 
 from connect.models import ProxyCheckStatus
@@ -293,3 +296,109 @@ class ProxyAlertTests(TestCase):
         mock_verify.return_value = (True, {"id": 111, "username": "a"})
         response = self.client.post(url, {"init_data": "x"})
         self.assertEqual(response.status_code, 400)
+
+
+class RemnawaveUpdateTests(TestCase):
+    def _update(self, current, **changes):
+        from connect.services.remnawave import RemnawaveClient
+
+        requests = []
+
+        async def run():
+            client = RemnawaveClient(
+                base_url="https://panel.invalid",
+                token="test",
+            )
+            await client.http_client.aclose()
+
+            def respond(request):
+                requests.append(json.loads(request.content))
+                return httpx.Response(200, json={"response": current})
+
+            client.http_client = httpx.AsyncClient(
+                transport=httpx.MockTransport(respond),
+                base_url="https://panel.invalid/api/",
+            )
+            client.get_user = AsyncMock(return_value=current)
+            try:
+                await client.update_user("old-ref", **changes)
+            finally:
+                await client.close()
+
+        async_to_sync(run)()
+        return requests  # noqa: R504 - populated by the transport callback
+
+    def test_v3_sends_one_identifier_and_only_requested_fields(self):
+        payloads = self._update(
+            {
+                "id": 42,
+                "username": "someuser",
+                "status": "EXPIRED",
+                "tag": "",
+                "email": None,
+            },
+            status="ACTIVE",
+            activeinternalsquads=["new-squad"],
+        )
+        self.assertEqual(
+            payloads,
+            [
+                {
+                    "id": 42,
+                    "status": "ACTIVE",
+                    "activeInternalSquads": ["new-squad"],
+                },
+            ],
+        )
+
+    def test_legacy_uses_uuid_not_numeric_id_as_uuid(self):
+        payloads = self._update(
+            {"uuid": "legacy-uuid", "status": "LIMITED"},
+            hwiddevicelimit=0,
+            activeinternalsquads=[],
+        )
+        self.assertEqual(
+            payloads,
+            [
+                {
+                    "uuid": "legacy-uuid",
+                    "hwidDeviceLimit": 0,
+                    "activeInternalSquads": [],
+                },
+            ],
+        )
+
+    def test_v3_fallback_uses_actual_legacy_uuid(self):
+        from connect.services.remnawave import RemnawaveClient
+
+        async def run():
+            client = RemnawaveClient(
+                base_url="https://panel.invalid",
+                token="test",
+            )
+            await client.http_client.aclose()
+            payloads = []
+
+            def respond(request):
+                payloads.append(json.loads(request.content))
+                return httpx.Response(
+                    400 if len(payloads) == 1 else 200,
+                    json={"response": {}},
+                )
+
+            client.http_client = httpx.AsyncClient(
+                transport=httpx.MockTransport(respond),
+                base_url="https://panel.invalid/api/",
+            )
+            client.get_user = AsyncMock(
+                return_value={"id": 42, "uuid": "legacy"},
+            )
+            try:
+                await client.update_user("42", status="ACTIVE")
+            finally:
+                await client.close()
+
+            return payloads  # noqa: R504 - populated by the transport callback
+
+        payloads = async_to_sync(run)()
+        self.assertEqual(payloads[1], {"uuid": "legacy", "status": "ACTIVE"})

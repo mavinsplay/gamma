@@ -2726,6 +2726,28 @@ body {
     background: rgba(255, 255, 255, 0.08);
 }
 
+.support-btn.whitelist-offer-btn {
+    background: #BCB4F4;
+    color: var(--md-sys-color-on-primary);
+    border-color: transparent;
+    font-weight: 600;
+    opacity: 1;
+}
+.whitelist-offer-btn .material-symbols-rounded {
+    color: inherit;
+}
+.support-btn.whitelist-offer-btn:hover {
+    background: #C8C0FA;
+    opacity: 1;
+}
+.support-btn.whitelist-offer-btn:active {
+    background: #AEA4E8;
+}
+.support-btn.whitelist-offer-btn:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: 3px;
+}
+
 /* Vertically center and align the final slide buttons
    (Подключить + Связаться с поддержкой) */
 .carousel-slide:last-child .slide-content {

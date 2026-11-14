@@ -3,261 +3,216 @@ import logging
 
 from django.conf import settings
 
-from connect.services.remnawave import RemnawaveClient, user_ref
+from connect.services.remnawave import match_wl_id, RemnawaveClient, user_ref
 
 logger = logging.getLogger(__name__)
 
-WHITELIST_EXTERNAL_SQUAD_UUID = getattr(
-    settings,
-    "WHITELIST_EXTERNAL_SQUAD_UUID",
-    "68fce704-b469-43f4-afc9-8a38a5c8b851",
-)
+__all__ = ["sync_tariff_to_remnawave", "sync_whitelist_user"]
 
-__all__ = ["sync_tariff_to_remnawave"]
+
+def _as_users(response):
+    if isinstance(response, dict):
+        return response.get("users", [response] if response else [])
+
+    return response or []
 
 
 def _get_main_user(rw_users, profile=None):
-    """Filter out whitelist users, returning only the main user."""
-    if isinstance(rw_users, dict):
-        # 3.x envelope TelegramUserResponseDto {users: [...]}.
-        inner = rw_users.get("users")
-        rw_users = inner if isinstance(inner, list) else [rw_users]
+    stored = getattr(profile, "whitelist_uuid", None)
+    return next(
+        (
+            user
+            for user in _as_users(rw_users)
+            if user_ref(user)
+            and not (user.get("username") or "").endswith("_wl")
+            and not match_wl_id(user, stored)
+        ),
+        None,
+    )
 
-    if not isinstance(rw_users, list):
-        return rw_users
 
-    wl_uuid = getattr(profile, "whitelist_uuid", None) if profile else None
+def _username(profile, whitelist=False):
+    suffix = f"_{profile.telegram_id}" + ("_wl" if whitelist else "")
+    prefix = profile.telegram_username or "user"
+    prefix = (
+        "".join(
+            c for c in prefix if c.isascii() and (c.isalnum() or c in "_-")
+        )
+        or "user"
+    )
+    return prefix[: 36 - len(suffix)] + suffix
 
-    for u in rw_users:
-        if u and user_ref(u):
-            if wl_uuid and user_ref(u) == wl_uuid:
-                continue
 
-            if u.get("username", "").endswith("_wl"):
-                continue
+async def sync_whitelist_user(
+    client,
+    profile,
+    tariff,
+    main_user,
+    users,
+    reset_limits=False,
+):
+    """Use the main expiry exactly; an update failure is never a create."""
+    users = _as_users(users)
+    whitelist = next(
+        (
+            user
+            for user in users
+            if user_ref(user) != user_ref(main_user)
+            and (
+                match_wl_id(user, profile.whitelist_uuid)
+                or (user.get("username") or "").endswith("_wl")
+            )
+        ),
+        None,
+    )
+    if not tariff or not tariff.has_whitelist:
+        if whitelist:
+            await client.update_user(
+                uuid=user_ref(whitelist),
+                status="DISABLED",
+            )
 
-            return u
+        return None
 
-    return rw_users[0] if rw_users else None
+    if not tariff.whitelist_squad_uuid:
+        raise ValueError("У тарифа не настроен whitelist squad")
+
+    expire_at = main_user.get("expireAt")
+    if not expire_at:
+        raise ValueError("У основной подписки отсутствует срок действия")
+
+    expiry = datetime.fromisoformat(expire_at.replace("Z", "+00:00"))
+    active = (
+        expiry > datetime.now(timezone.utc)
+        and main_user.get("status") != "DISABLED"
+    )
+    changes = {
+        "expire_at": expire_at,
+        "status": "ACTIVE" if active else "DISABLED",
+        "activeinternalsquads": [tariff.whitelist_squad_uuid],
+        "externalsquaduuid": settings.WHITELIST_EXTERNAL_SQUAD_UUID,
+    }
+    if not whitelist or reset_limits:
+        changes.update(
+            trafficlimitbytes=5368709120,
+            trafficlimitstrategy="MONTH",
+            hwiddevicelimit=20,
+        )
+
+    if whitelist:
+        await client.update_user(uuid=user_ref(whitelist), **changes)
+        return {
+            **whitelist,
+            "expireAt": expire_at,
+            "status": changes["status"],
+        }
+
+    username = (main_user.get("username") or "") + "_wl"
+    if len(username) > 36 or len(username) < 6:
+        username = _username(profile, whitelist=True)
+
+    whitelist = await client.create_user(
+        username=username,
+        days=0,
+        telegramid=int(profile.telegram_id),
+        **changes,
+    )
+    if not whitelist or not user_ref(whitelist):
+        raise ValueError("Remnawave не вернул идентификатор созданного _wl")
+
+    return whitelist
 
 
 async def sync_tariff_to_remnawave(profile, tariff, client=None):
-    """Sync tariff assignment to Remnawave.
-
-    Mirrors the logic from buy_tariff_api (replace_sub + provision_new)
-    but without balance deduction or Order creation.
-
-    Returns (rw_data, whitelist_uuid) or raises on failure.
-    """
     own_client = client is None
-    if own_client:
-        client = RemnawaveClient()
-
+    client = client or RemnawaveClient()
     try:
-        telegram_id = profile.telegram_id
-        cur_whitelist_uuid = profile.whitelist_uuid
-
-        # Fetch existing RW users
-        rw_users = await client.get_user_by_tgid(telegram_id)
-        if isinstance(rw_users, dict) and isinstance(
-            rw_users.get("users"),
-            list,
-        ):
-            rw_users = rw_users["users"]
-
-        if not isinstance(rw_users, list):
-            rw_users = [rw_users] if rw_users else []
-
-        rw_user = _get_main_user(rw_users, profile)
-
-        # --- Try replace_sub first (update existing user) ---
-        if rw_user and user_ref(rw_user):
-            try:
-                new_expire = (
-                    (
-                        datetime.now(timezone.utc)
-                        + timedelta(days=tariff.duration_days)
-                    )
-                    .isoformat()
-                    .replace("+00:00", "Z")
-                )
-                main_squads = [tariff.squad_uuid] if tariff.squad_uuid else []
-
+        users = _as_users(await client.get_user_by_tgid(profile.telegram_id))
+        main = _get_main_user(users, profile)
+        if tariff is None:
+            for user in users:
                 await client.update_user(
-                    uuid=user_ref(rw_user),
-                    expire_at=new_expire,
-                    trafficlimitbytes=tariff.traffic_limit_bytes,
-                    hwiddevicelimit=tariff.device_limit,
-                    activeinternalsquads=main_squads,
+                    uuid=user_ref(user),
+                    status="DISABLED",
                 )
 
-                # Handle whitelist sub
-                whitelist_uuid = None
-                if tariff.has_whitelist and tariff.whitelist_squad_uuid:
-                    # Re-enable existing whitelist user
-                    if cur_whitelist_uuid:
-                        try:
-                            await client.update_user(
-                                uuid=cur_whitelist_uuid,
-                                expire_at=new_expire,
-                                status="ACTIVE",
-                                trafficlimitbytes=5368709120,
-                                trafficlimitstrategy="MONTH",
-                                hwiddevicelimit=20,
-                                activeinternalsquads=[
-                                    tariff.whitelist_squad_uuid,
-                                ],
-                                externalsquaduuid=(
-                                    WHITELIST_EXTERNAL_SQUAD_UUID
-                                ),
-                            )
-                            whitelist_uuid = cur_whitelist_uuid
-                        except Exception:
-                            pass
+            return main, None
 
-                    # Find existing disabled _wl user
-                    if not whitelist_uuid:
-                        for u in rw_users:
-                            uname = u.get("username", "")
-                            if uname.endswith("_wl") and user_ref(
-                                u,
-                            ) != user_ref(rw_user):
-                                try:
-                                    await client.update_user(
-                                        uuid=user_ref(u),
-                                        expire_at=new_expire,
-                                        trafficlimitbytes=5368709120,
-                                        trafficlimitstrategy="MONTH",
-                                        hwiddevicelimit=20,
-                                        status="ACTIVE",
-                                        activeinternalsquads=[
-                                            tariff.whitelist_squad_uuid,
-                                        ],
-                                        externalsquaduuid=(
-                                            WHITELIST_EXTERNAL_SQUAD_UUID
-                                        ),
-                                    )
-                                    whitelist_uuid = user_ref(u)
-                                except Exception:
-                                    pass
+        if tariff.has_whitelist and not tariff.whitelist_squad_uuid:
+            raise ValueError("У тарифа не настроен whitelist squad")
 
-                                break
+        expire_at = (
+            (datetime.now(timezone.utc) + timedelta(days=tariff.duration_days))
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+        changes = {
+            "expire_at": expire_at,
+            "status": "ACTIVE",
+            "trafficlimitbytes": tariff.traffic_limit_bytes,
+            "hwiddevicelimit": tariff.device_limit,
+            "activeinternalsquads": (
+                [tariff.squad_uuid] if tariff.squad_uuid else []
+            ),
+        }
+        if main:
+            updated = await client.update_user(uuid=user_ref(main), **changes)
+        else:
+            updated = await client.create_user(
+                username=_username(profile),
+                days=tariff.duration_days,
+                telegramid=int(profile.telegram_id),
+                **changes,
+            )
 
-                    # Create new whitelist user if nothing found
-                    if not whitelist_uuid:
-                        try:
-                            wl_user = await client.create_user(
-                                username=(
-                                    f"{rw_user.get('username', str(telegram_id))}"  # noqa
-                                    "_wl"
-                                ),
-                                days=tariff.duration_days,
-                                trafficlimitbytes=5368709120,
-                                trafficlimitstrategy="MONTH",
-                                hwiddevicelimit=20,
-                                telegramid=int(telegram_id),
-                                activeinternalsquads=[
-                                    tariff.whitelist_squad_uuid,
-                                ],
-                                externalsquaduuid=(
-                                    WHITELIST_EXTERNAL_SQUAD_UUID
-                                ),
-                            )
-                            if wl_user and user_ref(wl_user):
-                                whitelist_uuid = user_ref(wl_user)
-                        except Exception:
-                            pass
-                else:
-                    # New tariff has no whitelist — disable old _wl user
-                    if cur_whitelist_uuid:
-                        try:
-                            await client.update_user(
-                                uuid=cur_whitelist_uuid,
-                                status="DISABLED",
-                            )
-                        except Exception:
-                            pass
-
-                return rw_user, whitelist_uuid
-
-            except Exception:
-                logger.warning(
-                    "replace_sub failed for tg_id=%s, "
-                    "falling back to provision_new",
-                    telegram_id,
-                )
-
-        # --- Fallback: provision_new (create fresh user) ---
-        username = f"{profile.telegram_username or 'user'}_{telegram_id}"
-        main_squads = [tariff.squad_uuid] if tariff.squad_uuid else []
-
-        # Disable ALL existing users with this telegramId
-        for u in rw_users:
-            if u and user_ref(u):
-                try:
+        updated = {
+            **(main or {}),
+            **updated,
+            "expireAt": expire_at,
+            "status": "ACTIVE",
+        }
+        try:
+            whitelist = await sync_whitelist_user(
+                client,
+                profile,
+                tariff,
+                updated,
+                users,
+                reset_limits=True,
+            )
+        except Exception:
+            # Compensate the main change before the caller refunds payment.
+            try:
+                if main:
                     await client.update_user(
-                        uuid=user_ref(u),
+                        uuid=user_ref(main),
+                        expire_at=main.get("expireAt"),
+                        status=(
+                            "ACTIVE"
+                            if main.get("status") == "ACTIVE"
+                            else "DISABLED"
+                        ),
+                        trafficlimitbytes=main.get("trafficLimitBytes"),
+                        hwiddevicelimit=main.get("hwidDeviceLimit"),
+                        activeinternalsquads=[
+                            s.get("uuid") if isinstance(s, dict) else s
+                            for s in main.get("activeInternalSquads", [])
+                        ],
+                    )
+                else:
+                    await client.update_user(
+                        uuid=user_ref(updated),
                         status="DISABLED",
                     )
-                except Exception:
-                    pass
+            except Exception:
+                logger.exception(
+                    "Failed to restore subscription for %s",
+                    profile.telegram_id,
+                )
 
-        main_user = await client.create_user(
-            username=username,
-            days=tariff.duration_days,
-            trafficlimitbytes=tariff.traffic_limit_bytes,
-            hwiddevicelimit=tariff.device_limit,
-            telegramid=int(telegram_id),
-            activeinternalsquads=main_squads,
-        )
+            raise
 
-        # Provision whitelist sub if tariff supports it
-        whitelist_uuid = None
-        if tariff.has_whitelist and tariff.whitelist_squad_uuid:
-            # Try to find existing disabled _wl user first
-            for u in rw_users:
-                uname = u.get("username", "")
-                if uname.endswith("_wl"):
-                    try:
-                        await client.update_user(
-                            uuid=user_ref(u),
-                            expire_at=(
-                                main_user.get("expireAt")
-                                if main_user
-                                else None
-                            ),
-                            trafficlimitbytes=5368709120,
-                            trafficlimitstrategy="MONTH",
-                            hwiddevicelimit=20,
-                            status="ACTIVE",
-                            activeinternalsquads=[tariff.whitelist_squad_uuid],
-                            externalsquaduuid=WHITELIST_EXTERNAL_SQUAD_UUID,
-                        )
-                        whitelist_uuid = user_ref(u)
-                    except Exception:
-                        pass
-
-                    break
-
-            if not whitelist_uuid:
-                try:
-                    wl_user = await client.create_user(
-                        username=f"{username}_wl",
-                        days=tariff.duration_days,
-                        trafficlimitbytes=5368709120,
-                        trafficlimitstrategy="MONTH",
-                        hwiddevicelimit=20,
-                        telegramid=int(telegram_id),
-                        activeinternalsquads=[tariff.whitelist_squad_uuid],
-                        externalsquaduuid=WHITELIST_EXTERNAL_SQUAD_UUID,
-                    )
-                    if wl_user and user_ref(wl_user):
-                        whitelist_uuid = user_ref(wl_user)
-                except Exception:
-                    pass
-
-        return main_user, whitelist_uuid
-
+        return updated, user_ref(whitelist) if whitelist else None
     finally:
         if own_client:
             await client.close()

@@ -261,6 +261,10 @@ def process_successful_payment(order_id):
     profile.balance += order.amount + bonus
     profile.save(update_fields=["balance"])
 
+    from shop.services.admin_notifications import queue_payment_notification
+
+    queue_payment_notification(order, profile)
+
     cache.delete(f"sync_data:{order.telegram_id}")
 
     return order

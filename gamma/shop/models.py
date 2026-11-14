@@ -11,6 +11,7 @@ __all__ = [
     "ServerExpense",
     "ExcludedPayer",
     "LedgerEntry",
+    "AdminNotification",
 ]
 
 # Награда пригласившему за первую покупку подписки рефералом (₽).
@@ -145,6 +146,16 @@ class Order(models.Model):
 
     def __str__(self):
         return f"Order {self.id} - {self.status}"
+
+
+class AdminNotification(models.Model):
+    """Durable outbox, deduplicated by the payment/conversion event."""
+
+    event_key = models.CharField(max_length=160, unique=True)
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    retry_at = models.DateTimeField(null=True, blank=True)
 
 
 class ServerExpense(models.Model):

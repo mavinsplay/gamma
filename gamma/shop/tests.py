@@ -690,6 +690,9 @@ class PaymentTests(TestCase):
         mock_client_class,
     ):
         mock_verify.return_value = (True, {"id": 12345})
+        self.tariff.has_whitelist = True
+        self.tariff.whitelist_squad_uuid = "wl-squad"
+        self.tariff.save()
         self.profile.balance = Decimal("200.00")
         self.profile.tarif = self.tariff
         self.profile.whitelist_uuid = "whitelist-uuid"
@@ -737,6 +740,10 @@ class PaymentTests(TestCase):
         self.assertTrue(response.json()["success"])
         update_calls = mock_client.update_user.await_args_list
         self.assertEqual(len(update_calls), 2)
+        self.assertEqual(
+            update_calls[0].kwargs["expire_at"],
+            update_calls[1].kwargs["expire_at"],
+        )
         self.assertTrue(
             all(call.kwargs["status"] == "ACTIVE" for call in update_calls),
         )
@@ -2756,3 +2763,311 @@ class PayoutWorkerTests(TransactionTestCase):
         self.assertEqual(job.status, PayoutJob.STATUS_FAILED)
         self.assertIn("site error", job.error)
         self.assertTrue(any("не удался" in m for m in sent))
+
+
+class TariffSyncRegressionTests(TestCase):
+    def setUp(self):
+        self.profile = Profile.objects.create(
+            telegram_id=9876543210,
+            telegram_username="x" * 32,
+            balance=500,
+        )
+        self.tariff = Tariff.objects.create(
+            name="WL",
+            price=100,
+            duration_days=30,
+            has_whitelist=True,
+            whitelist_squad_uuid="wl-squad",
+        )
+        self.remote = MagicMock()
+        self.main = {
+            "id": 12,
+            "username": "x" * 36,
+            "status": "EXPIRED",
+            "expireAt": "2020-01-01T00:00:00Z",
+        }
+        self.remote.get_user_by_tgid = AsyncMock(
+            return_value={"users": [self.main]},
+        )
+        self.remote.update_user = AsyncMock(return_value=self.main)
+        self.remote.create_user = AsyncMock(return_value={"id": 13})
+        self.remote.close = AsyncMock()
+
+    def test_tariff_change_reactivates_and_bounds_wl_username(self):
+        from asgiref.sync import async_to_sync
+        from shop.services.remnawave_sync import sync_tariff_to_remnawave
+
+        main, wl = async_to_sync(sync_tariff_to_remnawave)(
+            self.profile,
+            self.tariff,
+            self.remote,
+        )
+        self.assertEqual(wl, "13")
+        self.assertEqual(
+            self.remote.update_user.await_args.kwargs["status"],
+            "ACTIVE",
+        )
+        created = self.remote.create_user.await_args.kwargs
+        self.assertLessEqual(len(created["username"]), 36)
+        self.assertTrue(created["username"].endswith("_9876543210_wl"))
+        self.assertEqual(created["expire_at"], main["expireAt"])
+
+    def test_update_error_never_creates_replacement(self):
+        from asgiref.sync import async_to_sync
+        from shop.services.remnawave_sync import sync_tariff_to_remnawave
+
+        self.remote.update_user.side_effect = ValueError("bad request")
+        with self.assertRaises(ValueError):
+            async_to_sync(sync_tariff_to_remnawave)(
+                self.profile,
+                self.tariff,
+                self.remote,
+            )
+
+        self.remote.create_user.assert_not_awaited()
+
+    def test_only_wl_is_not_mistaken_for_main(self):
+        from shop.services.remnawave_sync import _get_main_user
+        from shop.views import _get_main_user as view_main
+
+        users = [{"id": 12, "username": "someuser_wl"}]
+        self.assertIsNone(_get_main_user(users, self.profile))
+        self.assertIsNone(view_main(users, self.profile))
+
+    def test_whitelist_failure_restores_main_without_duplicate_creation(self):
+        from asgiref.sync import async_to_sync
+        from shop.services.remnawave_sync import sync_tariff_to_remnawave
+
+        self.remote.get_user_by_tgid.return_value = {
+            "users": [self.main, {"id": 13, "username": "user_wl"}],
+        }
+        self.remote.update_user.side_effect = [
+            self.main,
+            ValueError("bad whitelist squad"),
+            self.main,
+        ]
+        with self.assertRaises(ValueError):
+            async_to_sync(sync_tariff_to_remnawave)(
+                self.profile,
+                self.tariff,
+                self.remote,
+            )
+
+        self.remote.create_user.assert_not_awaited()
+        restore = self.remote.update_user.await_args.kwargs
+        self.assertEqual(restore["uuid"], "12")
+        self.assertEqual(restore["expire_at"], self.main["expireAt"])
+        self.assertEqual(restore["status"], "DISABLED")
+
+    @patch("shop.views.verify_telegram_init_data")
+    @patch("shop.views.RemnawaveClient")
+    def test_failed_purchase_restores_old_tariff_and_only_its_order(
+        self,
+        client_class,
+        verify,
+    ):
+        verify.return_value = (True, {"id": self.profile.telegram_id})
+        client_class.return_value = self.remote
+        old_tariff = Tariff.objects.create(name="Old", price=50)
+        self.profile.tarif = old_tariff
+        self.profile.save()
+        old_order = Order.objects.create(
+            telegram_id=self.profile.telegram_id,
+            tariff=self.tariff,
+            amount=100,
+            status="PAID",
+            order_type="PURCHASE",
+        )
+        self.remote.update_user.side_effect = ValueError("bad request")
+        response = self.client.post(
+            reverse("buy_tariff_api"),
+            {"tariff_id": self.tariff.pk, "init_data": "test"},
+        )
+        self.assertEqual(response.status_code, 500)
+        self.profile.refresh_from_db()
+        old_order.refresh_from_db()
+        self.assertEqual(self.profile.balance, 500)
+        self.assertEqual(self.profile.tarif_id, old_tariff.pk)
+        self.assertEqual(old_order.status, "PAID")
+        self.assertEqual(Order.objects.filter(status="FAILED").count(), 1)
+
+
+class AdminNotificationTests(TestCase):
+    def setUp(self):
+        self.profile = Profile.objects.create(
+            telegram_id=12345,
+            telegram_username="payer",
+        )
+        self.order = Order.objects.create(
+            telegram_id=12345,
+            amount=100,
+            status="PENDING",
+            order_type="TOPUP",
+        )
+
+    def test_confirmed_payment_queues_once_and_includes_amount_and_user(self):
+        from shop.models import AdminNotification
+
+        process_successful_payment(self.order.pk)
+        process_successful_payment(self.order.pk)
+        notification = AdminNotification.objects.get()
+        self.assertEqual(notification.event_key, f"payment:{self.order.pk}")
+        self.assertIn("100.00 ₽", notification.text)
+        self.assertIn("https://t.me/payer", notification.text)
+        self.assertIn("12345", notification.text)
+
+    def test_notification_rolls_back_with_payment(self):
+        from django.db import transaction
+        from shop.models import AdminNotification
+
+        with self.assertRaises(ValueError), transaction.atomic():
+            process_successful_payment(self.order.pk)
+            raise ValueError("rollback")
+
+        self.assertFalse(AdminNotification.objects.exists())
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, "PENDING")
+
+    def test_username_missing_links_by_id_and_escapes_html(self):
+        from shop.models import AdminNotification
+        from shop.services.admin_notifications import (
+            queue_payment_notification,
+        )
+
+        self.profile.telegram_username = None
+        queue_payment_notification(self.order, self.profile)
+        self.assertIn(
+            "tg://user?id=12345",
+            AdminNotification.objects.get().text,
+        )
+
+    def test_delivery_failure_keeps_notification_for_retry(self):
+        from asgiref.sync import async_to_sync
+        from shop.models import AdminNotification
+        from shop.services.admin_notifications import (
+            send_pending_notifications,
+        )
+
+        process_successful_payment(self.order.pk)
+        bot = MagicMock(
+            send_message=AsyncMock(side_effect=RuntimeError("offline")),
+        )
+        async_to_sync(send_pending_notifications)(bot, 999)
+        item = AdminNotification.objects.get()
+        self.assertIsNone(item.sent_at)
+        self.assertIsNotNone(item.retry_at)
+        AdminNotification.objects.update(retry_at=None)
+        bot.send_message.side_effect = None
+        async_to_sync(send_pending_notifications)(bot, 999)
+        async_to_sync(send_pending_notifications)(bot, 999)
+        self.assertEqual(bot.send_message.await_count, 2)
+        item.refresh_from_db()
+        self.assertIsNotNone(item.sent_at)
+
+
+class ConversionMonitorTests(TestCase):
+    def test_parser_accepts_completed_and_skips_pending(self):
+        from shop.services.conversion_monitor import _completed_conversions
+
+        result = _completed_conversions(
+            ["ID", "Сумма RUB", "Получено USDT", "Статус"],
+            [
+                ["a", "1000", "12.50", "Подтверждена"],
+                ["b", "1000", "12.50", "В обработке"],
+            ],
+        )
+        self.assertEqual([item["id"] for item in result], ["a"])
+        self.assertIn("Получено USDT: 12.50", result[0]["details"])
+
+    def test_parser_rejects_unknown_markup_or_status(self):
+        from shop.services.conversion_monitor import _completed_conversions
+        from shop.services.platega_ui import UiPayoutError
+
+        with self.assertRaises(UiPayoutError):
+            _completed_conversions(["Amount"], [["12.50"]])
+
+        with self.assertRaises(UiPayoutError):
+            _completed_conversions(["ID", "Статус"], [["a", "Unknown"]])
+
+    def test_initial_baseline_then_new_conversions_without_duplicates(self):
+        from django.utils import timezone as tz
+        from shop.models import AdminNotification, BillingSetting
+        from shop.services.conversion_monitor import (
+            _record_conversions,
+            STATE_KEY,
+        )
+
+        now = tz.now()
+        old = {"id": "old", "details": "Получено: 10 USDT"}
+        new = {"id": "new", "details": "Получено: 20 USDT"}
+        _record_conversions([old], now)
+        self.assertFalse(AdminNotification.objects.exists())
+        _record_conversions([old, new], now + timedelta(hours=12))
+        _record_conversions([old, new], now + timedelta(hours=24))
+        self.assertEqual(
+            AdminNotification.objects.get().event_key,
+            "conversion:new",
+        )
+        state = json.loads(BillingSetting.objects.get(key=STATE_KEY).value)
+        self.assertEqual(
+            datetime.fromisoformat(state["next_check"]),
+            now + timedelta(hours=36),
+        )
+
+    @override_settings(
+        ADMIN_TELEGRAM_ID=999,
+        PLATEGA_UI_LOGIN="test",
+        PLATEGA_UI_PASSWORD="test",
+        PLATEGA_UI_PAYOUT_URL="https://example.test",
+    )
+    @patch(
+        "shop.services.conversion_monitor.read_ui_conversions",
+        new_callable=AsyncMock,
+    )
+    def test_schedule_survives_restart_and_checks_every_twelve_hours(
+        self,
+        read,
+    ):
+        from asgiref.sync import async_to_sync
+        from django.utils import timezone as tz
+        from shop.services.conversion_monitor import check_conversions
+
+        read.return_value = []
+        now = tz.now()
+        with patch(
+            "shop.services.conversion_monitor.timezone.now",
+            return_value=now,
+        ):
+            async_to_sync(check_conversions)()
+
+        with patch(
+            "shop.services.conversion_monitor.timezone.now",
+            return_value=now + timedelta(hours=11),
+        ):
+            async_to_sync(check_conversions)()
+
+        self.assertEqual(read.await_count, 1)
+        with patch(
+            "shop.services.conversion_monitor.timezone.now",
+            return_value=now + timedelta(hours=12),
+        ):
+            async_to_sync(check_conversions)()
+
+        self.assertEqual(read.await_count, 2)
+
+    def test_error_keeps_previous_baseline_and_notifies_once_daily(self):
+        from django.utils import timezone as tz
+        from shop.models import AdminNotification, BillingSetting
+        from shop.services.conversion_monitor import (
+            _record_conversions,
+            _record_failure,
+            STATE_KEY,
+        )
+
+        now = tz.now()
+        _record_conversions([{"id": "old", "details": "test"}], now)
+        _record_failure(now)
+        _record_failure(now)
+        state = json.loads(BillingSetting.objects.get(key=STATE_KEY).value)
+        self.assertEqual(state["seen"], ["old"])
+        self.assertEqual(AdminNotification.objects.count(), 1)

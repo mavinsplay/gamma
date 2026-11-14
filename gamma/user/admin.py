@@ -294,6 +294,8 @@ class ProfileAdmin(admin.ModelAdmin):
                         messages.SUCCESS,
                     )
             except Exception as e:
+                Profile.objects.filter(pk=obj.pk).update(tarif=old_tarif)
+                obj.tarif = old_tarif
                 logger.error(
                     "Failed to sync tariff to Remnawave " "for profile %s: %s",
                     obj.telegram_id,
@@ -399,16 +401,18 @@ class ProfileAdmin(admin.ModelAdmin):
                 cache.delete(f"admin_rw_subscription:{obj.telegram_id}")
                 self.message_user(
                     request,
-                    "_wl найден/создан, UUID синхронизирован с БД Gamma.",
+                    "_wl найден/создан, срок выровнен с основной подпиской.",
                     messages.SUCCESS,
                 )
             else:
                 self.message_user(
                     request,
-                    "_wl уже синхронизирован с БД Gamma.",
+                    "Срок _wl выровнен с основной подпиской.",
                     messages.SUCCESS,
                 )
 
+            cache.delete(f"sync_data:{obj.telegram_id}")
+            cache.delete(f"admin_rw_subscription:{obj.telegram_id}")
             data = async_to_sync(get_subscription_sync_status)(obj)
             whitelist = data["whitelist"]
             self.message_user(

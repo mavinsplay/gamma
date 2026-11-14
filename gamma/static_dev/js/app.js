@@ -1332,6 +1332,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 // Dynamically add whitelist card if needed
+                window.HAS_WHITELIST_TARIFF = !!data.has_whitelist;
                 if (data.has_whitelist) {
                     window.HAS_WHITELIST_SUB = true;
                     const subSlider = document.getElementById('sub-slider');
@@ -1764,6 +1765,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const data = await response.json();
 
                     if (response.ok && data.success) {
+                        window.HAS_WHITELIST_TARIFF = !!data.has_whitelist;
                         // Use sync to get accurate data
                         if (window.syncNow) window.syncNow();
 
@@ -1807,8 +1809,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 title: 'Успешно!',
                                 message: `Подписка продлена на ${months} мес.`,
                                 icon: 'check_circle',
-                                actionText: 'Ок',
-                                onAction: hideModal
+                                actionText: data.has_whitelist ? 'Подключить обход белых списков' : 'Ок',
+                                onAction: data.has_whitelist ? window.connectIncludedWhitelist : hideModal
                             });
                         });
                     } else if (data.error === 'insufficient_funds') {
@@ -2644,6 +2646,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update Balance and Profile Details
         if (data.profile) {
+            window.HAS_WHITELIST_TARIFF = !!data.profile.has_whitelist;
             const balanceEl = document.getElementById('profile-balance');
             if (balanceEl) balanceEl.textContent = `${data.profile.balance.toFixed(0)} ₽`;
 
@@ -4942,9 +4945,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    window.connectIncludedWhitelist = async () => {
+        if (!window.HAS_WHITELIST_TARIFF) return;
+        hideModal();
+        window.closeInstructions();
+        window.selectedSubType = 'whitelist';
+        updateSubTypeTabs('whitelist');
+        await window.handleConnect({ subType: 'whitelist' });
+        window.connectAndSwitch('whitelist');
+    };
+
     window.showInstructions = () => {
         const overlay = document.getElementById('instruction-overlay');
         if (overlay) {
+            const offer = document.getElementById('instruction-whitelist-offer');
+            if (offer) {
+                offer.style.display = window.HAS_WHITELIST_TARIFF &&
+                    (window.selectedSubType || 'main') === 'main' ? 'flex' : 'none';
+            }
             // Move to body to prevent transform containment issues on mobile
             if (overlay.parentElement !== document.body) {
                 document.body.appendChild(overlay);

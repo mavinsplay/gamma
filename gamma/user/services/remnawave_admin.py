@@ -1,13 +1,11 @@
 from datetime import datetime, timedelta, timezone
-from math import ceil
-
-from django.conf import settings
 
 from connect.services.remnawave import (
     match_wl_id,
     RemnawaveClient,
     user_ref,
 )
+from shop.services.remnawave_sync import sync_whitelist_user
 
 __all__ = [
     "change_subscription_days",
@@ -45,7 +43,12 @@ def _parse_expire_at(user):
 
 def _find_users(users, profile):
     main_user = next(
-        (u for u in users if not u.get("username", "").endswith("_wl")),
+        (
+            u
+            for u in users
+            if not (u.get("username") or "").endswith("_wl")
+            and not match_wl_id(u, profile.whitelist_uuid)
+        ),
         None,
     )
     if profile.whitelist_uuid:
@@ -77,25 +80,16 @@ async def change_subscription_days(profile, days):
             raise ValueError("Основной пользователь не найден в Remnawave")
 
         now = datetime.now(timezone.utc)
-        updates = []
-        for user in (main_user, whitelist_user):
-            if user is None:
-                continue
+        base_expire_at = max(_parse_expire_at(main_user) or now, now)
+        new_expire_at = base_expire_at + timedelta(days=days)
+        if new_expire_at <= now:
+            raise ValueError("Нельзя установить срок в прошлом")
 
-            expire_at = _parse_expire_at(user) or now
-            base_expire_at = max(expire_at, now)
-            new_expire_at = base_expire_at + timedelta(days=days)
-            if new_expire_at <= now:
-                raise ValueError(
-                    "Нельзя установить срок в прошлом или ровно сейчас",
-                )
-
-            updates.append(
-                (
-                    user,
-                    new_expire_at.isoformat().replace("+00:00", "Z"),
-                ),
-            )
+        updates = [
+            (user, new_expire_at.isoformat().replace("+00:00", "Z"))
+            for user in (main_user, whitelist_user)
+            if user is not None
+        ]
 
         for user, expire_at in updates:
             await client.update_user(
@@ -117,48 +111,17 @@ async def ensure_whitelist_sync(profile, tariff=None):
         if main_user is None:
             raise ValueError("Основной пользователь не найден в Remnawave")
 
-        if whitelist_user is None:
-            whitelist_user = next(
-                (u for u in users if u.get("username", "").endswith("_wl")),
-                None,
-            )
-
-        if whitelist_user is not None:
-            return whitelist_user
-
         tariff = tariff or profile._state.fields_cache.get("tarif")
         if not tariff or not tariff.has_whitelist:
-            raise ValueError("У текущего тарифа не включён _wl доступ")
+            raise ValueError("В текущем тарифе нет обхода белых списков")
 
-        if not tariff.whitelist_squad_uuid:
-            raise ValueError("У тарифа не настроен whitelist squad")
-
-        now = datetime.now(timezone.utc)
-        expire_at = _parse_expire_at(main_user)
-        remaining_days = (
-            ceil((expire_at - now).total_seconds() / 86400)
-            if expire_at and expire_at > now
-            else tariff.duration_days
+        return await sync_whitelist_user(
+            client,
+            profile,
+            tariff,
+            main_user,
+            users,
         )
-        whitelist_user = await client.create_user(
-            username=f"{main_user.get('username', profile.telegram_id)}_wl",
-            days=max(1, remaining_days),
-            trafficlimitbytes=5368709120,
-            trafficlimitstrategy="MONTH",
-            hwiddevicelimit=20,
-            telegramid=int(profile.telegram_id),
-            activeinternalsquads=[tariff.whitelist_squad_uuid],
-            status="ACTIVE",
-            externalsquaduuid=getattr(
-                settings,
-                "WHITELIST_EXTERNAL_SQUAD_UUID",
-                "68fce704-b469-43f4-afc9-8a38a5c8b851",
-            ),
-        )
-        if not whitelist_user or not user_ref(whitelist_user):
-            raise ValueError("Remnawave не вернул UUID созданного _wl")
-
-        return whitelist_user
     finally:
         await client.close()
 
