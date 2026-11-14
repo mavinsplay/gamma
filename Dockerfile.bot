@@ -8,7 +8,10 @@ RUN rm -rf /requirements
 
 # Браузер для автовывода через сайт Platega (Playwright + Chromium).
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN python -m playwright install --with-deps chromium
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libatomic1 \
+    && python -m playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY ./gamma /app/gamma
 COPY bot.py /app/bot.py
