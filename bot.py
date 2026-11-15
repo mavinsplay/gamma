@@ -697,7 +697,6 @@ async def payout_worker_task():
     import time
 
     from shop.services.billing import get_autopayout_config
-    from shop.services.conversion_monitor import check_conversions
     from shop.services.payout_worker import process_payout_queue
 
     await asyncio.sleep(15)
@@ -718,12 +717,25 @@ async def payout_worker_task():
                     ADMIN_ID,
                     check_auto=do_auto,
                 )
-                # Serialized with payouts: both reuse the browser session.
-                await check_conversions()
         except Exception as e:
             logging.error(f"Error in payout worker task: {e}")
 
         await asyncio.sleep(30)
+
+
+async def conversion_monitor_task():
+    from shop.services.conversion_monitor import check_conversions
+
+    while True:
+        try:
+            await check_conversions()
+        except Exception as error:
+            logging.error(
+                "Conversion monitor failed (%s)",
+                type(error).__name__,
+            )
+
+        await asyncio.sleep(60)
 
 
 async def admin_notifications_task():
@@ -746,6 +758,7 @@ async def main() -> None:
     asyncio.create_task(subscription_reminder_task())
     asyncio.create_task(payout_worker_task())
     asyncio.create_task(admin_notifications_task())
+    asyncio.create_task(conversion_monitor_task())
     asyncio.create_task(node_monitoring_task())
 
     retry_delay = 5

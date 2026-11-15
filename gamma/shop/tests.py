@@ -2966,108 +2966,168 @@ class AdminNotificationTests(TestCase):
 
 
 class ConversionMonitorTests(TestCase):
-    def test_parser_accepts_completed_and_skips_pending(self):
-        from shop.services.conversion_monitor import _completed_conversions
+    @patch("shop.services.conversion_monitor.get_platega_balances")
+    def test_reads_total_without_counting_unfrozen_payout_as_income(
+        self,
+        read,
+    ):
+        from shop.services.conversion_monitor import read_usdt_balance
 
-        result = _completed_conversions(
-            ["ID", "Сумма RUB", "Получено USDT", "Статус"],
-            [
-                ["a", "1000", "12.50", "Подтверждена"],
-                ["b", "1000", "12.50", "В обработке"],
-            ],
-        )
-        self.assertEqual([item["id"] for item in result], ["a"])
-        self.assertIn("Получено USDT: 12.50", result[0]["details"])
+        for frozen in ("10", "0"):
+            read.return_value = (
+                [
+                    {"currency": "RUB", "amount": 1000},
+                    {
+                        "currency": "USDT",
+                        "amount": "20.35",
+                        "frozenBalance": frozen,
+                    },
+                ],
+                None,
+            )
+            self.assertEqual(read_usdt_balance(), Decimal("20.35"))
 
-    def test_parser_rejects_unknown_markup_or_status(self):
-        from shop.services.conversion_monitor import _completed_conversions
-        from shop.services.platega_ui import UiPayoutError
+    @patch("shop.services.conversion_monitor.get_platega_balances")
+    def test_rejects_missing_invalid_and_duplicate_amounts(self, read):
+        from shop.services.conversion_monitor import read_usdt_balance
 
-        with self.assertRaises(UiPayoutError):
-            _completed_conversions(["Amount"], [["12.50"]])
+        for payload in (
+            [],
+            [{"currency": "RUB", "amount": 100}],
+            [{"currency": "USDT"}],
+            [{"currency": "USDT", "amount": "NaN"}],
+            [{"currency": "USDT", "amount": "Infinity"}],
+            [{"currency": "USDT", "amount": -1}],
+            [{"currency": "USDT", "amount": 1}] * 2,
+        ):
+            with self.subTest(payload=payload):
+                read.return_value = (payload, None)
+                with self.assertRaises(ValueError):
+                    read_usdt_balance()
 
-        with self.assertRaises(UiPayoutError):
-            _completed_conversions(["ID", "Статус"], [["a", "Unknown"]])
+        read.return_value = (None, "api_error")
+        with self.assertRaises(ValueError):
+            read_usdt_balance()
 
-    def test_initial_baseline_then_new_conversions_without_duplicates(self):
+    def test_snapshots_first_silent_then_growth_then_drop_then_growth(self):
         from django.utils import timezone as tz
         from shop.models import AdminNotification, BillingSetting
-        from shop.services.conversion_monitor import (
-            _record_conversions,
-            STATE_KEY,
-        )
+        from shop.services.conversion_monitor import _record_balance, STATE_KEY
 
         now = tz.now()
-        old = {"id": "old", "details": "Получено: 10 USDT"}
-        new = {"id": "new", "details": "Получено: 20 USDT"}
-        _record_conversions([old], now)
+        _record_balance(Decimal("20.10"), now)
         self.assertFalse(AdminNotification.objects.exists())
-        _record_conversions([old, new], now + timedelta(hours=12))
-        _record_conversions([old, new], now + timedelta(hours=24))
-        self.assertEqual(
-            AdminNotification.objects.get().event_key,
-            "conversion:new",
-        )
+        _record_balance(Decimal("25.35"), now + timedelta(hours=12))
+        notification = AdminNotification.objects.get()
+        self.assertIn("+5.25 USDT", notification.text)
+        self.assertIn("20.10 USDT", notification.text)
+        self.assertIn("25.35 USDT", notification.text)
+        _record_balance(Decimal("25.35"), now + timedelta(hours=12))
+        _record_balance(Decimal("25.35"), now + timedelta(hours=24))
+        _record_balance(Decimal("0"), now + timedelta(hours=36))
+        self.assertEqual(AdminNotification.objects.count(), 1)
+        _record_balance(Decimal("3.15"), now + timedelta(hours=48))
+        self.assertEqual(AdminNotification.objects.count(), 2)
+        self.assertIn("+3.15 USDT", AdminNotification.objects.last().text)
         state = json.loads(BillingSetting.objects.get(key=STATE_KEY).value)
+        self.assertEqual(state["usdt_balance"], "3.15")
         self.assertEqual(
             datetime.fromisoformat(state["next_check"]),
-            now + timedelta(hours=36),
+            now + timedelta(hours=60),
         )
 
     @override_settings(
         ADMIN_TELEGRAM_ID=999,
-        PLATEGA_UI_LOGIN="test",
-        PLATEGA_UI_PASSWORD="test",
-        PLATEGA_UI_PAYOUT_URL="https://example.test",
+        PLATEGA_MERCHANT_ID="test",
+        PLATEGA_SECRET="test",
+        PLATEGA_UI_LOGIN="",
+        PLATEGA_UI_PASSWORD="",
     )
     @patch(
-        "shop.services.conversion_monitor.read_ui_conversions",
-        new_callable=AsyncMock,
+        "shop.services.conversion_monitor.read_usdt_balance",
+        return_value=Decimal("10"),
     )
-    def test_schedule_survives_restart_and_checks_every_twelve_hours(
-        self,
-        read,
-    ):
+    def test_schedule_without_browser_credentials_survives_restart(self, read):
         from asgiref.sync import async_to_sync
         from django.utils import timezone as tz
         from shop.services.conversion_monitor import check_conversions
 
-        read.return_value = []
         now = tz.now()
-        with patch(
-            "shop.services.conversion_monitor.timezone.now",
-            return_value=now,
-        ):
-            async_to_sync(check_conversions)()
+        for hours in (0, 11, 12):
+            with patch(
+                "shop.services.conversion_monitor.timezone.now",
+                return_value=now + timedelta(hours=hours),
+            ):
+                async_to_sync(check_conversions)()
 
-        with patch(
-            "shop.services.conversion_monitor.timezone.now",
-            return_value=now + timedelta(hours=11),
-        ):
-            async_to_sync(check_conversions)()
+        self.assertEqual(read.call_count, 2)
 
-        self.assertEqual(read.await_count, 1)
-        with patch(
-            "shop.services.conversion_monitor.timezone.now",
-            return_value=now + timedelta(hours=12),
-        ):
-            async_to_sync(check_conversions)()
-
-        self.assertEqual(read.await_count, 2)
-
-    def test_error_keeps_previous_baseline_and_notifies_once_daily(self):
+    def test_old_table_state_is_replaced_and_pending_warning_removed(self):
         from django.utils import timezone as tz
         from shop.models import AdminNotification, BillingSetting
         from shop.services.conversion_monitor import (
-            _record_conversions,
-            _record_failure,
+            _load_state,
+            _record_balance,
             STATE_KEY,
         )
 
-        now = tz.now()
-        _record_conversions([{"id": "old", "details": "test"}], now)
-        _record_failure(now)
-        _record_failure(now)
-        state = json.loads(BillingSetting.objects.get(key=STATE_KEY).value)
-        self.assertEqual(state["seen"], ["old"])
+        BillingSetting.objects.create(
+            key=STATE_KEY,
+            value=json.dumps(
+                {
+                    "initialized": True,
+                    "seen": ["old"],
+                    "next_check": "2099-01-01T00:00:00Z",
+                },
+            ),
+        )
+        AdminNotification.objects.create(
+            event_key="conversion-monitor-error:old",
+            text="old error",
+        )
+        self.assertEqual(_load_state(), {})
+        _record_balance(Decimal("10"), tz.now())
+        self.assertFalse(AdminNotification.objects.exists())
+        self.assertEqual(_load_state()["usdt_balance"], "10")
+
+    @override_settings(
+        ADMIN_TELEGRAM_ID=999,
+        PLATEGA_MERCHANT_ID="test",
+        PLATEGA_SECRET="test",
+    )
+    @patch(
+        "shop.services.conversion_monitor.read_usdt_balance",
+        side_effect=ValueError("unavailable"),
+    )
+    def test_api_failure_preserves_baseline_and_retries_after_hour(self, read):
+        from asgiref.sync import async_to_sync
+        from django.utils import timezone as tz
+        from shop.models import AdminNotification
+        from shop.services.conversion_monitor import (
+            _load_state,
+            _record_balance,
+            check_conversions,
+        )
+
+        now = tz.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        _record_balance(Decimal("12.34"), now)
+        for hours in (12, 12.5, 13):
+            with patch(
+                "shop.services.conversion_monitor.timezone.now",
+                return_value=now + timedelta(hours=hours),
+            ):
+                async_to_sync(check_conversions)()
+
+        self.assertEqual(read.call_count, 2)
+        self.assertEqual(_load_state()["usdt_balance"], "12.34")
         self.assertEqual(AdminNotification.objects.count(), 1)
+        read.side_effect = None
+        read.return_value = Decimal("15.34")
+        with patch(
+            "shop.services.conversion_monitor.timezone.now",
+            return_value=now + timedelta(hours=14),
+        ):
+            async_to_sync(check_conversions)()
+
+        self.assertEqual(AdminNotification.objects.count(), 1)
+        self.assertIn("+3.00 USDT", AdminNotification.objects.get().text)
